@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      0.9.0
+// @version      0.9.1
 // @description  Accesos directos bajo el Equipo de exploración: Tiendas, Competir, Para hoy (con lo que ya hiciste hoy), Minijuegos, Tu base y Lo demás; los de otra región viajan solos. Subasta con objeto, puja y tiempo. Bloques plegables.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -159,7 +159,7 @@
       { href: '/laboratorio', icon: '🔬', label: 'Laboratorio' },
       { href: '/oficios',     icon: '⚒️', label: 'Oficios' },
       { href: '/cartas',      icon: '🃏', label: 'Cartas' },
-      { href: '/esmalte',     icon: '🏛️', label: 'Vitrina de Esmalte', region: 'teselia', regionLabel: 'Teselia' },
+      { href: '/esmalte',     icon: '🏛️', label: 'Vitrina de Esmalte' },
     ] },
     { id: 'pvp', titulo: 'Competir', sub: 'Contra los demás', icono: '⚔️', items: [
       { href: '/torre',    icon: '🗼', label: 'Torre Desafío' },
@@ -200,14 +200,14 @@
       { href: '/fondo',  icon: '🏮', label: 'Fondo' },
     ] },
     { id: 'base', titulo: 'Tu base', sub: 'Y lo que aparece por temporadas', icono: '🏠', items: [
-      { href: '/valle', icon: '🌄', label: 'Valle Aurora',   region: 'teselia', regionLabel: 'Teselia' },
-      { href: '/base',  icon: '🏠', label: 'Base Secreta',   region: 'teselia', regionLabel: 'Teselia' },
-      { href: '/isla',  icon: '🏝️', label: 'Isla Espejismo', region: 'teselia', regionLabel: 'Teselia' },
+      { href: '/valle', icon: '🌄', label: 'Valle Aurora' },
+      { href: '/base',  icon: '🏠', label: 'Base Secreta' },
+      { href: '/isla',  icon: '🏝️', label: 'Isla Espejismo' },
     ] },
     { id: 'demas', titulo: 'Lo demás', icono: '🧰', items: [
-      { href: '/equipos',    icon: '🌊', label: 'Los equipos',      region: 'teselia', regionLabel: 'Teselia' },
-      { href: '/gachapon',   icon: '🎰', label: 'Máquina de Fichas', region: 'teselia', regionLabel: 'Teselia' },
-      { href: '/exclusivos', icon: '🎨', label: 'Exclusivos',       region: 'teselia', regionLabel: 'Teselia' },
+      { href: '/equipos',    icon: '🌊', label: 'Los equipos' },
+      { href: '/gachapon',   icon: '🎰', label: 'Máquina de Fichas' },
+      { href: '/exclusivos', icon: '🎨', label: 'Exclusivos' },
       { href: '/sorteos',    icon: '🎁', label: 'Premios' },
       { href: '/misiones',   icon: '🎯', label: 'Misiones y códigos' },
       { href: '/tipos',      icon: '⚔️', label: 'Ventajas de tipo' },
