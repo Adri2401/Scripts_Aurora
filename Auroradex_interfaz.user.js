@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      0.4.0
+// @version      0.5.0
 // @description  Accesos directos bajo el Equipo de exploración: Tiendas, Competir, Para hoy (con lo que ya hiciste hoy) y Minijuegos. Bloques plegables.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -174,7 +174,11 @@
       { href: '/siluetas',       icon: '❓', label: '¿Quién es?' },
       { href: '/tren',           icon: '🚂', label: 'Tren de Biscuit' },
       { href: '/carreras',       icon: '🐀', label: 'Carreras' },
-      { href: '/safari',         icon: '🌾', label: 'Safari' },
+      { href: '/safari', icon: '🌾', label: 'Safari', region: 'kanto',   regionLabel: 'Kanto',   porRegion: true },
+      { href: '/safari', icon: '🌾', label: 'Safari', region: 'johto',   regionLabel: 'Johto',   porRegion: true },
+      { href: '/safari', icon: '🌾', label: 'Safari', region: 'hoenn',   regionLabel: 'Hoenn',   porRegion: true },
+      { href: '/safari', icon: '🌾', label: 'Safari', region: 'sinnoh',  regionLabel: 'Sinnoh',  porRegion: true },
+      { href: '/safari', icon: '🌾', label: 'Safari', region: 'teselia', regionLabel: 'Teselia', porRegion: true },
       { href: '/pokeathlon',     icon: '🏟️', label: 'Pokéathlon' },
       { href: '/pesca',          icon: '🎣', label: 'El Muelle' },
       { href: '/cantera',        icon: '⛏️', label: 'La Cantera' },
@@ -256,12 +260,24 @@
   function leerEstadoDelMenu() {
     if (!/^\/menu\/?$/.test(location.pathname)) return;
     const estado = {};
+    // Lo de otras regiones («/safari@johto»…) se conserva del mismo día: el Menú solo enseña la región actual
+    const previo = estadoDeHoy();
+    if (previo) for (const k of Object.keys(previo.estado)) if (k.includes('@')) estado[k] = previo.estado[k];
+    const reg = regionActual();
     for (const a of document.querySelectorAll('main a[href^="/"]')) {
       const p = a.querySelector('.pastilla');
-      if (p) estado[a.getAttribute('href')] = p.textContent.replace(/\s+/g, ' ').trim();
+      if (!p) continue;
+      const txt = p.textContent.replace(/\s+/g, ' ').trim();
+      const href = a.getAttribute('href');
+      estado[href] = txt;
+      if (reg) estado[`${href}@${reg}`] = txt;
     }
     if (Object.keys(estado).length) lsPut(ESTADO_KEY, { dia: hoy(), t: Date.now(), estado });
   }
+  // Pastilla de un acceso; los de varias regiones (Safari) guardan una por región: «/safari@kanto»
+  const claveEstado = it => it.porRegion ? `${it.href}@${it.region}` : it.href;
+  const pillDe = (it, est) => (est && est.estado[claveEstado(it)]) || '';
+
   function estadoDeHoy() {
     const e = lsJSON(ESTADO_KEY, null);
     return e && e.dia === hoy() ? e : null;
@@ -293,9 +309,9 @@
     const li = document.createElement('li');
     const a = document.createElement('a');
     a.href = item.href;
-    const pill = est && est.estado[item.href];
+    const pill = pillDe(item, est);
     const hecho = pill && /hecho|parado/i.test(pill);
-    a.className = 'ax-item tarjeta' + (hecho ? ' ax-hecho' : '') + (location.pathname === item.href ? ' ax-aqui' : '');
+    a.className = 'ax-item tarjeta' + (hecho ? ' ax-hecho' : '') + (location.pathname === item.href && (!item.porRegion || regionActual() === item.region) ? ' ax-aqui' : '');
     let tag = '';
     if (pill) {
       tag = hecho
@@ -329,8 +345,8 @@
 
     let resumen = b.sub || '';
     if (b.diario && est) {
-      const conEstado = b.items.filter(i => est.estado[i.href]);
-      const hechos = conEstado.filter(i => /hecho|parado/i.test(est.estado[i.href])).length;
+      const conEstado = b.items.filter(i => pillDe(i, est));
+      const hechos = conEstado.filter(i => /hecho|parado/i.test(pillDe(i, est))).length;
       if (conEstado.length) resumen = `${hechos} de ${conEstado.length} hechos hoy`;
     }
     det.innerHTML = `
@@ -344,7 +360,7 @@
     const ul = det.querySelector('ul');
     // En «Para hoy», lo pendiente primero y lo hecho al final
     const items = b.diario && est
-      ? [...b.items].sort((x, y) => (/hecho|parado/i.test(est.estado[x.href] || '') ? 1 : 0) - (/hecho|parado/i.test(est.estado[y.href] || '') ? 1 : 0))
+      ? [...b.items].sort((x, y) => (/hecho|parado/i.test(pillDe(x, est)) ? 1 : 0) - (/hecho|parado/i.test(pillDe(y, est)) ? 1 : 0))
       : b.items;
     for (const it of items) ul.appendChild(crearItem(it, est));
     det.addEventListener('toggle', () => {
