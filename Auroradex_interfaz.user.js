@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      0.5.0
+// @version      0.6.0
 // @description  Accesos directos bajo el Equipo de exploración: Tiendas, Competir, Para hoy (con lo que ya hiciste hoy) y Minijuegos. Bloques plegables.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -283,6 +283,71 @@
     return e && e.dia === hoy() ? e : null;
   }
 
+  /* ─── Subasta en curso (objeto, precio y tiempo), leída de /subasta ──── */
+  const SUBASTA_KEY = 'adx-accesos-subasta';
+  const SUBASTA_REFRESCO = 10 * 60 * 1000;   // el precio cambia con las pujas: se relee cada 10 min
+  let subastaPidiendo = false, subastaIntento = 0;
+
+  function tiempoAMs(t) {
+    let ms = 0, hay = false;
+    for (const m of String(t).matchAll(/(\d+)\s*(d|h|min|s)\b/gi)) {
+      hay = true;
+      ms += parseInt(m[1], 10) * ({ d: 864e5, h: 36e5, min: 6e4, s: 1e3 }[m[2].toLowerCase()]);
+    }
+    return hay ? ms : null;
+  }
+  function textoRestante(ms) {
+    const m = Math.max(0, Math.ceil(ms / 6e4)), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
+    return d ? `${d} d ${h} h` : h ? `${h} h ${m % 60} min` : `${m} min`;
+  }
+
+  function parsearSubasta(root) {
+    const sec = [...root.querySelectorAll('section')].find(s => /casa de subastas/i.test(s.textContent || ''));
+    if (!sec) return null;
+    const limpio = el => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
+    const nombre = limpio(sec.querySelector('h1'));
+    const precio = limpio([...sec.querySelectorAll('p')].find(p => /text-3xl/.test(p.className || '')));
+    const cierre = (limpio(sec.querySelector('header')).match(/cierra en\s*(.+)$/i) || [])[1];
+    const resto = cierre ? tiempoAMs(cierre) : null;
+    if (!nombre || !precio || resto == null) return null;
+    return { nombre, precio, cierraAt: Date.now() + resto, t: Date.now() };
+  }
+
+  function subastaVigente() {
+    const s = lsJSON(SUBASTA_KEY, null);
+    return s && s.cierraAt > Date.now() ? s : null;
+  }
+
+  function guardarSubasta(s) {
+    if (!s) return;
+    lsPut(SUBASTA_KEY, s);
+    const panel = document.getElementById(PANEL_ID);
+    if (panel) panel.replaceWith(crearPanel());
+  }
+
+  async function refrescarSubasta() {
+    if (/^\/subasta\/?$/.test(location.pathname)) {
+      const s = parsearSubasta(document);
+      if (s) { const p = lsJSON(SUBASTA_KEY, null); if (!p || p.nombre !== s.nombre || p.precio !== s.precio || Math.abs(p.cierraAt - s.cierraAt) > 6e4) guardarSubasta(s); }
+      return;
+    }
+    const s = lsJSON(SUBASTA_KEY, null);
+    if (subastaPidiendo || Date.now() - subastaIntento < 5 * 6e4 || (s && s.cierraAt > Date.now() && Date.now() - s.t < SUBASTA_REFRESCO)) return;
+    subastaIntento = Date.now();
+    subastaPidiendo = true;
+    try {
+      const r = await fetch('/subasta', { credentials: 'same-origin' });
+      if (r.ok) guardarSubasta(parsearSubasta(new DOMParser().parseFromString(await r.text(), 'text/html')));
+    } catch { /* sin red: se queda lo guardado */ }
+    finally { subastaPidiendo = false; }
+  }
+
+  function subastaHTML() {
+    const s = subastaVigente();
+    if (!s) return '';
+    return `<span class="ax-sub"><b>${kEsc(s.nombre)}</b><span>${kEsc(s.precio)} · ${textoRestante(s.cierraAt - Date.now())}</span></span>`;
+  }
+
   /* ─── Panel ─────────────────────────────────────────────────────────── */
   function estilos() {
     kStyle('adx-accesos-kit', U);
@@ -301,6 +366,9 @@
       ${U} .ax-item .ax-lbl{font-size:10px;font-weight:800;line-height:1.15}
       ${U} .ax-item.ax-hecho{opacity:.5}
       ${U} .ax-item .ax-tag{position:absolute;top:-6px;right:-4px;font-size:9px;padding:1px 6px;line-height:1.4}
+      ${U} .ax-sub{display:flex;flex-direction:column;gap:1px;max-width:100%;font-size:9px;font-weight:700;line-height:1.2;opacity:.85}
+      ${U} .ax-sub>b{font-size:9px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+      ${U} .ax-sub>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       ${U} .ax-item.ax-aqui{outline:2px solid #2FA84F;outline-offset:-2px}`;
     document.head.appendChild(st);
   }
@@ -323,6 +391,7 @@
       ${tag}
       <span class="ax-ico" aria-hidden="true">${item.icon}</span>
       <span class="ax-lbl">${kEsc(item.label)}</span>
+      ${item.href === '/subasta' ? subastaHTML() : ''}
       ${item.region ? `<span class="text-[9px] font-extrabold uppercase tracking-wide text-cielo-600">${kEsc(item.regionLabel)}</span>` : ''}`;
 
     if (item.region) {
@@ -412,6 +481,7 @@
     syncT = setTimeout(() => {
       continuarViajePendiente();
       leerEstadoDelMenu();
+      refrescarSubasta();
       desmontarSiNoToca();
       montar();
     }, 150);
@@ -421,6 +491,7 @@
     observer.observe(document.body, { childList: true, subtree: true });
     continuarViajePendiente();
     leerEstadoDelMenu();
+    refrescarSubasta();
     montar();
   });
 })();
