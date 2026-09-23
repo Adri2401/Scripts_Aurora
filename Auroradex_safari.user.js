@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Safari Auto
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Panel integrado con dos modos: spam de Balls y estrategia óptima (programación dinámica con Cebo/Roca/Ball/Dejar marchar, aprendiendo de tus resultados y ajustando el precio de las Balls). Se para solo si la visita de hoy ya está hecha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -50,6 +50,7 @@
     maxPrep: 4,          // Cebos + Rocas máximos por encuentro
     maxRock: 3,
     maxBait: 3,
+    minFleeForRock: 0.05, // con «Se te escapa» por debajo de esto, nunca Roca
     exclusiveWeight: 3,  // un Pokémon exclusivo de la reserva vale como 3 normales
     autoEnter: true,
     letGoEnabled: true,
@@ -253,6 +254,7 @@
     if (findBtn(/^Entrar/i)) { st.screen = 'entrada'; return st; }
 
     // Botón principal deshabilitado fuera de la reserva: visita ya hecha, reserva cerrada, sin dinero…
+    if (findBtn(/^(Andar|Entrar|Ball|Salir)/i, true)) return st;   // hay botones de juego (quizá deshabilitados un instante): no es un bloqueo
     const bloq = $$('button').find((b) => b.disabled && /boton-principal/.test(b.className || '') && !b.closest('#' + PANEL_ID));
     if (bloq) {
       st.msg = btnText(bloq);
@@ -402,7 +404,7 @@
   function bestPlan(st) {
     const shiny = st.shiny;
     const lam = shiny ? 0 : lambdaNow / weightOf(st.name);
-    const rockOk = !!findBtn(/^Roca/i), baitOk = !!findBtn(/^Cebo/i);
+    const rockOk = !!findBtn(/^Roca/i) && st.q >= CFG.minFleeForRock, baitOk = !!findBtn(/^Cebo/i);
     const rL = rockOk ? Math.max(0, CFG.maxRock - enc.rock) : 0;
     const bL = baitOk ? Math.max(0, CFG.maxBait - enc.bait) : 0;
     const prepL = Math.max(0, CFG.maxPrep - enc.rock - enc.bait);
@@ -533,7 +535,7 @@
       idleTicks++;
       const vistos = $$('button').map(btnText).filter(Boolean).slice(0, 4).join(' | ');
       log('Esperando… (botones: ' + (vistos || 'ninguno') + ')');
-      if (idleTicks > 6) stop('No reconozco la pantalla. Parado.');
+      if (idleTicks > 12) stop('No reconozco la pantalla. Parado.');
     } catch (e) {
       console.error('[SafariAuto]', e);
       stop('Error: ' + e.message);
