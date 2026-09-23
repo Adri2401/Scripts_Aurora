@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      0.7.0
+// @version      0.8.0
 // @description  Accesos directos bajo el Equipo de exploración: Tiendas, Competir, Para hoy (con lo que ya hiciste hoy), Minijuegos, Tu base y Lo demás; los de otra región viajan solos. Subasta con objeto, puja y tiempo. Bloques plegables.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -174,7 +174,7 @@
     { id: 'diario', titulo: 'Para hoy', icono: '📅', diario: true, items: [
       { href: '/manadas',        icon: '📺', label: 'Canal Manadas' },
       { href: '/siluetas',       icon: '❓', label: '¿Quién es?' },
-      { href: '/tren',           icon: '🚂', label: 'Tren de Biscuit' },
+      { href: '/tren',           icon: '🚂', label: 'Tren de Biscuit', region: 'teselia', regionLabel: 'Teselia' },
       { href: '/carreras',       icon: '🐀', label: 'Carreras' },
       { href: '/safari', icon: '🌾', label: 'Safari', region: 'kanto',   regionLabel: 'Kanto',   porRegion: true },
       { href: '/safari', icon: '🌾', label: 'Safari', region: 'johto',   regionLabel: 'Johto',   porRegion: true },
@@ -273,11 +273,39 @@
     if (btn) btn.click();
   }
 
+  /* ─── Qué actividades hay en cada región, aprendido del Menú ────────────
+   * El Menú solo lista lo que existe en la región donde estás. Cada vez que se abre se apunta;
+   * si un acceso no está en el Menú de la región actual pero sí en el de otra, al pulsarlo se viaja allí.
+   * (Lo que lleve «region» a mano en BLOQUES manda sobre lo aprendido.) */
+  const MENUS_KEY = 'adx-accesos-menus';
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+
+  function anotarMenuDeRegion() {
+    const reg = regionActual();
+    if (!reg) return;
+    const hrefs = [...new Set([...document.querySelectorAll('main a[href^="/"]')].map(a => a.getAttribute('href')))];
+    if (hrefs.length < 10) return;   // menú a medio pintar
+    const menus = lsJSON(MENUS_KEY, {});
+    if (JSON.stringify(menus[reg]) === JSON.stringify(hrefs)) return;
+    menus[reg] = hrefs;
+    lsPut(MENUS_KEY, menus);
+  }
+
+  // Región a la que hay que viajar para usar el acceso, o null si sirve donde estás
+  function regionNecesaria(item) {
+    if (item.region) return { id: item.region, label: item.regionLabel || cap(item.region) };
+    const cur = regionActual(), menus = lsJSON(MENUS_KEY, {});
+    if (!cur || !menus[cur] || menus[cur].includes(item.href)) return null;
+    const otra = Object.keys(menus).find(r => r !== cur && menus[r].includes(item.href));
+    return otra ? { id: otra, label: cap(otra) } : null;
+  }
+
   /* ─── Estado de las actividades, leído del Menú ────────────────────────
    * En /menu cada actividad lleva su pastilla («hecho hoy», «21 de 30 hoy», «1 h»…).
    * Se guarda con la fecha y el panel del mapa la enseña solo si es de hoy. */
   function leerEstadoDelMenu() {
     if (!/^\/menu\/?$/.test(location.pathname)) return;
+    anotarMenuDeRegion();
     const estado = {};
     // Lo de otras regiones («/safari@johto»…) se conserva del mismo día: el Menú solo enseña la región actual
     const previo = estadoDeHoy();
@@ -405,20 +433,21 @@
         ? `<span class="ax-tag pastilla border-2 border-crema-200 bg-crema-50 text-tinta-400">✓</span>`
         : `<span class="ax-tag pastilla border-2 border-hoja-300 bg-hoja-50 text-hoja-700">${kEsc(pill.replace(/\s*hoy$/i, ''))}</span>`;
     }
-    a.title = item.label + (pill ? ` · ${pill}` : '') + (item.region ? ` · solo en ${item.regionLabel}` : '');
+    const req = regionNecesaria(item);
+    a.title = item.label + (pill ? ` · ${pill}` : '') + (req ? ` · en ${req.label}` : '');
     a.innerHTML = `
       ${tag}
       <span class="ax-ico" aria-hidden="true">${item.icon}</span>
       <span class="ax-lbl">${kEsc(item.label)}</span>
       ${item.href === '/subasta' ? subastaHTML() : ''}
-      ${item.region ? `<span class="text-[9px] font-extrabold uppercase tracking-wide text-cielo-600">${kEsc(item.regionLabel)}</span>` : ''}`;
+      ${req ? `<span class="text-[9px] font-extrabold uppercase tracking-wide text-cielo-600">${kEsc(req.label)}</span>` : ''}`;
 
-    if (item.region) {
+    if (req) {
       a.addEventListener('click', (ev) => {
         if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
         ev.preventDefault();
-        if (regionActual() === item.region) window.location.href = item.href;
-        else irConCambioDeRegion(item.region, item.regionLabel, item.href);
+        if (regionActual() === req.id) window.location.href = item.href;
+        else irConCambioDeRegion(req.id, req.label, item.href);
       });
     }
     li.appendChild(a);
