@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Salón Malvalona Auto
 // @namespace    auroradex-salon-auto
-// @version      1.2.0
+// @version      1.2.1
 // @description  Juega solo a «Sube o Baja» del Salón de Malvalona con cuenta exacta de cartas. Modo Respiros: gana los vales justos con el menor número de partidas y compra todos los «Un respiro» del cupo diario. Modo Vales: maximiza el valor esperado.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -43,13 +43,12 @@
     actionDelay: [140, 260],     // pausa antes de pulsar (ms)
     changeTimeout: 5000,         // espera máxima a que el juego reaccione a un clic
     settle: 220,                 // deja acabar la animación de la carta antes de leer
-    potStep: 8,                  // el bote sube de 8 en 8 por acierto (se corrige solo si la pantalla dice otra cosa)
+    potStep: 8,                  // el bote sube de 8 en 8 por acierto
     maxK: 9,                     // aciertos máximos: 10 cartas → 9 aciertos
     defaultPrice: 15,            // precio de «Un respiro» en vales (se lee del Mostrador)
     defaultGames: 0,             // 0 = sin límite
     defaultReserve: 0,           // energía que se deja sin gastar
   };
-  const LS_POT = 'ax_salon_pot_v3';
   const LS_OBS = 'ax_salon_obs_v1';
   const LS_GAMES = 'ax_salon_games';
   const LS_RESERVE = 'ax_salon_reserve';
@@ -208,52 +207,27 @@
   }
 
   /* ------------------------------------------------------------------ *
-   *  BOTE
-   *  El bote NO crece siempre igual (se han visto 8, 16, 28, 44, 60, 76…), así que:
-   *   · dentro de una partida se usa lo que enseña la pantalla («bote» y «con otra») y se extrapola
-   *     con ese mismo incremento;
-   *   · para planificar partidas futuras se usa la media de lo visto en cada racha (8·k mientras no haya datos);
-   *   · cada decisión se apunta (obs) para poder estudiar la fórmula real del bote.
+   *  BOTE: el juego lo sube siempre de 8 en 8 (0, 8, 16, 24… hasta 72 con 9 aciertos).
+   *  Cada decisión se apunta en obs y, si la pantalla enseñara otro bote, se avisa en el log.
    * ------------------------------------------------------------------ */
-  let potStats = {};
-  try { potStats = JSON.parse(lsGet(LS_POT, '{}')) || {}; } catch { potStats = {}; }
-  const savePots = () => lsSet(LS_POT, JSON.stringify(potStats));
   let obs = [];
   try { obs = JSON.parse(lsGet(LS_OBS, '[]')) || []; } catch { obs = []; }
+  const potAt = k => CFG.potStep * k;
+  const potLocal = () => potAt;
+  let avisoBote = false;
 
-  // Media del bote visto tras k aciertos (por defecto 8·k)
-  const potAt = k => {
-    const s = potStats[k];
-    return s && s.n ? s.s / s.n : (k === 0 ? 0 : CFG.potStep * k);
-  };
-
-  function addStat(k, val) {
-    if (val == null) return false;
-    const before = potAt(k);
-    const s = potStats[k] || (potStats[k] = { s: 0, n: 0 });
-    if (s.n >= 200) { s.s = s.s / s.n * 100; s.n = 100; }   // memoria acotada
-    s.s += val; s.n++;
-    return Math.abs(potAt(k) - before) >= 0.5;
-  }
-
-  function notePot(g, k, mask) {
-    let ch = false;
-    if (g.pot != null) ch = addStat(k, g.pot) || ch;
-    if (g.next != null) ch = addStat(k + 1, g.next) || ch;
+  function notePot(g, k) {
+    const left = Object.keys(g.deck).filter(n => g.deck[n] > 0).map(Number);
     const last = obs[obs.length - 1];
-    if (last && last.k === k && last.c === g.card && last.pot === g.pot && last.next === g.next && last.left.length === Object.keys(g.deck).filter(n => g.deck[n] > 0).length) return;
-    obs.push({ k, c: g.card, left: Object.keys(g.deck).filter(n => g.deck[n] > 0).map(Number), pot: g.pot, next: g.next, up: g.pUpShown, down: g.pDownShown });
-    if (obs.length > 400) obs.shift();
-    savePots(); lsSet(LS_OBS, JSON.stringify(obs));
-    if (ch) goalCache.clear();
-  }
-
-  // Bote esperado para cada racha dentro de la partida actual: exacto en k y k+1, luego con el mismo incremento
-  function potLocal(g, k) {
-    const pot = g.pot ?? potAt(k);
-    const next = g.next ?? pot + CFG.potStep;
-    const inc = Math.max(1, next - pot);
-    return kk => (kk <= k ? (kk === k ? pot : potAt(kk)) : next + (kk - k - 1) * inc);
+    if (!(last && last.k === k && last.c === g.card && last.pot === g.pot && last.left.length === left.length)) {
+      obs.push({ k, c: g.card, left, pot: g.pot, next: g.next, up: g.pUpShown, down: g.pDownShown });
+      if (obs.length > 400) obs.shift();
+      lsSet(LS_OBS, JSON.stringify(obs));
+    }
+    if (!avisoBote && ((g.pot != null && g.pot !== potAt(k)) || (g.next != null && k < CFG.maxK && g.next !== potAt(k + 1)))) {
+      avisoBote = true;
+      log(`⚠ La pantalla enseña bote ${g.pot ?? '?'} / con otra ${g.next ?? '?'} y yo cuento ${potAt(k)} / ${potAt(k + 1)}. Sigo con 8 en 8.`);
+    }
   }
 
   /* ------------------------------------------------------------------ *
@@ -431,8 +405,8 @@
         const mask = maskOf(g.deck);
         const restantes = POP[mask];
         const k = 9 - restantes;                              // aciertos seguidos, sacado de la baraja
-        notePot(g, k, mask);
-        const potFn = potLocal(g, k);
+        notePot(g, k);
+        const potFn = potAt;
 
         // La cuenta exacta solo vale si los % de la pantalla coinciden con mi cuenta de cartas
         const teo = restantes ? Object.keys(g.deck).filter(n => g.deck[n] > 0 && +n > g.card).length / restantes : null;
@@ -623,8 +597,8 @@
     });
     on('[data-ax="reset"]', () => {
       if (!confirm('¿Olvidar los botes, las observaciones y la energía por respiro aprendidos?')) return;
-      potStats = {}; obs = []; lsSet(LS_OBS, '[]');
-      savePots(); goalCache.clear(); energyPerRespiro = 0; lsSet(LS_ER, '0');
+      obs = []; lsSet(LS_OBS, '[]');
+      goalCache.clear(); energyPerRespiro = 0; lsSet(LS_ER, '0');
       log('Aprendizaje reiniciado.'); paint();
     });
     for (const b of sec.querySelectorAll('.ax-modes > button')) {
@@ -667,7 +641,7 @@
             : `🎯 Quedan ${o.cupo.left} de ${o.cupo.total} de energía por comprar${energyPerRespiro ? ` (${o.need} respiros · ${o.T} vales)` : ' · ' + o.price + ' vales el primero'}`);
 
     kSet(panel.querySelector('.ax-learn'),
-      `💰 Bote medio tras 0, 1, 2… aciertos: ${Array.from({ length: CFG.maxK + 1 }, (_, k) => Math.round(potAt(k))).join(' → ')} · ⚡ por respiro: ${energyPerRespiro || 'aún no sé'} · ${obs.length} observaciones`);
+      `💰 Bote: 8 por acierto (0 → 8 → 16 → … → 72) · ⚡ por respiro: ${energyPerRespiro || 'aún no sé'} · ${obs.length} observaciones`);
   }
   setInterval(() => { if (running) paint(); }, 1000);
 
