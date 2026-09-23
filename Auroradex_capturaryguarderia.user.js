@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.3.1
+// @version      2.4.0
 // @description  Auto-explora y captura; ante shiny/legendario vibra, notifica y PARA la macro para captura manual. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1379,19 +1379,27 @@
   /* ════════════════════════════════════════════════════════════════
    *  GUARDERÍA
    * ════════════════════════════════════════════════════════════════ */
-  // Navega pulsando enlaces reales (navegación de cliente de Next.js: no recarga y mantiene la macro)
+  // Navegación de cliente (sin recargar: la macro conserva su estado). Salto directo con el router de Next si está
+  // expuesto (window.next.router); si no, pulsando el enlace real (a /guarderia solo se llega desde /menu).
   async function navigate(run, path) {
     if (location.pathname === path) return;
+    const router = window.next && window.next.router;
+    if (router && typeof router.push === 'function') {
+      try {
+        router.push(path);
+        if (await waitFor(run, () => location.pathname === path, 4000, 30)) {
+          await pause(run, 80, 160);
+          return;
+        }
+      } catch (e) { if (e instanceof Abort) throw e; /* se cae al método de enlaces */ }
+    }
     if (path === '/guarderia' && location.pathname !== '/menu') await navigate(run, '/menu');
-    const link = await waitFor(run, () => $(`a[href="${path}"]`), 8000);
+    const link = await waitFor(run, () => $(`a[href="${path}"]`), 8000, 30);
     if (!link) throw new Fail(`No encuentro el enlace a ${path}.`);
-    await waitAnimations(run, 2000);
-    await pause(run, 200, 450);
     link.click();
-    const ok = await waitFor(run, () => location.pathname === path, 10000, 50);
+    const ok = await waitFor(run, () => location.pathname === path, 10000, 30);
     if (!ok) throw new Fail(`No se pudo abrir ${path}.`);
-    await waitAnimations(run, 2500);
-    await pause(run, 150, 350);
+    await pause(run, 80, 160);
   }
 
   async function pickPokemon(run, name) {
