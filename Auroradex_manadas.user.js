@@ -5,8 +5,8 @@
 // @description  Lee las pistas del Canal Manadas, cambia de región solo, recorre el mapa buscando el tramo que cuadra y para en cuanto encuentra la manada.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
-// @updateURL    https://gist.github.com/Adri2401/75952ee5319d95cb12d17d02f2e3bbf9/raw/Auroradex_manadas.user.js
-// @downloadURL  https://gist.github.com/Adri2401/75952ee5319d95cb12d17d02f2e3bbf9/raw/Auroradex_manadas.user.js
+// @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_manadas.user.js
+// @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_manadas.user.js
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==

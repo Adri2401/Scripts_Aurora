@@ -2,6 +2,8 @@
 // @name         Aurora Dex · Siempre modo oscuro
 // @namespace    auroradex-siempre-oscuro
 // @version      1.0.0
+// @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_siempreoscuro.user.js
+// @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_siempreoscuro.user.js
 // @description  Mantiene Aurora Dex en modo oscuro aunque React vuelva a pintar la página o algo quite la clase «oscuro».
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*

@@ -5,8 +5,8 @@
 // @description  Voltorb Flip automático con panel integrado, salto de mesas 1-3 arriesgadas, y ciclo automático: al agotar el presupuesto compra todos los Cable Unión (respetando el CD), los vende en el mercado y vuelve al minijuego.
 // @match        *://*.auroradex.es/*
 // @match        *://auroradex.es/*
-// @updateURL    https://gist.github.com/Adri2401/08e47f014112c5e4ff5ddcd9bd659750/raw/Auroradex_voltorbflip.user.js
-// @downloadURL  https://gist.github.com/Adri2401/08e47f014112c5e4ff5ddcd9bd659750/raw/Auroradex_voltorbflip.user.js
+// @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_voltorbflip.user.js
+// @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_voltorbflip.user.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==

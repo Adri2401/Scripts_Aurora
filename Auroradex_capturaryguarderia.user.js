@@ -7,8 +7,8 @@
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
 // @grant        none
-// @updateURL    https://gist.github.com/Adri2401/f0fa138cf54091ddfbca9c4ea2d5b9c9/raw/Auroradex_capturaryguarderia.user.js
-// @downloadURL  https://gist.github.com/Adri2401/f0fa138cf54091ddfbca9c4ea2d5b9c9/raw/Auroradex_capturaryguarderia.user.js
+// @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_capturaryguarderia.user.js
+// @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_capturaryguarderia.user.js
 // ==/UserScript==
 
 (() => {

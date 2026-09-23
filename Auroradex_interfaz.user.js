@@ -5,8 +5,8 @@
 // @description  Accesos directos bajo el Equipo de exploración: Tiendas, Competir, Para hoy (con lo que ya hiciste hoy) y Minijuegos. Bloques plegables.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
-// @updateURL    https://gist.github.com/Adri2401/1e30c7564624fb415edf077718866019/raw/Auroradex_interfaz.user.js
-// @downloadURL  https://gist.github.com/Adri2401/1e30c7564624fb415edf077718866019/raw/Auroradex_interfaz.user.js
+// @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_interfaz.user.js
+// @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_interfaz.user.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==

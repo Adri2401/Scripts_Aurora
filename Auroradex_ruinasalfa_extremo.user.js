@@ -5,8 +5,8 @@
 // @description  Solver de Ruinas Alfa que se adapta solo a la dificultad (casillas, intentos y letras leídos de la pantalla)
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
-// @updateURL    https://gist.github.com/Adri2401/fb20e78d7c97a21333b7521d54ba7c74/raw/Auroradex_ruinasalfa_extremo.user.js
-// @downloadURL  https://gist.github.com/Adri2401/fb20e78d7c97a21333b7521d54ba7c74/raw/Auroradex_ruinasalfa_extremo.user.js
+// @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_ruinasalfa_extremo.user.js
+// @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_ruinasalfa_extremo.user.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==

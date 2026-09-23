@@ -2,6 +2,8 @@
 // @name         Aurora Dex · Casa Treta Auto-Solver
 // @namespace    auroradex-casatreta-autosolver
 // @version      1.0.0
+// @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_casatreta.user.js
+// @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_casatreta.user.js
 // @description  Resuelve «La Casa Treta»: izquierda/derecha por búsqueda binaria y frío/caliente con la estrategia óptima. Panel con el estado de las 8 plantas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
