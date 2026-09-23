@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Cazador de Manadas
 // @namespace    aurora-dex-manadas
-// @version      1.1.0
+// @version      1.2.0
 // @description  Lee las pistas del Canal Manadas, cambia de región solo, recorre el mapa buscando el tramo que cuadra y para en cuanto encuentra la manada.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -64,7 +64,7 @@
   }
 
   // Espera activa: se corta sola si el usuario pulsa PARAR.
-  async function esperar(fn, { timeout = 20000, paso = 150, label = 'algo' } = {}) {
+  async function esperar(fn, { timeout = 20000, paso = 60, label = 'algo' } = {}) {
     const t0 = Date.now();
     for (;;) {
       if (!E().running) throw new Cancelado();
@@ -74,6 +74,11 @@
       if (Date.now() - t0 > timeout) throw new Error('Se acabó el tiempo esperando ' + label + '.');
       await SLEEP(paso);
     }
+  }
+
+  // Como esperar(), pero si se acaba el tiempo devuelve null en vez de lanzar error (una parada manual sí corta)
+  async function intentar(fn, opts) {
+    try { return await esperar(fn, opts); } catch (e) { if (e instanceof Cancelado) throw e; return null; }
   }
 
   // Texto visible de la página sin contar el panel del script.
@@ -346,8 +351,17 @@
 
   const pedirAvisos = () => { try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* nada */ } };
 
-  function arrancarBusqueda(s) {
-    if (E().running && !confirm('Ya hay una búsqueda en marcha. ¿La reinicio?')) return;
+  // Si ya hay una búsqueda en marcha, la corta y espera a que su bucle termine antes de empezar la nueva
+  async function pararLaAnterior() {
+    if (!E().running) return true;
+    if (!confirm('Ya hay una búsqueda en marcha. ¿La reinicio?')) return false;
+    setE({ running: false });
+    for (let i = 0; i < 80 && enMarcha; i++) await SLEEP(50);
+    return true;
+  }
+
+  async function arrancarBusqueda(s) {
+    if (!await pararLaAnterior()) return;
     pedirAvisos();
     setE({
       running: true, ok: false, err: false, directo: false,
@@ -358,8 +372,8 @@
     cazar();
   }
 
-  function arrancarViajeDirecto(s) {
-    if (E().running && !confirm('Ya hay una búsqueda en marcha. ¿La reinicio?')) return;
+  async function arrancarViajeDirecto(s) {
+    if (!await pararLaAnterior()) return;
     pedirAvisos();
     setE({
       running: true, ok: false, err: false, directo: true,
@@ -424,7 +438,7 @@
           min: m ? +m[1] : null,
           max: m ? +m[2] : null,
           aqui: /estas aqui/.test(norm(estado)),
-          cerrado: b.disabled || /bloquead/.test(norm(estado))
+          cerrado: (b.disabled && !/estas aqui/.test(norm(estado))) || /bloquead/.test(norm(estado))
         };
       })
       .filter(r => r.nombre);
@@ -438,7 +452,8 @@
     const enlace = document.querySelector('nav a[href="/mapa"]') || document.querySelector('a[href="/mapa"]');
     if (enlace) enlace.click(); else location.href = '/mapa';
     await esperar(() => /^\/mapa/.test(location.pathname), { label: 'el mapa' });
-    await SLEEP(700);
+    await intentar(() => regionDeLaChapa() || porTexto("a,button", /mapa completo/i), { timeout: 6000, label: "el mapa" });
+    await SLEEP(120);
   }
 
   async function confirmarRegion(destino) {
@@ -456,7 +471,7 @@
     const raiz = await esperar(panelRegiones, { label: 'el panel de regiones' });
     const actual = regionDelPanel(raiz);
     cerrarModal();
-    await SLEEP(500);
+    await SLEEP(150);
     return !!actual && norm(actual) === norm(destino);
   }
 
@@ -473,7 +488,7 @@
     const raiz = await esperar(panelRegiones, { label: 'el panel «Cambiar de región»' });
     const actual = regionDelPanel(raiz);
     if (actual && norm(actual) === norm(destino)) {
-      cerrarModal(); await SLEEP(500);
+      cerrarModal(); await SLEEP(150);
       decir(`Ya estás en ${destino}.`);
       return;
     }
@@ -488,7 +503,6 @@
 
     try { await esperar(() => !panelRegiones(), { timeout: 15000, label: 'que se cierre el panel' }); }
     catch (e) { if (e instanceof Cancelado) throw e; }
-    await SLEEP(1400);
 
     await irAlMapa();
     if (!await confirmarRegion(destino)) throw new Error(`No he podido confirmar que estemos en ${destino}.`);
@@ -520,6 +534,13 @@
   }
 
   const fichaLista = () => /fauna de nv|terreno de/.test(norm(textoPagina()));
+
+  // Nombre del tramo donde estás (el título de la ficha), sin recurrir a lo guardado
+  const tramoActual = () => {
+    if (!/^\/mapa/.test(location.pathname)) return '';
+    const h1 = txt(document.querySelector('h1'));
+    return h1 && !/canal manadas/i.test(h1) ? h1 : '';
+  };
 
   function nombreDelTramo() {
     const h1 = txt(document.querySelector('h1'));
@@ -570,7 +591,13 @@
 
         decir('Buscando el tramo que cuadra…', `Nv.${e.min}–${e.max} en ${e.region}`);
         const c = await siguienteCandidato(E());
-        if (!c) return terminar(false, 'No queda ningún tramo que cuadre con la pista.');
+        if (!c) {
+          const aqui = leerLista().find(r => r.aqui && r.min === e.min && r.max === e.max);
+          cerrarModal();
+          return aqui
+            ? terminar(true, `Tu tramo actual (${aqui.nombre}) tiene el nivel de la pista: la manada debe de estar aquí.`)
+            : terminar(false, 'No queda ningún tramo que cuadre con la pista.');
+        }
 
         setE({ probados: [...(E().probados || []), c.nombre], ultimo: c.nombre });
         decir(`Mirando ${c.nombre}…`, `Nv.${c.min}–${c.max} · intento ${i + 1}`);
@@ -578,7 +605,7 @@
 
         try { await esperar(() => !listaViaje(), { timeout: 10000, label: 'que se cierre la lista' }); }
         catch (err) { if (err instanceof Cancelado) throw err; cerrarModal(); }
-        await SLEEP(900);
+        await SLEEP(120);
         try { await esperar(fichaLista, { timeout: 12000, label: 'la ficha del tramo' }); }
         catch (err) { if (err instanceof Cancelado) throw err; }
 
@@ -604,17 +631,22 @@
 
       await asegurarRegion(e.region);
       await irAlMapa();
+
+      // ¿Ya estás en el tramo? Sin abrir la lista siquiera.
+      if (tramoActual() && norm(tramoActual()) === norm(e.lugar)) return encontrada('directo');
+
       decir(`Yendo a ${e.lugar}…`, e.pokemon || '');
 
       await abrirLista();
       const fila = leerLista().find(r => norm(r.nombre) === norm(e.lugar));
       if (!fila) throw new Error(`No encuentro «${e.lugar}» en la lista de tramos.`);
+      if (fila.aqui) { cerrarModal(); await SLEEP(150); return encontrada('directo'); }   // la lista dice «Estás aquí»
       if (fila.cerrado) throw new Error(`«${e.lugar}» está bloqueado todavía.`);
 
       fila.btn.click();
       try { await esperar(() => !listaViaje(), { timeout: 10000, label: 'que se cierre la lista' }); }
       catch (err) { if (err instanceof Cancelado) throw err; cerrarModal(); }
-      await SLEEP(900);
+      await SLEEP(120);
       try { await esperar(fichaLista, { timeout: 12000, label: 'la ficha del tramo' }); }
       catch (err) { if (err instanceof Cancelado) throw err; }
 
@@ -676,7 +708,7 @@
     obs.observe(document.body, { childList: true, subtree: true });
 
     const e = E();
-    if (e.running) setTimeout(cazar, 1200);
+    if (e.running) setTimeout(e.directo ? irDirecto : cazar, 800);
     else if (e.avisadoEn) {
       const restante = (e.duracionAviso || 3000) - (Date.now() - e.avisadoEn);
       if (restante <= 0) borrarE(); else programarCierre(restante);
