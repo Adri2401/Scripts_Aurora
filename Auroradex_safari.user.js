@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Safari Auto
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
-// @description  Panel integrado con dos modos: spam de Balls y estrategia adaptativa (Cebo/Roca/Ball/Dejar marchar) calculada con los porcentajes reales de cada encuentro. Vale para cualquier Safari y cualquier Pokémon.
+// @version      1.2.0
+// @description  Panel integrado con dos modos: spam de Balls y estrategia óptima (programación dinámica con Cebo/Roca/Ball/Dejar marchar, aprendiendo de tus resultados y ajustando el precio de las Balls). Se para solo si la visita de hoy ya está hecha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_safari.user.js
@@ -47,9 +47,10 @@
   const CFG = {
     delayMin: 550,
     delayMax: 1000,
-    maxPrep: 3,
-    maxRock: 2,
-    maxBait: 2,
+    maxPrep: 4,          // Cebos + Rocas máximos por encuentro
+    maxRock: 3,
+    maxBait: 3,
+    exclusiveWeight: 3,  // un Pokémon exclusivo de la reserva vale como 3 normales
     autoEnter: true,
     letGoEnabled: true,
     defRock: { pm: 1.50, qm: 1.80 },
@@ -250,8 +251,26 @@
 
     if (findBtn(/^Andar/i)) { st.screen = 'andar'; return st; }
     if (findBtn(/^Entrar/i)) { st.screen = 'entrada'; return st; }
+
+    // Botón principal deshabilitado fuera de la reserva: visita ya hecha, reserva cerrada, sin dinero…
+    const bloq = $$('button').find((b) => b.disabled && /boton-principal/.test(b.className || '') && !b.closest('#' + PANEL_ID));
+    if (bloq) {
+      st.msg = btnText(bloq);
+      st.screen = /visita de hoy|otra vez ma[ñn]ana|ya has hecho/i.test(st.msg) ? 'hecho' : 'bloqueada';
+    }
     return st;
   }
+
+  // Pokémon que solo salen en esta reserva («Solo se ven aquí dentro»): valen más
+  let exclusivos = new Set();
+  function readExclusives() {
+    const p = $$('p').find((x) => /solo se ven aqu/i.test(txt(x)));
+    const sec = p && p.closest('section');
+    if (!sec) return;
+    const names = $$('li span', sec).map((s) => txt(s).toLowerCase()).filter(Boolean);
+    if (names.length) exclusivos = new Set(names);
+  }
+  const weightOf = (name) => (exclusivos.has(String(name || '').toLowerCase()) ? CFG.exclusiveWeight : 1);
 
   /* ------------------------------------------------------------------ *
    *  APRENDIZAJE (mide el efecto real de Cebo y Roca en tu servidor)
@@ -260,8 +279,9 @@
     return {
       rock: { pm: CFG.defRock.pm, qm: CFG.defRock.qm, n: 0 },
       bait: { pm: CFG.defBait.pm, qm: CFG.defBait.qm, n: 0 },
+      ballF: { pm: 1.0, qm: 1.25, n: 0 },   // efecto de FALLAR una Ball: el bicho se pone nervioso
       risk: { rock: { base: 0, flee: 0, n: 0 }, bait: { base: 0, flee: 0, n: 0 } },
-      enc:  { steps: 0, found: 0, sumP: 0, nP: 0 },
+      enc:  { steps: 0, found: 0, sumP: 0, nP: 0, samples: [] },   // samples: (atrapa, huye) inicial de los últimos encuentros
     };
   }
   let L = freshLearn();
@@ -269,6 +289,8 @@
     const raw = localStorage.getItem(LS_KEY);
     if (raw) L = Object.assign(freshLearn(), JSON.parse(raw));
   } catch (e) { /* ignore */ }
+  if (!L.ballF) L.ballF = freshLearn().ballF;
+  if (!L.enc.samples) L.enc.samples = [];
   const saveLearn = () => { try { localStorage.setItem(LS_KEY, JSON.stringify(L)); } catch (e) {} };
 
   function learnEffect(kind, before, after) {
@@ -305,48 +327,87 @@
   const avgP    = () => (L.enc.nP >= 8 ? L.enc.sumP / L.enc.nP : CFG.defAvgP);
 
   /* ------------------------------------------------------------------ *
-   *  DECISIÓN
-   *    P(captura solo Balls) = p/(p+q)   ·   E[Balls] = 1/(p+q)
-   *    score = P(captura) − λ·E[Balls],  λ = coste de oportunidad de una Ball
+   *  DECISIÓN (programación dinámica exacta sobre las acciones del encuentro)
+   *
+   *  Estado: (p, q) = prob. de captura y de huida por Ball. Acciones:
+   *    Ball  → captura p · huye q · si no, sigue nervioso con (p·pmF, q·qmF)
+   *    Roca / Cebo → cambian (p, q) con los multiplicadores APRENDIDOS y pueden espantarlo
+   *    Dejar marchar → se ahorran las Balls
+   *  Se maximiza  captura − λ·Balls  (todo medido en «Pokémon normales»).
+   *  λ = precio de una Ball: el más bajo con el que las Balls que quedan alcanzan para los
+   *  encuentros que se esperan con los pasos que quedan (bisección sobre los encuentros vistos).
+   *  Shiny → λ≈0 (se gasta lo que haga falta); exclusivo de la reserva → λ/3.
    * ------------------------------------------------------------------ */
-  function lambdaFor(balls, steps, shiny) {
-    if (shiny) return 0;
-    const encLeft = Math.max(0.5, (steps || 0) * encRate());
-    const bpe = (balls || 0) / encLeft;
-    return Math.max(0, Math.min(0.45, 0.45 * (1 - bpe / 3)));
+  const closedForm = (p, q) => { const t = Math.max(0.02, p + q); return { c: p / t, b: 1 / t }; };   // solo Balls a estado constante
+
+  function norm(p, q) {
+    p = clampP(p); q = clampP(q);
+    const tot = p + q;
+    if (tot > 0.99) { const k = 0.99 / tot; p *= k; q *= k; }
+    return [p, q];
   }
 
-  function simulate(p, q, prep, lambda) {
-    let surv = 1, cp = p, cq = q;
-    for (const a of prep) {
-      const m = a === 'rock' ? L.rock : L.bait;
-      const np = clampP(cp * m.pm);
-      const nq = clampP(cq * m.qm);
-      surv *= (1 - riskFor(a, cq, nq));
-      cp = np; cq = nq;
-      const tot = cp + cq;
-      if (tot > 0.99) { const k = 0.99 / tot; cp *= k; cq *= k; }
+  // Mejor política desde (p, q). rL/bL: Rocas/Cebos que aún se pueden usar; prepL: preparaciones totales que quedan.
+  // Devuelve { a: primera acción, c: P(captura), b: Balls esperadas, v: valor }
+  function solve(p, q, rL, bL, prepL, lam, canGo) {
+    const val = (c, b) => c - lam * b;
+    // Ball (un paso real y luego, si falla, Balls a estado nervioso constante)
+    const [pn, qn] = norm(p * L.ballF.pm, q * L.ballF.qm);
+    const cf = closedForm(pn, qn);
+    const fail = Math.max(0, 1 - p - q);
+    let best = { a: 'ball', c: p + fail * cf.c, b: 1 + fail * cf.b };
+    best.v = val(best.c, best.b);
+    if (canGo && best.v < -1e-9) best = { a: 'go', c: 0, b: 0, v: 0 };   // rendirse (valor 0) antes que perder Balls
+
+    if (prepL > 0) {
+      for (const kind of ['rock', 'bait']) {
+        if (kind === 'rock' ? rL <= 0 : bL <= 0) continue;
+        const m = L[kind];
+        const [np, nq] = norm(p * m.pm, q * m.qm);
+        const surv = 1 - riskFor(kind, q, nq);
+        const sub = solve(np, nq, kind === 'rock' ? rL - 1 : rL, kind === 'bait' ? bL - 1 : bL, prepL - 1, lam, canGo);
+        const c = surv * sub.c, b = surv * sub.b, v = val(c, b);
+        if (v > best.v + 1e-9) best = { a: kind, c, b, v };
+      }
     }
-    const tot = Math.max(0.02, cp + cq);
-    const pCatch = surv * (cp / tot);
-    const eBalls = surv * (1 / tot);
-    return { prep, pCatch, eBalls, score: pCatch - lambda * eBalls };
+    return best;
   }
+
+  // Encuentros «típicos» (los últimos vistos; si aún no hay, uno por defecto)
+  function sampleEncounters() {
+    const s = L.enc.samples;
+    if (s && s.length >= 4) return s;
+    return [{ p: CFG.defAvgP * 0.75, q: CFG.defAvgP * 0.4 }];
+  }
+
+  // Precio de una Ball (λ) según las Balls y los pasos que quedan
+  function calcLambda(balls, steps) {
+    const E = (steps || 0) * encRate();          // encuentros esperados
+    if (E < 0.5) return 0;                       // ya no vendrán más: las Balls sobrantes no valen nada
+    const budget = (balls || 0) / E;             // Balls disponibles por encuentro
+    const sm = sampleEncounters();
+    const meanB = (lam) => sm.reduce((a, s) => a + solve(s.p, s.q, CFG.maxRock, CFG.maxBait, CFG.maxPrep, lam, CFG.letGoEnabled).b, 0) / sm.length;
+    if (meanB(0) <= budget) return 0;
+    let lo = 0, hi = 3;
+    for (let i = 0; i < 14; i++) {
+      const mid = (lo + hi) / 2;
+      if (meanB(mid) > budget) lo = mid; else hi = mid;
+    }
+    return hi;
+  }
+
+  let lambdaNow = 0;
+  const refreshLambda = (st) => { lambdaNow = calcLambda(st.balls, st.steps); };
 
   function bestPlan(st) {
-    const lambda = lambdaFor(st.balls, st.steps, st.shiny);
-    const plans = [[]];
-    for (let r = 1; r <= CFG.maxRock; r++) plans.push(Array(r).fill('rock'));
-    for (let b = 1; b <= CFG.maxBait; b++) plans.push(Array(b).fill('bait'));
-    plans.push(['rock', 'bait'], ['bait', 'rock']);
-    let best = null;
-    for (const pr of plans) {
-      if (pr.length > CFG.maxPrep) continue;
-      const s = simulate(st.p, st.q, pr, lambda);
-      if (!best || s.score > best.score) best = s;
-    }
-    best.lambda = lambda;
-    return best;
+    const shiny = st.shiny;
+    const lam = shiny ? 0 : lambdaNow / weightOf(st.name);
+    const rockOk = !!findBtn(/^Roca/i), baitOk = !!findBtn(/^Cebo/i);
+    const rL = rockOk ? Math.max(0, CFG.maxRock - enc.rock) : 0;
+    const bL = baitOk ? Math.max(0, CFG.maxBait - enc.bait) : 0;
+    const prepL = Math.max(0, CFG.maxPrep - enc.rock - enc.bait);
+    const s = solve(st.p, st.q, rL, bL, prepL, lam, CFG.letGoEnabled && !shiny);
+    return { action: s.a, pCatch: s.c, eBalls: s.b, score: s.v, lambda: lam };
   }
 
   /* ------------------------------------------------------------------ *
@@ -366,8 +427,12 @@
       kAviso(`¡${st.name} SHINY en el Safari!`);
     }
     L.enc.found++;
-    if (st.p != null) { L.enc.sumP += st.p; L.enc.nP++; }
+    if (st.p != null) {
+      L.enc.sumP += st.p; L.enc.nP++;
+      if (st.q != null) { L.enc.samples.push({ p: st.p, q: st.q }); if (L.enc.samples.length > 40) L.enc.samples.shift(); }
+    }
     saveLearn();
+    refreshLambda(st);
   }
 
   function stop(reason) {
@@ -400,6 +465,8 @@
           if (enc.lastAction !== 'ball') {
             learnEffect(enc.lastAction, enc.before, st);
             noteRisk(enc.lastAction, (enc.before.q + st.q) / 2, false);
+          } else {
+            learnEffect('ballF', enc.before, st);   // cuánto se pone nervioso al fallar una Ball
           }
         } else if (st.screen !== 'encuentro') {
           if (enc.lastAction !== 'ball' && /escurre|se larga|huy|escap/i.test(st.msg)) {
@@ -410,6 +477,12 @@
       }
 
       if (st.screen === 'fin') { stop('Se acabó. Atrapados: ' + (st.caught ?? '?')); return; }
+      if (st.screen === 'hecho') {
+        stop(ses.enc ? `✅ Visita completada: +${ses.caught != null && ses.caught0 != null ? ses.caught - ses.caught0 : '?'} atrapados. Parado.`
+          : 'Ya hiciste la visita de hoy en esta reserva. Parado.');
+        return;
+      }
+      if (st.screen === 'bloqueada') { stop('No se puede entrar: ' + (st.msg || 'botón deshabilitado') + '. Parado.'); return; }
 
       if (st.screen === 'entrada') {
         if (!CFG.autoEnter) { stop('Estás en la entrada.'); return; }
@@ -422,6 +495,8 @@
         idleTicks = 0;
         if (st.balls === 0) { stop('Sin Balls. Toca salir.'); return; }
         enc.key = null;
+        readExclusives();
+        refreshLambda(st);
         L.enc.steps++; saveLearn();
         log('Andando · ' + (st.steps ?? '?') + ' pasos · ' + (st.balls ?? '?') + ' Balls');
         findBtn(/^Andar/i).click();
@@ -445,20 +520,10 @@
         const tag = st.shiny ? '✨ ' : '';
         const head = `${tag}${st.name} ${Math.round(st.p * 100)}/${Math.round(st.q * 100)}`;
 
-        if (CFG.letGoEnabled && !st.shiny && plan.score <= 0.02 && (st.steps || 0) >= 2) {
-          log(`${head} · no compensa → marchar`);
-          clickAct('go', st);
-          return;
-        }
-
-        let next = plan.prep[0] || null;
-        if (next === 'rock' && enc.rock >= CFG.maxRock) next = null;
-        if (next === 'bait' && enc.bait >= CFG.maxBait) next = null;
-        if (enc.rock + enc.bait >= CFG.maxPrep) next = null;
-
-        const info = `${head} · P≈${Math.round(plan.pCatch * 100)}% ~${plan.eBalls.toFixed(1)}b`;
-        if (next === 'rock') { log(info + ' → Roca'); enc.rock++; clickAct('rock', st); return; }
-        if (next === 'bait') { log(info + ' → Cebo'); enc.bait++; clickAct('bait', st); return; }
+        const info = `${head} · P≈${Math.round(plan.pCatch * 100)}% ~${plan.eBalls.toFixed(1)}b · λ${plan.lambda.toFixed(2)}`;
+        if (plan.action === 'go') { log(`${info} · no compensa → marchar`); clickAct('go', st); return; }
+        if (plan.action === 'rock') { log(info + ' → Roca'); enc.rock++; clickAct('rock', st); return; }
+        if (plan.action === 'bait') { log(info + ' → Cebo'); enc.bait++; clickAct('bait', st); return; }
         log(info + ' → Ball');
         clickAct('ball', st);
         return;
@@ -468,7 +533,7 @@
       idleTicks++;
       const vistos = $$('button').map(btnText).filter(Boolean).slice(0, 4).join(' | ');
       log('Esperando… (botones: ' + (vistos || 'ninguno') + ')');
-      if (idleTicks > 12) stop('No reconozco la pantalla. Parado.');
+      if (idleTicks > 6) stop('No reconozco la pantalla. Parado.');
     } catch (e) {
       console.error('[SafariAuto]', e);
       stop('Error: ' + e.message);
@@ -487,6 +552,11 @@
 
   function start(which) {
     if (!isSafariPage() || running) return;
+    const pre = readState();
+    if (pre.screen === 'hecho') { log('Ya hiciste la visita de hoy en esta reserva: no hay nada que hacer.'); paint(); return; }
+    if (pre.screen === 'bloqueada') { log('No se puede entrar: ' + (pre.msg || 'botón deshabilitado')); paint(); return; }
+    readExclusives();
+    refreshLambda(pre);
     mode = which; running = true; idleTicks = 0;
     ses = { t0: Date.now(), t1: 0, enc: 0, ball: 0, rock: 0, bait: 0, go: 0, caught0: null, caught: null, shiny: 0 };
     ultimo = null;
@@ -537,7 +607,7 @@
       <details class="rounded-card border-2 border-crema-200 bg-crema-50">
         <summary class="cursor-pointer list-none p-2 text-[11px] font-extrabold text-tinta-500">📈 Lo aprendido en tu Safari ▾</summary>
         <div class="space-y-1 px-2 pb-2 text-[11px] font-semibold text-tinta-500">
-          <p class="ax-learn-rock"></p><p class="ax-learn-bait"></p><p class="ax-learn-enc"></p>
+          <p class="ax-learn-rock"></p><p class="ax-learn-bait"></p><p class="ax-learn-ball"></p><p class="ax-learn-enc"></p><p class="ax-learn-lam"></p>
           <button type="button" class="boton-suave w-full !py-2 text-[11px]" data-ax="reset">Olvidar lo aprendido</button>
         </div>
       </details>`;
@@ -561,17 +631,18 @@
   function paint() {
     if (!panel) return;
     const st = isSafariPage() ? readState() : null;
-    kBadge(panel.querySelector('.k-badge'), running ? 'on' : 'off',
-      running ? (mode === 'spam' ? 'BALLS' : 'ESTRATEGIA') : st && st.screen === 'fin' ? 'TERMINADO' : 'LISTO');
+    const cerrada = !running && st && (st.screen === 'hecho' || st.screen === 'bloqueada');
+    kBadge(panel.querySelector('.k-badge'), running ? 'on' : cerrada ? 'warn' : 'off',
+      running ? (mode === 'spam' ? 'BALLS' : 'ESTRATEGIA') : st && st.screen === 'fin' ? 'TERMINADO' : st && st.screen === 'hecho' ? 'HECHO HOY' : cerrada ? 'CERRADO' : 'LISTO');
     const tiempo = ses.t0 ? kTime((running ? Date.now() : ses.t1 || Date.now()) - ses.t0) : '00:00';
     kSet(panel.querySelector('.k-sub'), running ? (mode === 'spam' ? 'Lanza Ball a todo lo que salga' : 'Decide Cebo/Roca/Ball/Dejar con los %')
-      : 'Elige un modo para empezar');
+      : cerrada ? (st.screen === 'hecho' ? 'Ya hiciste la visita de hoy en esta reserva' : 'No se puede entrar ahora') : 'Elige un modo para empezar');
 
     for (const b of panel.querySelectorAll('.ax-modes > button')) {
       const activo = running && mode === b.dataset.ax;
       const cls = activo ? K_ON : K_OFF;
       if (b.className !== cls) b.className = cls;
-      b.disabled = running && !activo;
+      b.disabled = (running && !activo) || !!cerrada;
     }
     panel.querySelector('[data-ax="stop"]').hidden = !running;
 
@@ -595,6 +666,8 @@
 
     kSet(panel.querySelector('.ax-learn-rock'), `🪨 Roca: captura ×${L.rock.pm.toFixed(2)} · huida ×${L.rock.qm.toFixed(2)} (${L.rock.n} medidas)`);
     kSet(panel.querySelector('.ax-learn-bait'), `🍓 Cebo: captura ×${L.bait.pm.toFixed(2)} · huida ×${L.bait.qm.toFixed(2)} (${L.bait.n} medidas)`);
+    kSet(panel.querySelector('.ax-learn-ball'), `🎯 Ball fallada: captura ×${L.ballF.pm.toFixed(2)} · huida ×${L.ballF.qm.toFixed(2)} (${L.ballF.n} medidas)`);
+    kSet(panel.querySelector('.ax-learn-lam'), `⚖️ Precio de una Ball: ${lambdaNow.toFixed(2)} (0 = sobran; sube si escasean)`);
     kSet(panel.querySelector('.ax-learn-enc'), `👣 Encuentro cada ${(1 / encRate()).toFixed(1)} pasos · captura media ${pct(avgP())}`);
   }
   setInterval(() => { if (running) paint(); }, 1000);
