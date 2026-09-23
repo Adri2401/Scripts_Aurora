@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Salón Malvalona Auto
 // @namespace    auroradex-salon-auto
-// @version      1.1.0
+// @version      1.2.0
 // @description  Juega solo a «Sube o Baja» del Salón de Malvalona con cuenta exacta de cartas. Modo Respiros: gana los vales justos con el menor número de partidas y compra todos los «Un respiro» del cupo diario. Modo Vales: maximiza el valor esperado.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -49,7 +49,8 @@
     defaultGames: 0,             // 0 = sin límite
     defaultReserve: 0,           // energía que se deja sin gastar
   };
-  const LS_POT = 'ax_salon_pot_v2';
+  const LS_POT = 'ax_salon_pot_v3';
+  const LS_OBS = 'ax_salon_obs_v1';
   const LS_GAMES = 'ax_salon_games';
   const LS_RESERVE = 'ax_salon_reserve';
   const LS_MODE = 'ax_salon_mode';
@@ -138,7 +139,20 @@
     return n ? parseInt(n, 10) : null;
   }
 
-  const mainText = () => txt(document.querySelector('main'));
+  // Texto de la página sin el del panel del script (si no, lee sus propias fichas «74 Vales» como si fueran del juego)
+  function mainText() {
+    const mains = $$('main');
+    const root = mains.length ? mains[0] : document.body;
+    const c = root.cloneNode(true);
+    for (const p of c.querySelectorAll('#' + PANEL_ID)) p.remove();
+    let t = txt(c);
+    if (!/Te quedan|vales|con otra/i.test(t) && root !== document.body) {   // por si el contenido no cuelga del primer <main>
+      const b = document.body.cloneNode(true);
+      for (const p of b.querySelectorAll('#' + PANEL_ID)) p.remove();
+      t = txt(b);
+    }
+    return t;
+  }
 
   function readVales() {
     const m = mainText().match(/(\d+)\s*vales/i);
@@ -194,21 +208,53 @@
   }
 
   /* ------------------------------------------------------------------ *
-   *  BOTE: 0, 8, 16, 24… (se corrige solo con lo que enseña la pantalla)
+   *  BOTE
+   *  El bote NO crece siempre igual (se han visto 8, 16, 28, 44, 60, 76…), así que:
+   *   · dentro de una partida se usa lo que enseña la pantalla («bote» y «con otra») y se extrapola
+   *     con ese mismo incremento;
+   *   · para planificar partidas futuras se usa la media de lo visto en cada racha (8·k mientras no haya datos);
+   *   · cada decisión se apunta (obs) para poder estudiar la fórmula real del bote.
    * ------------------------------------------------------------------ */
-  let pots = {};
-  try { pots = JSON.parse(lsGet(LS_POT, '{}')) || {}; } catch { pots = {}; }
-  for (let k = 0; k <= CFG.maxK; k++) if (pots[k] == null) pots[k] = CFG.potStep * k;
-  pots[0] = 0;
-  const savePots = () => lsSet(LS_POT, JSON.stringify(pots));
+  let potStats = {};
+  try { potStats = JSON.parse(lsGet(LS_POT, '{}')) || {}; } catch { potStats = {}; }
+  const savePots = () => lsSet(LS_POT, JSON.stringify(potStats));
+  let obs = [];
+  try { obs = JSON.parse(lsGet(LS_OBS, '[]')) || []; } catch { obs = []; }
 
-  function notePot(k, pot, next) {
-    let ch = false;
-    if (pot != null && pots[k] !== pot) { pots[k] = pot; ch = true; }
-    if (next != null && pots[k + 1] !== next) { pots[k + 1] = next; ch = true; }
-    if (ch) { savePots(); goalCache.clear(); }
+  // Media del bote visto tras k aciertos (por defecto 8·k)
+  const potAt = k => {
+    const s = potStats[k];
+    return s && s.n ? s.s / s.n : (k === 0 ? 0 : CFG.potStep * k);
+  };
+
+  function addStat(k, val) {
+    if (val == null) return false;
+    const before = potAt(k);
+    const s = potStats[k] || (potStats[k] = { s: 0, n: 0 });
+    if (s.n >= 200) { s.s = s.s / s.n * 100; s.n = 100; }   // memoria acotada
+    s.s += val; s.n++;
+    return Math.abs(potAt(k) - before) >= 0.5;
   }
-  const potAt = k => (pots[k] != null ? pots[k] : pots[CFG.maxK] + (k - CFG.maxK) * CFG.potStep);
+
+  function notePot(g, k, mask) {
+    let ch = false;
+    if (g.pot != null) ch = addStat(k, g.pot) || ch;
+    if (g.next != null) ch = addStat(k + 1, g.next) || ch;
+    const last = obs[obs.length - 1];
+    if (last && last.k === k && last.c === g.card && last.pot === g.pot && last.next === g.next && last.left.length === Object.keys(g.deck).filter(n => g.deck[n] > 0).length) return;
+    obs.push({ k, c: g.card, left: Object.keys(g.deck).filter(n => g.deck[n] > 0).map(Number), pot: g.pot, next: g.next, up: g.pUpShown, down: g.pDownShown });
+    if (obs.length > 400) obs.shift();
+    savePots(); lsSet(LS_OBS, JSON.stringify(obs));
+    if (ch) goalCache.clear();
+  }
+
+  // Bote esperado para cada racha dentro de la partida actual: exacto en k y k+1, luego con el mismo incremento
+  function potLocal(g, k) {
+    const pot = g.pot ?? potAt(k);
+    const next = g.next ?? pot + CFG.potStep;
+    const inc = Math.max(1, next - pot);
+    return kk => (kk <= k ? (kk === k ? pot : potAt(kk)) : next + (kk - k - 1) * inc);
+  }
 
   /* ------------------------------------------------------------------ *
    *  ESTRATEGIA
@@ -259,8 +305,8 @@
   }
 
   // MODO VALES: maximiza el valor esperado del bote
-  function solveEV(deck, card) {
-    const s = makeSolver(k => potAt(k), 0, (x, y) => x > y);
+  function solveEV(deck, card, potFn = potAt) {
+    const s = makeSolver(k => potFn(k), 0, (x, y) => x > y);
     const mask = maskOf(deck), val = s.V(mask, card);
     return { a: ['stand', 'mayor', 'menor'][s.act[(mask << 4) | card]], v: val };
   }
@@ -289,10 +335,10 @@
     return g;
   }
 
-  function solveGoal(deck, card, v, T) {
+  function solveGoal(deck, card, v, T, potFn = potAt) {
     const g = G(v, T);
     const up = [];
-    for (let k = 1; k <= CFG.maxK; k++) up[k] = G(v + potUp(k), T);
+    for (let k = 1; k <= CFG.maxK; k++) up[k] = G(v + Math.max(1, potFn(k)), T);
     const s = makeSolver(k => (k === 0 ? g : up[k]), g, (x, y) => x < y);
     const mask = maskOf(deck), val = s.V(mask, card);
     return { a: ['stand', 'mayor', 'menor'][s.act[(mask << 4) | card]], v: val, g };
@@ -385,7 +431,8 @@
         const mask = maskOf(g.deck);
         const restantes = POP[mask];
         const k = 9 - restantes;                              // aciertos seguidos, sacado de la baraja
-        notePot(k, g.pot, g.next);
+        notePot(g, k, mask);
+        const potFn = potLocal(g, k);
 
         // La cuenta exacta solo vale si los % de la pantalla coinciden con mi cuenta de cartas
         const teo = restantes ? Object.keys(g.deck).filter(n => g.deck[n] > 0 && +n > g.card).length / restantes : null;
@@ -396,10 +443,10 @@
           if (mode === 'respiros') {
             const o = objetivo();
             const v = readVales() ?? 0;
-            d = o.T ? solveGoal(g.deck, g.card, v, o.T) : solveEV(g.deck, g.card);
+            d = o.T ? solveGoal(g.deck, g.card, v, o.T, potFn) : solveEV(g.deck, g.card, potFn);
             nota = o.T ? ` · objetivo ${o.T} vales (~${d.g.toFixed(1)} partidas)` : '';
           } else {
-            d = solveEV(g.deck, g.card);
+            d = solveEV(g.deck, g.card, potFn);
           }
         } else if (g.pUpShown != null && g.pDownShown != null && g.next != null) {
           // Plan B (un solo paso) con los % que enseña el juego
@@ -499,9 +546,10 @@
 
   function start() {
     if (!enSalon() || running) return;
-    limitGames = Math.max(0, parseInt(panel.querySelector('.ax-games').value, 10) || 0);
-    reserve = Math.max(0, parseInt(panel.querySelector('.ax-reserve').value, 10) || 0);
-    lsSet(LS_GAMES, String(limitGames)); lsSet(LS_RESERVE, String(reserve));
+    const manual = mode !== 'respiros';   // en modo Respiros manda el objetivo, no estos campos
+    limitGames = manual ? Math.max(0, parseInt(panel.querySelector('.ax-games').value, 10) || 0) : 0;
+    reserve = manual ? Math.max(0, parseInt(panel.querySelector('.ax-reserve').value, 10) || 0) : 0;
+    if (manual) { lsSet(LS_GAMES, String(limitGames)); lsSet(LS_RESERVE, String(reserve)); }
     running = true; idle = 0;
     game = { lastAction: null, stuck: 0 };
     ses = { games: 0, wins: 0, vales0: readVales(), vales: readVales(), energy0: readEnergy(), respiros: 0 };
@@ -537,7 +585,7 @@
         <button type="button" data-mode="respiros"><span>🥤</span><span>Respiros</span><span class="text-[10px] font-bold opacity-70">compra todo el cupo diario</span></button>
         <button type="button" data-mode="vales"><span>🎟️</span><span>Vales</span><span class="text-[10px] font-bold opacity-70">máximo valor esperado</span></button>
       </div>
-      <div class="grid grid-cols-2 gap-2">
+      <div class="ax-limits grid grid-cols-2 gap-2" title="En modo Respiros no se usan: juega hasta reunir los vales justos">
         <label class="block text-[10px] font-extrabold uppercase text-tinta-400">Partidas (0 = sin límite)
           <input type="number" min="0" class="ax-games ${K_FIELD}"></label>
         <label class="block text-[10px] font-extrabold uppercase text-tinta-400">Dejar de energía
@@ -557,6 +605,7 @@
         <summary class="cursor-pointer list-none p-2 text-[11px] font-extrabold text-tinta-500">📈 Lo aprendido ▾</summary>
         <div class="space-y-1 px-2 pb-2 text-[11px] font-semibold text-tinta-500">
           <p class="ax-learn"></p>
+          <button type="button" class="boton-suave w-full !py-2 text-[11px]" data-ax="copy">📋 Copiar observaciones del bote</button>
           <button type="button" class="boton-suave w-full !py-2 text-[11px]" data-ax="reset">Olvidar lo aprendido</button>
         </div>
       </details>`;
@@ -567,9 +616,14 @@
     const on = (sel, fn) => sec.querySelector(sel).addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); fn(); });
     on('[data-ax="go"]', start);
     on('[data-ax="stop"]', () => stop('Parado a mano.'));
+    on('[data-ax="copy"]', async () => {
+      const json = JSON.stringify(obs);
+      try { await navigator.clipboard.writeText(json); log('📋 ' + obs.length + ' observaciones copiadas al portapapeles.'); }
+      catch { log('No pude copiar; están en la consola: window.__axSalon.obs'); console.log(json); }
+    });
     on('[data-ax="reset"]', () => {
-      if (!confirm('¿Olvidar los botes y la energía por respiro aprendidos?')) return;
-      pots = {}; for (let k = 0; k <= CFG.maxK; k++) pots[k] = CFG.potStep * k;
+      if (!confirm('¿Olvidar los botes, las observaciones y la energía por respiro aprendidos?')) return;
+      potStats = {}; obs = []; lsSet(LS_OBS, '[]');
       savePots(); goalCache.clear(); energyPerRespiro = 0; lsSet(LS_ER, '0');
       log('Aprendizaje reiniciado.'); paint();
     });
@@ -589,7 +643,8 @@
     kSet(panel.querySelector('.k-sub'), mode === 'respiros' ? 'Vales justos, con las menos partidas posibles' : 'Maximiza los vales de cada partida');
     panel.querySelector('[data-ax="go"]').hidden = running;
     panel.querySelector('[data-ax="stop"]').hidden = !running;
-    for (const i of panel.querySelectorAll('input')) i.disabled = running;
+    for (const i of panel.querySelectorAll('input')) i.disabled = running || mode === 'respiros';
+    panel.querySelector('.ax-limits').style.opacity = mode === 'respiros' ? '.45' : '';
     for (const b of panel.querySelectorAll('.ax-modes > button')) {
       const cls = mode === b.dataset.mode ? K_ON : K_OFF;
       if (b.className !== cls) b.className = cls;
@@ -612,7 +667,7 @@
             : `🎯 Quedan ${o.cupo.left} de ${o.cupo.total} de energía por comprar${energyPerRespiro ? ` (${o.need} respiros · ${o.T} vales)` : ' · ' + o.price + ' vales el primero'}`);
 
     kSet(panel.querySelector('.ax-learn'),
-      `💰 Bote tras 0, 1, 2… aciertos: ${Object.keys(pots).map(Number).sort((a, b) => a - b).map(k => pots[k]).join(' → ')} · ⚡ por respiro: ${energyPerRespiro || 'aún no sé'}`);
+      `💰 Bote medio tras 0, 1, 2… aciertos: ${Array.from({ length: CFG.maxK + 1 }, (_, k) => Math.round(potAt(k))).join(' → ')} · ⚡ por respiro: ${energyPerRespiro || 'aún no sé'} · ${obs.length} observaciones`);
   }
   setInterval(() => { if (running) paint(); }, 1000);
 
@@ -630,7 +685,7 @@
   }
 
   // Para poder probar la estrategia sin la web
-  window.__axSalon = { solveEV, solveGoal, G, readGame, potAt, maskOf, pots };
+  window.__axSalon = { solveEV, solveGoal, G, readGame, potAt, potLocal, maskOf, get obs() { return obs; }, mainText, readVales, readCupo };
 
   esperarHidratacion().then(() => {
     ensurePanel();
