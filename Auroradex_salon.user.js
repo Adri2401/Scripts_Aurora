@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Salón Malvalona Auto
 // @namespace    auroradex-salon-auto
-// @version      1.2.1
-// @description  Juega solo a «Sube o Baja» del Salón de Malvalona con cuenta exacta de cartas. Modo Respiros: gana los vales justos con el menor número de partidas y compra todos los «Un respiro» del cupo diario. Modo Vales: maximiza el valor esperado.
+// @version      1.3.0
+// @description  Juega solo a «Sube o Baja» del Salón de Malvalona con cuenta exacta de cartas. Modo Respiros: compra los 20 respiros del cupo diario (1 respiro = 1 de energía, 1 partida = -1) perdiendo el mínimo de energía posible. Modo Vales: maximiza el valor esperado.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_salon.user.js
@@ -285,17 +285,17 @@
     return { a: ['stand', 'mayor', 'menor'][s.act[(mask << 4) | card]], v: val };
   }
 
-  // MODO RESPIROS: minimiza las partidas esperadas hasta reunir T vales.
-  // G(v) = partidas esperadas desde v vales. Cada partida cuesta 1; al plantarse con racha k se pasa a v + bote(k).
+  // MODO RESPIROS: minimiza las partidas (= la energía perdida) hasta reunir los vales que faltan.
+  // Gr(r) = partidas esperadas cuando aún faltan r vales. Cada partida cuesta 1; al plantarse con racha k faltan r − bote(k).
+  // Solo depende de lo que falta, así que se reutiliza entre compras y partidas.
   const goalCache = new Map();
-  const potUp = k => Math.max(1, potAt(k));   // siempre avanza (evita bucles si la pantalla dijera 0)
-  function G(v, T) {
-    if (v >= T) return 0;
-    const key = T + '|' + v;
-    if (goalCache.has(key)) return goalCache.get(key);
+  const potUp = k => Math.max(1, potAt(k));   // siempre avanza (evita bucles si el bote fuera 0)
+  function Gr(r) {
+    if (r <= 0) return 0;
+    if (goalCache.has(r)) return goalCache.get(r);
     const up = [];
-    for (let k = 1; k <= CFG.maxK; k++) up[k] = G(v + potUp(k), T);
-    // punto fijo: g = 1 + coste medio de una partida jugada óptimamente (fallar o plantarse en 0 = seguir en v = g)
+    for (let k = 1; k <= CFG.maxK; k++) up[k] = Gr(r - potUp(k));
+    // punto fijo: g = 1 + coste medio de una partida jugada óptimamente (fallar o plantarse con 0 = seguir igual = g)
     let g = 6;
     for (let it = 0; it < 80; it++) {
       const s = makeSolver(k => (k === 0 ? g : up[k]), g, (x, y) => x < y);
@@ -305,14 +305,16 @@
       if (Math.abs(ng - g) < 1e-7) { g = ng; break; }
       g = ng;
     }
-    goalCache.set(key, g);
+    goalCache.set(r, g);
     return g;
   }
+  const G = (v, T) => Gr(T - v);
 
-  function solveGoal(deck, card, v, T, potFn = potAt) {
-    const g = G(v, T);
+  function solveGoal(deck, card, v, T) {
+    const r = T - v;
+    const g = Gr(r);
     const up = [];
-    for (let k = 1; k <= CFG.maxK; k++) up[k] = G(v + Math.max(1, potFn(k)), T);
+    for (let k = 1; k <= CFG.maxK; k++) up[k] = Gr(r - potUp(k));
     const s = makeSolver(k => (k === 0 ? g : up[k]), g, (x, y) => x < y);
     const mask = maskOf(deck), val = s.V(mask, card);
     return { a: ['stand', 'mayor', 'menor'][s.act[(mask << 4) | card]], v: val, g };
@@ -326,7 +328,7 @@
   let ses = { games: 0, wins: 0, vales0: null, vales: null, energy0: null, respiros: 0 };
   let game = { lastAction: null, stuck: 0 };
   let limitGames = 0, reserve = CFG.defaultReserve;
-  let energyPerRespiro = parseInt(lsGet(LS_ER, '0'), 10) || 0;
+  let energyPerRespiro = parseInt(lsGet(LS_ER, '1'), 10) || 1;   // un respiro da 1 de energía (se vuelve a medir al comprar)
 
   const deckSig = g => JSON.stringify([g.card, g.deck]);
 
@@ -384,7 +386,7 @@
     const price = respiroPrice();
     if (!cupo) return { cupo: null, price, need: null, T: null };
     if (cupo.left <= 0) return { cupo, price, need: 0, T: 0 };
-    const need = energyPerRespiro > 0 ? Math.ceil(cupo.left / energyPerRespiro) : 1;   // hasta saber cuánto da cada uno, de uno en uno
+    const need = Math.ceil(cupo.left / energyPerRespiro);
     return { cupo, price, need, T: need * price };
   }
 
@@ -417,7 +419,7 @@
           if (mode === 'respiros') {
             const o = objetivo();
             const v = readVales() ?? 0;
-            d = o.T ? solveGoal(g.deck, g.card, v, o.T, potFn) : solveEV(g.deck, g.card, potFn);
+            d = o.T ? solveGoal(g.deck, g.card, v, o.T) : solveEV(g.deck, g.card, potFn);
             nota = o.T ? ` · objetivo ${o.T} vales (~${d.g.toFixed(1)} partidas)` : '';
           } else {
             d = solveEV(g.deck, g.card, potFn);
@@ -466,7 +468,7 @@
         if (mode === 'respiros') {
           const o = objetivo();
           if (o.cupo && o.cupo.left <= 0) {
-            stop(`✅ Todos los respiros de hoy comprados (${ses.respiros} en esta sesión, ${ses.games} partidas).`);
+            stop(`✅ Cupo completo: ${ses.respiros} respiros con ${ses.games} partidas (energía ${ses.energy0 ?? '?'} → ${readEnergy() ?? '?'}).`);
             kAviso('Salón: respiros completos');
             return;
           }
@@ -598,7 +600,7 @@
     on('[data-ax="reset"]', () => {
       if (!confirm('¿Olvidar los botes, las observaciones y la energía por respiro aprendidos?')) return;
       obs = []; lsSet(LS_OBS, '[]');
-      goalCache.clear(); energyPerRespiro = 0; lsSet(LS_ER, '0');
+      energyPerRespiro = 1; lsSet(LS_ER, '1');
       log('Aprendizaje reiniciado.'); paint();
     });
     for (const b of sec.querySelectorAll('.ax-modes > button')) {
@@ -638,7 +640,7 @@
       mode !== 'respiros' ? (ganado != null && ses.games ? `Ganado en esta sesión: ${ganado >= 0 ? '+' : ''}${ganado} vales` : '')
         : !o.cupo ? 'Abre el Mostrador para leer el cupo diario'
           : o.cupo.left <= 0 ? '✅ Cupo de energía de hoy completo'
-            : `🎯 Quedan ${o.cupo.left} de ${o.cupo.total} de energía por comprar${energyPerRespiro ? ` (${o.need} respiros · ${o.T} vales)` : ' · ' + o.price + ' vales el primero'}`);
+            : `🎯 Quedan ${o.cupo.left} de ${o.cupo.total} de energía por comprar: ${o.need} respiros · ${o.T} vales (tienes ${v ?? '?'})${goalCache.has(o.T - (v ?? 0)) ? ' · ≈ ' + goalCache.get(o.T - (v ?? 0)).toFixed(1) + ' partidas' : ''}`);
 
     kSet(panel.querySelector('.ax-learn'),
       `💰 Bote: 8 por acierto (0 → 8 → 16 → … → 72) · ⚡ por respiro: ${energyPerRespiro || 'aún no sé'} · ${obs.length} observaciones`);
