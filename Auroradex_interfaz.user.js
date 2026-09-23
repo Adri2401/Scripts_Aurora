@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      0.6.0
-// @description  Accesos directos bajo el Equipo de exploración: Tiendas, Competir, Para hoy (con lo que ya hiciste hoy) y Minijuegos. Bloques plegables.
+// @version      0.7.0
+// @description  Accesos directos bajo el Equipo de exploración: Tiendas, Competir, Para hoy (con lo que ya hiciste hoy), Minijuegos, Tu base y Lo demás; los de otra región viajan solos. Subasta con objeto, puja y tiempo. Bloques plegables.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_interfaz.user.js
@@ -146,6 +146,7 @@
   const U = '#' + PANEL_ID;
   const ESTADO_KEY = 'adx-accesos-estado';      // pastillas leídas del Menú (hecho hoy, 21 de 30…)
   const PLEGADO_KEY = 'adx-accesos-plegado';    // bloques plegados
+  const PLEGADO_INICIAL = ['demas'];            // bloques que empiezan plegados hasta que los abras
 
   // region: la actividad solo existe en esa región; al pulsarla se viaja allí primero
   const BLOQUES = [
@@ -158,6 +159,7 @@
       { href: '/laboratorio', icon: '🔬', label: 'Laboratorio' },
       { href: '/oficios',     icon: '⚒️', label: 'Oficios' },
       { href: '/cartas',      icon: '🃏', label: 'Cartas' },
+      { href: '/esmalte',     icon: '🏛️', label: 'Vitrina de Esmalte', region: 'teselia', regionLabel: 'Teselia' },
     ] },
     { id: 'pvp', titulo: 'Competir', sub: 'Contra los demás', icono: '⚔️', items: [
       { href: '/torre',    icon: '🗼', label: 'Torre Desafío' },
@@ -196,6 +198,23 @@
       { href: '/salon',  icon: '🎴', label: 'Salón' },
       { href: '/solar',  icon: '🌙', label: 'Solar', region: 'teselia', regionLabel: 'Teselia' },
       { href: '/fondo',  icon: '🏮', label: 'Fondo' },
+    ] },
+    { id: 'base', titulo: 'Tu base', sub: 'Y lo que aparece por temporadas', icono: '🏠', items: [
+      { href: '/valle', icon: '🌄', label: 'Valle Aurora',   region: 'teselia', regionLabel: 'Teselia' },
+      { href: '/base',  icon: '🏠', label: 'Base Secreta',   region: 'teselia', regionLabel: 'Teselia' },
+      { href: '/isla',  icon: '🏝️', label: 'Isla Espejismo', region: 'teselia', regionLabel: 'Teselia' },
+    ] },
+    { id: 'demas', titulo: 'Lo demás', icono: '🧰', items: [
+      { href: '/equipos',    icon: '🌊', label: 'Los equipos',      region: 'teselia', regionLabel: 'Teselia' },
+      { href: '/gachapon',   icon: '🎰', label: 'Máquina de Fichas', region: 'teselia', regionLabel: 'Teselia' },
+      { href: '/exclusivos', icon: '🎨', label: 'Exclusivos',       region: 'teselia', regionLabel: 'Teselia' },
+      { href: '/sorteos',    icon: '🎁', label: 'Premios' },
+      { href: '/misiones',   icon: '🎯', label: 'Misiones y códigos' },
+      { href: '/tipos',      icon: '⚔️', label: 'Ventajas de tipo' },
+      { href: '/comparar',   icon: '🆚', label: 'Comparar Pokémon' },
+      { href: '/encuesta',   icon: '📋', label: 'La encuesta' },
+      { href: '/votacion',   icon: '🗳️', label: 'Votación' },
+      { href: '/guia',       icon: '📜', label: 'Guía' },
     ] },
   ];
 
@@ -433,7 +452,7 @@
       : b.items;
     for (const it of items) ul.appendChild(crearItem(it, est));
     det.addEventListener('toggle', () => {
-      const p = lsJSON(PLEGADO_KEY, []).filter(x => x !== b.id);
+      const p = lsJSON(PLEGADO_KEY, PLEGADO_INICIAL).filter(x => x !== b.id);
       if (!det.open) p.push(b.id);
       lsPut(PLEGADO_KEY, p);
     });
@@ -443,7 +462,7 @@
   function crearPanel() {
     estilos();
     const est = estadoDeHoy();
-    const plegados = lsJSON(PLEGADO_KEY, []);
+    const plegados = lsJSON(PLEGADO_KEY, PLEGADO_INICIAL);
     const wrapper = document.createElement('div');
     wrapper.id = PANEL_ID;
     wrapper.className = 'space-y-2';
