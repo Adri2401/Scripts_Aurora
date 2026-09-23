@@ -5,8 +5,8 @@
 // @description  Panel integrado con dos modos: spam de Balls y estrategia adaptativa (Cebo/Roca/Ball/Dejar marchar) calculada con los porcentajes reales de cada encuentro. Vale para cualquier Safari y cualquier Pokémon.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
-// @updateURL    https://gist.github.com/Adri2401/c124003d5cc7c40f72da3d9fb0cf3dd6/raw/Auroradex_safari.user.js
-// @downloadURL  https://gist.github.com/Adri2401/c124003d5cc7c40f72da3d9fb0cf3dd6/raw/Auroradex_safari.user.js
+// @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_safari.user.js
+// @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_safari.user.js
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
