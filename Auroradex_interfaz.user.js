@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      0.8.0
+// @version      0.9.0
 // @description  Accesos directos bajo el Equipo de exploración: Tiendas, Competir, Para hoy (con lo que ya hiciste hoy), Minijuegos, Tu base y Lo demás; los de otra región viajan solos. Subasta con objeto, puja y tiempo. Bloques plegables.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -300,12 +300,69 @@
     return otra ? { id: otra, label: cap(otra) } : null;
   }
 
+  /* ─── Actividades nuevas: se colocan solas en su bloque ─────────────────
+   * El Menú agrupa cada actividad bajo un título («Competir», «Tu colección»…). Lo que aparezca allí y no esté
+   * en BLOQUES se guarda con su emoji y nombre, y el panel lo pone en el bloque equivalente. */
+  const EXTRAS_KEY = 'adx-accesos-extras';
+  const SECCION_A_BLOQUE = {          // título de sección del Menú → id de bloque del panel
+    'competir': 'pvp', 'tu coleccion': 'tiendas', 'para hoy': 'diario', 'tu base': 'base',
+    'la historia': 'demas', 'lo demas': 'demas',
+  };
+  const NO_ACCESO = new Set(['/menu', '/mapa', '/johto', '/personaje', '/pokedex', '/equipo', '/trueques']);
+  const hrefsConocidos = () => new Set(BLOQUES.flatMap(b => b.items.map(i => i.href)));
+
+  function leerItemDeMenu(a) {
+    const ico = a.querySelector('[aria-hidden="true"]');
+    const bloque = a.querySelector('span.block');
+    const hojas = [...a.querySelectorAll('span')].filter(s => s !== ico && !s.querySelector('span') && !s.classList.contains('pastilla') && s.textContent.trim());
+    const label = ((bloque || hojas[0] || {}).textContent || '').replace(/\s+/g, ' ').trim();
+    const icon = ico && !ico.querySelector('svg, img') ? ico.textContent.trim() : '';
+    return label ? { icon: icon || '🔹', label } : null;
+  }
+
+  function anotarNovedadesDelMenu() {
+    const conocidos = hrefsConocidos();
+    const extras = lsJSON(EXTRAS_KEY, {});
+    let cambio = false;
+    for (const a of document.querySelectorAll('main a[href^="/"]')) {
+      const href = a.getAttribute('href');
+      if (conocidos.has(href) || NO_ACCESO.has(href)) continue;
+      const h2 = a.closest('section') && a.closest('section').querySelector('h2.titulo-seccion');
+      const bloque = h2 && SECCION_A_BLOQUE[normalizarTexto(h2.textContent)];
+      if (!h2) continue;                                   // banners y tarjetas sueltas: no son accesos de un bloque
+      const datos = leerItemDeMenu(a);
+      if (!datos) continue;
+      const nuevo = { ...datos, bloque: bloque || 'demas' };
+      if (JSON.stringify(extras[href]) !== JSON.stringify(nuevo)) { extras[href] = nuevo; cambio = true; }
+    }
+    if (cambio) lsPut(EXTRAS_KEY, extras);
+  }
+
+  // Accesos de un bloque: los escritos a mano + los aprendidos (+ un Safari por cada región que lo tenga en su Menú)
+  function itemsDe(b) {
+    const items = [...b.items];
+    const ya = new Set(items.map(i => i.href));
+    const extras = lsJSON(EXTRAS_KEY, {});
+    for (const href of Object.keys(extras)) {
+      if (extras[href].bloque === b.id && !ya.has(href)) items.push({ href, icon: extras[href].icon, label: extras[href].label });
+    }
+    if (b.id === 'diario') {
+      const conSafari = new Set(items.filter(i => i.href === '/safari').map(i => i.region));
+      const menus = lsJSON(MENUS_KEY, {});
+      for (const r of Object.keys(menus)) {
+        if (menus[r].includes('/safari') && !conSafari.has(r)) items.push({ href: '/safari', icon: '🌾', label: 'Safari', region: r, regionLabel: cap(r), porRegion: true });
+      }
+    }
+    return items;
+  }
+
   /* ─── Estado de las actividades, leído del Menú ────────────────────────
    * En /menu cada actividad lleva su pastilla («hecho hoy», «21 de 30 hoy», «1 h»…).
    * Se guarda con la fecha y el panel del mapa la enseña solo si es de hoy. */
   function leerEstadoDelMenu() {
     if (!/^\/menu\/?$/.test(location.pathname)) return;
     anotarMenuDeRegion();
+    anotarNovedadesDelMenu();
     const estado = {};
     // Lo de otras regiones («/safari@johto»…) se conserva del mismo día: el Menú solo enseña la región actual
     const previo = estadoDeHoy();
@@ -462,7 +519,7 @@
 
     let resumen = b.sub || '';
     if (b.diario && est) {
-      const conEstado = b.items.filter(i => pillDe(i, est));
+      const conEstado = itemsDe(b).filter(i => pillDe(i, est));
       const hechos = conEstado.filter(i => /hecho|parado/i.test(pillDe(i, est))).length;
       if (conEstado.length) resumen = `${hechos} de ${conEstado.length} hechos hoy`;
     }
@@ -477,8 +534,8 @@
     const ul = det.querySelector('ul');
     // En «Para hoy», lo pendiente primero y lo hecho al final
     const items = b.diario && est
-      ? [...b.items].sort((x, y) => (/hecho|parado/i.test(pillDe(x, est)) ? 1 : 0) - (/hecho|parado/i.test(pillDe(y, est)) ? 1 : 0))
-      : b.items;
+      ? itemsDe(b).sort((x, y) => (/hecho|parado/i.test(pillDe(x, est)) ? 1 : 0) - (/hecho|parado/i.test(pillDe(y, est)) ? 1 : 0))
+      : itemsDe(b);
     for (const it of items) ul.appendChild(crearItem(it, est));
     det.addEventListener('toggle', () => {
       const p = lsJSON(PLEGADO_KEY, PLEGADO_INICIAL).filter(x => x !== b.id);
