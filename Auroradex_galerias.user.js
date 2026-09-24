@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.10.0
+// @version      0.11.0
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -106,7 +106,7 @@
       let tipo, pos;
       if (/personajes\//.test(bg)) { tipo = /ricach|mercader|vendedor|nomada/i.test(nombre) ? 'mercader' : 'personaje'; pos = spritePos(el); }
       else {
-        tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : /lapida|tumba|sepultura/i.test(nombre) ? 'lapida' : /jarron|vasija|urna|tinaja/i.test(nombre) ? 'jarron' : /movediza|arena|cienaga|pantano/i.test(nombre) ? 'movediza' : 'objeto';
+        tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : /lapida|tumba|sepultura/i.test(nombre) ? 'lapida' : /jarron|vasija|urna|tinaja/i.test(nombre) ? 'jarron' : /movediza|arena|cienaga|pantano/i.test(nombre) ? 'movediza' : /puerta/i.test(nombre) ? 'puerta' : 'objeto';
         pos = { c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w) };
       }
       entidades.push({ c: pos.c, f: pos.f, tipo, nombre });
@@ -181,6 +181,7 @@
       lapida: 'box-shadow:inset 0 0 0 2px #90a4ae;background:rgba(144,164,174,.3)',
       jarron: 'box-shadow:inset 0 0 0 2px #ffb74d;background:rgba(255,183,77,.3)',
       personaje: 'box-shadow:inset 0 0 0 2px #ff9800;background:rgba(255,152,0,.22)',
+      puerta: 'box-shadow:inset 0 0 0 2px #ba68c8;background:rgba(186,104,200,.3)',
       movediza: 'box-shadow:inset 0 0 0 2px #ffb74d;background:rgba(255,183,77,.3)',
       objeto: 'box-shadow:inset 0 0 0 2px #4fc3f7;background:rgba(79,195,247,.22)',
     };
@@ -292,6 +293,7 @@
     if (cuenta('remolino')) partes.push(`🌀 ${cuenta('remolino')} remolino(s)`);
     if (cuenta('lapida')) partes.push(`🪦 ${cuenta('lapida')} lápida(s)`);
     if (cuenta('jarron')) partes.push(`🏺 ${cuenta('jarron')} jarrón(es)`);
+    if (cuenta('puerta')) partes.push(`🚪 ${cuenta('puerta')} puerta(s)`);
     if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} objeto(s)`);
     estado.textContent = partes.join(' · ');
     panel.querySelector('.axg-msg').textContent = msg;
@@ -428,7 +430,44 @@
     return true;
   }
 
-  const atenderPantallas = async () => (await atenderCaptura()) || (await despedirse()) || (await atenderCombate());
+  /* ---- Puerta con acertijo: cuatro símbolos en orden según las líneas de las lápidas ---- */
+  const ORDINALES = [[/primer[oa]?/, 1], [/segund[oa]/, 2], [/tercer[oa]?/, 3], [/cuart[oa]/, 4]];
+  const sinArticulo = s => norm(s).replace(/^(el|la|los|las)\s+/, '');
+  async function atenderPuerta() {
+    const huecos = botonesVisibles().filter(b => /^Hueco \d/.test(b.getAttribute('aria-label') || ''));
+    if (huecos.length < 2) return false;
+    const simbolos = botonesVisibles().filter(b => !b.getAttribute('aria-label') && b.querySelector('span.capitalize') && !ajeno(b));
+    const nombres = simbolos.map(b => sinArticulo(b.querySelector('span.capitalize').textContent));
+    const lineas = $$('li').filter(li => visible(li) && !ajeno(li)).map(li => norm(li.textContent));
+    const sol = new Array(huecos.length).fill(null);
+    for (const l of lineas) {
+      const ord = ORDINALES.find(([re]) => re.test(l));
+      const ns = nombres.filter(n => new RegExp('\b' + n + '\b').test(l));
+      if (ord && ns.length === 1 && ord[1] <= sol.length) sol[ord[1] - 1] = ns[0];
+    }
+    const cerrarPuerta = async () => {
+      const b = botonesVisibles().find(x => /^\s*dejarlo para luego/i.test(norm(x.textContent))) || botonesVisibles().find(x => x.getAttribute('aria-label') === 'Cerrar');
+      if (b) b.click();
+      await sleep(400);
+    };
+    if (sol.some(x => x === null) || new Set(sol).size !== sol.length) {
+      msg = `🚪 Puerta: solo conozco ${sol.filter(Boolean).length} de ${sol.length} símbolos; la dejo para luego.`; pintar();
+      await cerrarPuerta();
+      return true;
+    }
+    msg = `🚪 Puerta: canto ${sol.join(', ')}.`; pintar();
+    for (const n of sol) {
+      const b = simbolos[nombres.indexOf(n)];
+      if (!b) { await cerrarPuerta(); return true; }
+      await pausa(300, 500); b.click();
+    }
+    await pausa(400, 700);
+    const cantar = botonesVisibles().find(x => !x.disabled && /cantar ante la puerta/i.test(norm(x.textContent)));
+    if (cantar) { cantar.click(); await pausa(900, 1400); } else await cerrarPuerta();
+    return true;
+  }
+
+  const atenderPantallas = async () => (await atenderCaptura()) || (await despedirse()) || (await atenderPuerta()) || (await atenderCombate());
 
   /* ------------------------------------------------------------------ *
    *  ANTORCHA: cuando quedan pocos pasos, Frasco de aceite; sin aceite, Cuerda. El agua no se usa.
@@ -489,6 +528,7 @@
   const combatidos = new Set();
   const MAX_REMOLINOS = 5;                       // por planta, por si un remolino no desapareciera tras usarlo
   const MAX_JARRONES = 20;
+  const puertaVisitas = {};                      // planta|puerta → nº de tumbas leídas la última vez que se probó
   const MAX_LAPIDAS = 4;                         // por planta
 
   /* ---- Tumbas: se lee lo que aparece al chocar con ellas y se guarda ---- */
@@ -522,7 +562,7 @@
     }
     msg = '🪦 Tumba anotada.'; pintar();
   }
-  let contadoresPlanta = { planta: '', remolino: 0, jarron: 0, lapida: 0 };
+  let contadoresPlanta = { planta: '', remolino: 0, jarron: 0, lapida: 0, puerta: 0 };
 
   async function clicCelda(cel, t) {
     const antes = t.jugador ? `${t.jugador.c},${t.jugador.f}` : '';
@@ -560,14 +600,15 @@
       // Objetivos con los que chocar: entrenadores (combate), remolinos (encuentro salvaje) y jarrones (reliquias)
       if (combatir || recoger) {
         const planta = plantaActual();
-        if (contadoresPlanta.planta !== planta) contadoresPlanta = { planta, remolino: 0, jarron: 0, lapida: 0 };
+        if (contadoresPlanta.planta !== planta) contadoresPlanta = { planta, remolino: 0, jarron: 0, lapida: 0, puerta: 0 };
         let mejor = null;
         for (const e of t.entidades) {
           const ok =
             (combatir && e.tipo === 'entrenador' && !combatidos.has(planta + '|' + e.nombre)) ||
             (combatir && e.tipo === 'remolino' && contadoresPlanta.remolino < MAX_REMOLINOS) ||
             (recoger && e.tipo === 'jarron' && contadoresPlanta.jarron < MAX_JARRONES) ||
-            (recoger && e.tipo === 'lapida' && contadoresPlanta.lapida < MAX_LAPIDAS);
+            (recoger && e.tipo === 'lapida' && contadoresPlanta.lapida < MAX_LAPIDAS) ||
+            (recoger && e.tipo === 'puerta' && contadoresPlanta.puerta < 3 && puertaVisitas[planta + '|' + e.nombre] !== leerTumbas().length);
           if (!ok) continue;
           const yo = t.jugador;
           const dist = yo ? Math.abs(e.c - yo.c) + Math.abs(e.f - yo.f) : 99;
@@ -582,11 +623,13 @@
             remolino: ['🌀 Piso el remolino (encuentro salvaje)…', '🌀 Me acerco a un remolino…'],
             jarron: ['🏺 Rompo un jarrón…', '🏺 Voy a por un jarrón…'],
             lapida: ['🪦 Leo una tumba…', '🪦 Voy a leer una tumba…'],
+            puerta: ['🚪 Pruebo la puerta…', '🚪 Voy a la puerta…'],
           }[e.tipo];
           if (dist === 1) {
             // Al lado: se choca con la flecha (pulsar la casilla solo lleva hasta el borde)
             if (e.tipo === 'entrenador') combatidos.add(planta + '|' + e.nombre); else contadoresPlanta[e.tipo]++;
             msg = TXT[0]; pintar();
+            if (e.tipo === 'puerta') puertaVisitas[planta + '|' + e.nombre] = leerTumbas().length;
             const antes = e.tipo === 'lapida' ? lineasPantalla() : null;
             if (await andar(e.c - t.jugador.c, e.f - t.jugador.f)) {
               if (antes) await leerTumba(planta, antes);
@@ -700,7 +743,7 @@
   }
 
   // Para probar sin la web
-  window.__axGalerias = { andar, mostrarPildora, explorar, leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, gestionarLuz, leerLuz, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas };
+  window.__axGalerias = { andar, mostrarPildora, explorar, leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, gestionarLuz, leerLuz, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas, atenderPuerta };
 
   esperarHidratacion().then(() => {
     asegurarPanel();
