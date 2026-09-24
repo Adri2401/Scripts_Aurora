@@ -297,33 +297,7 @@
     if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} objeto(s)`);
     estado.textContent = partes.join(' · ');
     panel.querySelector('.axg-msg').textContent = msg;
-    pintarTumbas();
     panel.querySelector('[data-a="auto"]').textContent = explorando ? '■ Parar exploración' : '🧭 Explorar hasta la escalera';
-  }
-
-  function pintarTumbas() {
-    const cont = panel && panel.querySelector('.axg-tumbas');
-    if (!cont) return;
-    const l = leerTumbas();
-    const firma = JSON.stringify(l);
-    if (cont.dataset.f === firma) return;
-    cont.dataset.f = firma;
-    cont.textContent = '';
-    if (!l.length) return;
-    const h = document.createElement('p');
-    h.className = 'text-[11px] font-extrabold text-tinta-500';
-    h.textContent = `🪦 Tumbas leídas (${l.length})`;
-    const borrar = document.createElement('button');
-    borrar.type = 'button'; borrar.className = 'ml-2 text-[10px] font-bold underline'; borrar.textContent = 'borrar';
-    borrar.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); guardarTumbas([]); pintarTumbas(); });
-    h.appendChild(borrar);
-    cont.appendChild(h);
-    for (const x of l.slice().reverse().slice(0, 30)) {
-      const p = document.createElement('p');
-      p.className = 'text-[10px] font-semibold text-tinta-400';
-      p.textContent = `${x.planta}: ${x.texto}`;
-      cont.appendChild(p);
-    }
   }
 
   const norm = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -531,37 +505,7 @@
   const puertaVisitas = {};                      // planta|puerta → nº de tumbas leídas la última vez que se probó
   const MAX_LAPIDAS = 4;                         // por planta
 
-  /* ---- Tumbas: se lee lo que aparece al chocar con ellas y se guarda ---- */
-  const LS_TUMBAS = 'axg_tumbas';
-  const leerTumbas = () => { try { return JSON.parse(localStorage.getItem(LS_TUMBAS) || '[]'); } catch { return []; } };
-  const guardarTumbas = l => { try { localStorage.setItem(LS_TUMBAS, JSON.stringify(l.slice(-100))); } catch { /* sin storage */ } };
-  // Líneas de texto visibles del juego (sin el panel ni la barra de la macro)
-  function lineasPantalla() {
-    const r = new Set();
-    for (const el of $$('main *')) {
-      if (el.children.length || ajeno(el) || !visible(el)) continue;
-      const tx = (el.textContent || '').replace(/\s+/g, ' ').trim();
-      if (tx && !/^\d+\s*pasos$/i.test(tx)) r.add(tx);
-    }
-    return r;
-  }
-  async function leerTumba(planta, antes) {
-    const nuevas = [];
-    for (const espera of [600, 900]) {
-      await sleep(espera);
-      for (const l of lineasPantalla()) if (!antes.has(l) && !nuevas.includes(l)) nuevas.push(l);
-    }
-    const texto = nuevas.filter(l => !/^(cerrar|aceptar|continuar|ok|entendido|seguir)$/i.test(l)).join(' · ');
-    const cerrar = botonesVisibles().find(x => !x.disabled && /^\s*(cerrar|entendido|ok|vale)\s*$/i.test(x.textContent || ''));
-    if (cerrar) cerrar.click();
-    if (!texto) return;
-    const lista = leerTumbas();
-    if (!lista.some(x => x.planta === planta && x.texto === texto)) {
-      lista.push({ planta, texto, fecha: new Date().toLocaleString('es-ES') });
-      guardarTumbas(lista);
-    }
-    msg = '🪦 Tumba anotada.'; pintar();
-  }
+  let tumbasLeidas = 0;                         // el propio juego apunta las líneas leídas («Lo que has leído esta semana»)
   let contadoresPlanta = { planta: '', remolino: 0, jarron: 0, lapida: 0, puerta: 0 };
 
   async function clicCelda(cel, t) {
@@ -608,7 +552,7 @@
             (combatir && e.tipo === 'remolino' && contadoresPlanta.remolino < MAX_REMOLINOS) ||
             (recoger && e.tipo === 'jarron' && contadoresPlanta.jarron < MAX_JARRONES) ||
             (recoger && e.tipo === 'lapida' && contadoresPlanta.lapida < MAX_LAPIDAS) ||
-            (recoger && e.tipo === 'puerta' && contadoresPlanta.puerta < 3 && puertaVisitas[planta + '|' + e.nombre] !== leerTumbas().length);
+            (recoger && e.tipo === 'puerta' && contadoresPlanta.puerta < 3 && puertaVisitas[planta + '|' + e.nombre] !== tumbasLeidas);
           if (!ok) continue;
           const yo = t.jugador;
           const dist = yo ? Math.abs(e.c - yo.c) + Math.abs(e.f - yo.f) : 99;
@@ -629,10 +573,9 @@
             // Al lado: se choca con la flecha (pulsar la casilla solo lleva hasta el borde)
             if (e.tipo === 'entrenador') combatidos.add(planta + '|' + e.nombre); else contadoresPlanta[e.tipo]++;
             msg = TXT[0]; pintar();
-            if (e.tipo === 'puerta') puertaVisitas[planta + '|' + e.nombre] = leerTumbas().length;
-            const antes = e.tipo === 'lapida' ? lineasPantalla() : null;
+            if (e.tipo === 'puerta') puertaVisitas[planta + '|' + e.nombre] = tumbasLeidas;
             if (await andar(e.c - t.jugador.c, e.f - t.jugador.f)) {
-              if (antes) await leerTumba(planta, antes);
+              if (e.tipo === 'lapida') { tumbasLeidas++; await pausa(500, 800); const c = botonesVisibles().find(x => x.getAttribute('aria-label') === 'Cerrar' || /^\s*(cerrar|entendido|ok|vale)\s*$/i.test(x.textContent || '')); if (c) c.click(); }
               await pausa(900, 1300); continue;
             }
           } else if (r.length > 1) {
@@ -714,7 +657,6 @@
       <button type="button" class="boton-principal w-full !py-2 text-[11px]" data-a="auto"></button>
       <p class="text-[10px] font-semibold text-tinta-400">Al explorar: combate a todos los entrenadores (pulsa SEGUIR), pisa los remolinos (encuentro salvaje), captura con Poké Ball a todos los Pokémon. Si sale un variocolor o legendario, se para del todo, avisa (vibra una vez) y la Master Ball la tiras tú.</p>
       <button type="button" class="boton-suave w-full !py-2 text-[11px]" data-a="diag">📋 Copiar diagnóstico del juego</button>
-      <div class="axg-tumbas space-y-1"></div>
       <p class="axg-msg text-[11px] font-semibold text-tinta-400"></p>`;
     const on = (sel, fn) => sec.querySelector(sel).addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); fn(); });
     on('[data-a="ver"]', () => { mostrar = !mostrar; sec.querySelector('[data-a="ver"]').textContent = mostrar ? '👁 Camino: sí' : '👁 Camino: no'; pintar(); });
