@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.12.0
+// @version      0.13.0
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -394,6 +394,16 @@
   }
 
   // Si se ha abierto la ventana del mercader nómada, se cierra y se sigue
+  // Plantas con «Puerta de la Canción»: hay que abrirla antes de bajar
+  const PLANTAS_PUERTA = new Set([10, 20, 30, 39]);
+  const puertaIntentos = {};
+  const puertaFin = {};                          // planta → puerta abierta o descartada (faltan pistas / no aparece)
+  const numPlanta = () => {
+    const el = $$('main span, main p, main h1, main h2').find(x => !ajeno(x) && !x.children.length && /^\s*planta\s+\d+\s*$/i.test(x.textContent || ''));
+    const m = ((el && el.textContent) || plantaActual()).match(/(\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+  };
+  const camaraPendiente = () => { const n = numPlanta(); return n != null && PLANTAS_PUERTA.has(n) && !puertaFin[plantaActual()]; };
   let traducciones = 0;
   async function despedirse() {
     const b = botonesVisibles().find(x => !x.disabled && /^\s*Despedirse\s*$/i.test(x.textContent || ''));
@@ -438,6 +448,7 @@
     };
     if (sol.some(x => x === null) || new Set(sol).size !== sol.length) {
       msg = `🚪 Puerta: solo conozco ${sol.filter(Boolean).length} de ${sol.length} símbolos; la dejo para luego.`; pintar();
+      puertaFin[plantaActual()] = true;          // faltan pistas: no se insiste, se baja
       await cerrarPuerta();
       return true;
     }
@@ -449,7 +460,7 @@
     }
     await pausa(400, 700);
     const cantar = botonesVisibles().find(x => !x.disabled && /cantar ante la puerta/i.test(norm(x.textContent)));
-    if (cantar) { cantar.click(); await pausa(900, 1400); } else await cerrarPuerta();
+    if (cantar) { cantar.click(); puertaIntentos[plantaActual()] = (puertaIntentos[plantaActual()] || 0) + 1; if (puertaIntentos[plantaActual()] >= 2) puertaFin[plantaActual()] = true; await pausa(900, 1400); const sigue = botonesVisibles().some(x => /cantar ante la puerta/i.test(norm(x.textContent))); if (!sigue) puertaFin[plantaActual()] = true; } else await cerrarPuerta();
     return true;
   }
 
@@ -558,20 +569,24 @@
         const planta = plantaActual();
         if (contadoresPlanta.planta !== planta) contadoresPlanta = { planta, remolino: 0, jarron: 0, lapida: 0, puerta: 0, arqueologo: 0 };
         let mejor = null;
+        for (const fase of [0, 1]) {                            // primero todo lo demás (tumbas, arqueólogo…); la puerta, la última
         for (const e of t.entidades) {
+          if ((fase === 0) === (e.tipo === 'puerta')) continue;
           const ok =
             (combatir && e.tipo === 'entrenador' && !combatidos.has(planta + '|' + e.nombre)) ||
             (combatir && e.tipo === 'remolino' && contadoresPlanta.remolino < MAX_REMOLINOS) ||
             (recoger && e.tipo === 'jarron' && contadoresPlanta.jarron < MAX_JARRONES) ||
             (recoger && e.tipo === 'lapida' && contadoresPlanta.lapida < MAX_LAPIDAS) ||
             (recoger && e.tipo === 'arqueologo' && contadoresPlanta.arqueologo < 2) ||
-            (recoger && e.tipo === 'puerta' && contadoresPlanta.puerta < 3 && puertaVisitas[planta + '|' + e.nombre] !== tumbasLeidas);
+            (recoger && e.tipo === 'puerta' && contadoresPlanta.puerta < 3 && !puertaFin[planta] && puertaVisitas[planta + '|' + e.nombre] !== tumbasLeidas);
           if (!ok) continue;
           const yo = t.jugador;
           const dist = yo ? Math.abs(e.c - yo.c) + Math.abs(e.f - yo.f) : 99;
           const ady = c => c.pisable && !t.ocupadas.has(c.c + ',' + c.f) && Math.abs(c.c - e.c) + Math.abs(c.f - e.f) === 1;
           const r = dist === 1 ? [null] : rutaA(t, ady);          // ya al lado, o ruta hasta una casilla contigua
           if (r && (!mejor || r.length < mejor.r.length)) mejor = { e, r, dist };
+        }
+        if (mejor) break;
         }
         if (mejor) {
           const { e, r, dist } = mejor;
@@ -601,7 +616,9 @@
         }
       }
 
-      const esc = [...t.celdas.values()].find(c => c.tipo === 'escalera');
+      // En las plantas con puerta de canción no se baja hasta abrirla: se sigue explorando (sin escalera) hasta encontrarla
+      const esperaPuerta = camaraPendiente();
+      const esc = esperaPuerta ? null : [...t.celdas.values()].find(c => c.tipo === 'escalera');
       if (esc) {
         const r = rutaA(t, c => c.tipo === 'escalera');
         if (r && r.length > 1) {
@@ -615,8 +632,9 @@
         msg = '🪜 Ya estás en la escalera o sin camino. Parado.'; break;
       }
       const meta = rutaA(t, esFrontera(t));
+      if ((!meta || meta.length < 2) && esperaPuerta) { puertaFin[plantaActual()] = true; continue; }   // no aparece la puerta: se baja igualmente
       if (!meta || meta.length < 2) { msg = 'No queda nada por explorar desde aquí (sin ruta a zonas nuevas). Parado.'; console.log('[axg] parado: sin frontera', t.jugador, t.entidades); break; }
-      msg = `Explorando… (${pasos(meta)} pasos al siguiente hueco)`; pintar();
+      msg = esperaPuerta ? `🚪 Planta con puerta: busco la puerta… (${pasos(meta)} pasos)` : `Explorando… (${pasos(meta)} pasos al siguiente hueco)`; pintar();
       const destino = meta[meta.length - 1];
       if (!(await clicCelda(destino, t))) { if (++sinCambio > 3) { msg = 'El juego no responde a los clics. Parado.'; break; } } else sinCambio = 0;
       await pausa(600, 1000);
