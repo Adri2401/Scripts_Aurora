@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.0.0
+// @version      1.1.0
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -164,28 +164,31 @@
       { href: '/esmalte',     icon: '🏛️', label: 'Vitrina de Esmalte' },
       { href: '/gachapon',    icon: '🎰', label: 'Máquina de Fichas' },
     ] },
+    // Los Safari (porRegion) se dibujan siempre al final del bloque, aparte y sin título
     { id: 'pve', titulo: 'PvE', sub: 'Lo de cada día', icono: '📅', diario: true, items: [
+      { href: '/solar',          icon: '🌙', label: 'Solar', ...T },
+      { href: '/huerto',         icon: '🌱', label: 'Huerto', region: 'sinnoh', regionLabel: 'Sinnoh' },
       { href: '/manadas',        icon: '📺', label: 'Canal Manadas' },
       { href: '/siluetas',       icon: '❓', label: '¿Quién es?' },
       { href: '/tren',           icon: '🚂', label: 'Tren de Biscuit', ...T },
       { href: '/carreras',       icon: '🐀', label: 'Carreras' },
-      SAFARI('kanto', 'Kanto'), SAFARI('johto', 'Johto'), SAFARI('hoenn', 'Hoenn'), SAFARI('sinnoh', 'Sinnoh'), SAFARI('teselia', 'Teselia'),
       { href: '/pokeathlon',     icon: '🏟️', label: 'Pokéathlon' },
       { href: '/pesca',          icon: '🎣', label: 'El Muelle' },
       { href: '/cantera',        icon: '⛏️', label: 'La Cantera' },
       { href: '/album',          icon: '📷', label: 'Álbum' },
       { href: '/buceo',          icon: '🤿', label: 'Buceo' },
       { href: '/jessie-y-james', icon: '🎈', label: 'Jessie y James' },
-      { href: '/huerto',         icon: '🌱', label: 'Huerto', region: 'sinnoh', regionLabel: 'Sinnoh' },
-      { href: '/solar',          icon: '🌙', label: 'Solar', ...T },
-      { href: '/isla',           icon: '🏝️', label: 'Isla Espejismo' },
+      { href: '/valle',          icon: '🌄', label: 'Valle Aurora' },
+      { href: '/salon',          icon: '🎴', label: 'Salón' },
+      SAFARI('kanto', 'Kanto'), SAFARI('johto', 'Johto'), SAFARI('hoenn', 'Hoenn'), SAFARI('sinnoh', 'Sinnoh'), SAFARI('teselia', 'Teselia'),
     ] },
     { id: 'pvp', titulo: 'PvP', sub: 'Contra los demás', icono: '⚔️', items: [
+      { href: '/isla',     icon: '🏝️', label: 'Isla Espejismo' },
       { href: '/torre',    icon: '🗼', label: 'Torre Desafío' },
+      { href: '/tronos',   icon: '👑', label: 'Los Tronos' },
       { href: '/metro',    icon: '🚇', label: 'Metro Batalla' },
       { href: '/entranas', icon: '⛰️', label: 'Monte Plateado' },
       { href: '/castillo', icon: '🏰', label: 'Castillo Ancestral' },
-      { href: '/tronos',   icon: '👑', label: 'Los Tronos' },
     ] },
     { id: 'extra', titulo: 'Extra', icono: '🧰', items: [
       { href: '/golf',       icon: '⛳', label: 'Golf' },
@@ -200,8 +203,6 @@
       { href: '/hielo',      icon: '❄️', label: 'Suelo Helado' },
       { href: '/fondo',      icon: '🏮', label: 'Fondo Comunitario' },
       { href: '/subsuelo',   icon: '⛏️', label: 'Grutas del Subsuelo' },
-      { href: '/salon',      icon: '🎴', label: 'Salón' },
-      { href: '/valle',      icon: '🌄', label: 'Valle Aurora' },
       { href: '/base',       icon: '🏠', label: 'Base Secreta' },
       { href: '/equipos',    icon: '🌊', label: 'Los equipos' },
       { href: '/exclusivos', icon: '🎨', label: 'Exclusivos' },
@@ -390,6 +391,7 @@
     if (!keys.includes(k)) { keys.push(k); lsPut(HECHOS_KEY, { dia: hoy(), keys }); }
   }
   const pillDe = (it, est) => {
+    if (it.href === '/salon') return pillSalon();
     const leida = (est && est.estado[claveEstado(it)]) || '';
     if (!it.porRegion) return leida;
     if (hechosHoy().includes(claveEstado(it))) return 'hecho hoy';
@@ -466,6 +468,45 @@
     return `<span class="ax-sub"><b>${kEsc(s.nombre)}</b><span>${kEsc(s.precio)} · ${textoRestante(s.cierraAt - Date.now())}</span></span>`;
   }
 
+  /* ─── Salón: energía que queda por comprar hoy («Te quedan 18 de 20 de energía…») ─── */
+  const SALON_KEY = 'adx-accesos-salon';
+  let salonIntento = 0, salonPidiendo = false;
+
+  function parsearCupoSalon(raiz) {
+    const t = (raiz.body ? raiz.body : raiz).textContent.replace(/\s+/g, ' ');
+    const m = t.match(/Te quedan\s+(\d+)\s+de\s+(\d+)\s+de energ/i);
+    return m ? { left: parseInt(m[1], 10), total: parseInt(m[2], 10) } : null;
+  }
+
+  function guardarCupoSalon(c) {
+    if (!c) return;
+    const p = lsJSON(SALON_KEY, null);
+    if (p && p.dia === hoy() && p.left === c.left && p.total === c.total) return;
+    lsPut(SALON_KEY, { dia: hoy(), left: c.left, total: c.total, t: Date.now() });
+    const panel = document.getElementById(PANEL_ID);
+    if (panel) panel.replaceWith(crearPanel());
+  }
+
+  // «18 de 20»; si el último dato es de otro día, el cupo ya se ha renovado entero
+  function pillSalon() {
+    const s = lsJSON(SALON_KEY, null);
+    if (!s) return '';
+    return `${s.dia === hoy() ? s.left : s.total} de ${s.total}`;
+  }
+
+  async function refrescarSalon() {
+    if (/^\/salon\/?$/.test(location.pathname)) { guardarCupoSalon(parsearCupoSalon(document)); return; }
+    const s = lsJSON(SALON_KEY, null);
+    if (salonPidiendo || Date.now() - salonIntento < 5 * 6e4 || (s && s.dia === hoy() && Date.now() - s.t < SUBASTA_REFRESCO)) return;
+    salonIntento = Date.now();
+    salonPidiendo = true;
+    try {
+      const r = await fetch('/salon', { credentials: 'same-origin' });
+      if (r.ok) guardarCupoSalon(parsearCupoSalon(new DOMParser().parseFromString(await r.text(), 'text/html')));
+    } catch { /* sin red: se queda lo guardado */ }
+    finally { salonPidiendo = false; }
+  }
+
   /* ─── Panel ─────────────────────────────────────────────────────────── */
   function estilos() {
     kStyle('adx-accesos-kit', U);
@@ -483,6 +524,7 @@
       ${U} .ax-item .ax-ico{font-size:24px;line-height:1}
       ${U} .ax-item .ax-lbl{font-size:10px;font-weight:800;line-height:1.15}
       ${U} .ax-item.ax-hecho{opacity:.5}
+      ${U} .ax-aparte{margin:2px 12px 0;padding:10px 0 12px;border-top:2px solid rgba(127,127,127,.28)}
       ${U} .ax-item .ax-tag{position:absolute;top:-6px;right:-4px;font-size:9px;padding:1px 6px;line-height:1.4}
       ${U} .ax-sub{display:flex;flex-direction:column;gap:1px;max-width:100%;font-size:9px;font-weight:700;line-height:1.2;opacity:.85}
       ${U} .ax-sub>b{font-size:9px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
@@ -533,7 +575,7 @@
     det.open = !plegados.includes(b.id);
 
     let resumen = b.sub || '';
-    if (b.diario && est) {
+    if (b.diario) {
       const conEstado = itemsDe(b).filter(i => pillDe(i, est));
       const hechos = conEstado.filter(i => /hecho|parado/i.test(pillDe(i, est))).length;
       if (conEstado.length) resumen = `${hechos} de ${conEstado.length} hechos hoy`;
@@ -547,11 +589,18 @@
       </summary>
       <ul class="ax-grid px-3 pb-3"></ul>`;
     const ul = det.querySelector('ul');
-    // En «Para hoy», lo pendiente primero y lo hecho al final
-    const items = b.diario && est
-      ? itemsDe(b).sort((x, y) => (/hecho|parado/i.test(pillDe(x, est)) ? 1 : 0) - (/hecho|parado/i.test(pillDe(y, est)) ? 1 : 0))
-      : itemsDe(b);
-    for (const it of items) ul.appendChild(crearItem(it, est));
+    // En PvE, lo pendiente primero y lo hecho al final; los Safari van siempre aparte, al final y sin título
+    const hecho = i => (/hecho|parado/i.test(pillDe(i, est)) ? 1 : 0);
+    const todos = b.diario ? itemsDe(b).sort((x, y) => hecho(x) - hecho(y)) : itemsDe(b);
+    const esSafari = i => i.porRegion && i.href === '/safari';
+    for (const it of todos.filter(i => !esSafari(i))) ul.appendChild(crearItem(it, est));
+    const aparte = todos.filter(esSafari);
+    if (aparte.length) {
+      const ul2 = document.createElement('ul');
+      ul2.className = 'ax-grid ax-aparte px-3 pb-3';
+      for (const it of aparte) ul2.appendChild(crearItem(it, est));
+      ul.insertAdjacentElement('afterend', ul2);
+    }
     det.addEventListener('toggle', () => {
       const p = lsJSON(PLEGADO_KEY, PLEGADO_INICIAL).filter(x => x !== b.id);
       if (!det.open) p.push(b.id);
@@ -602,6 +651,7 @@
       continuarViajePendiente();
       leerEstadoDelMenu();
       refrescarSubasta();
+      refrescarSalon();
       desmontarSiNoToca();
       montar();
     }, 150);
@@ -612,6 +662,7 @@
     continuarViajePendiente();
     leerEstadoDelMenu();
     refrescarSubasta();
+    refrescarSalon();
     montar();
   });
 })();
