@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.17.0
+// @version      0.18.0
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -297,7 +297,7 @@
     if (cuenta('puerta')) partes.push(`🚪 ${cuenta('puerta')} puerta(s)`);
     if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} objeto(s)`);
     estado.textContent = partes.join(' · ');
-    panel.querySelector('.axg-msg').textContent = msg;
+    panel.querySelector('.axg-msg').textContent = msg + (ultimaParada && !explorando && msg !== ultimaParada ? ' · Última parada: ' + ultimaParada : '');
     panel.querySelector('[data-a="auto"]').textContent = explorando ? '■ Parar exploración' : '🧭 Explorar hasta la escalera';
   }
 
@@ -709,6 +709,29 @@
     return false;
   }
 
+  // Sin zonas nuevas a la vista: si un entrenador, personaje, lápida… está pegado a la niebla, se choca con él (máx. 3 veces cada uno)
+  const bloqueadores = {};
+  async function empujarBloqueador(t) {
+    if (!t.jugador) return false;
+    const planta = plantaActual();
+    const clave = e => planta + '|' + e.c + ',' + e.f;
+    let mejor = null;
+    for (const e of t.entidades) {
+      if (e.tipo === 'objeto' || e.tipo === 'movediza' || (bloqueadores[clave(e)] || 0) >= 3) continue;
+      if (!VECINOS.some(([dc, df]) => { const c = t.celdas.get((e.c + dc) + ',' + (e.f + df)); return c && c.tipo === 'niebla'; })) continue;
+      const dist = Math.abs(e.c - t.jugador.c) + Math.abs(e.f - t.jugador.f);
+      const r = dist === 1 ? [null] : rutaA(t, c => c.pisable && !t.ocupadas.has(c.c + ',' + c.f) && Math.abs(c.c - e.c) + Math.abs(c.f - e.f) === 1);
+      if (r && (!mejor || r.length < mejor.r.length)) mejor = { e, r, dist };
+    }
+    if (!mejor) return false;
+    const { e, r, dist } = mejor;
+    msg = `Algo tapa el paso (${e.tipo}): pruebo a chocar con ello…`; pintar();
+    if (dist === 1) { bloqueadores[clave(e)] = (bloqueadores[clave(e)] || 0) + 1; await andar(e.c - t.jugador.c, e.f - t.jugador.f); await pausa(900, 1300); return true; }
+    if (r.length > 1) { await clicCelda(r[r.length - 1], t); await pausa(700, 1100); return true; }
+    return false;
+  }
+
+  let ultimaParada = '';
   async function explorar() {
     if (explorando) { explorando = false; msg = 'Exploración parada.'; pintar(); return; }
     explorando = true;
@@ -735,7 +758,7 @@
         for (const e of t.entidades) {
           if ((fase === 0) === (e.tipo === 'puerta')) continue;
           const ok =
-            (combatir && e.tipo === 'entrenador' && !combatidos.has(planta + '|' + e.nombre)) ||
+            (combatir && e.tipo === 'entrenador' && !combatidos.has(planta + '|' + e.nombre + '|' + e.c + ',' + e.f)) ||
             (combatir && e.tipo === 'remolino' && contadoresPlanta.remolino < MAX_REMOLINOS) ||
             (recoger && e.tipo === 'jarron' && contadoresPlanta.jarron < MAX_JARRONES) ||
             (recoger && e.tipo === 'lapida' && contadoresPlanta.lapida < MAX_LAPIDAS && !tumbasVistas.has(planta + '|' + e.c + ',' + e.f)) ||
@@ -762,7 +785,7 @@
           }[e.tipo];
           if (dist === 1) {
             // Al lado: se choca con la flecha (pulsar la casilla solo lleva hasta el borde)
-            if (e.tipo === 'entrenador') combatidos.add(planta + '|' + e.nombre); else contadoresPlanta[e.tipo]++;
+            if (e.tipo === 'entrenador') combatidos.add(planta + '|' + e.nombre + '|' + e.c + ',' + e.f); else contadoresPlanta[e.tipo]++;
             msg = TXT[0]; pintar();
             if (e.tipo === 'puerta') ultimaPuerta = Date.now();
             if (e.tipo === 'puerta') puertaVisitas[planta + '|' + e.nombre] = tumbasLeidas;
@@ -798,12 +821,14 @@
       }
       const meta = rutaA(t, esFrontera(t));
       if ((!meta || meta.length < 2) && esperaPuerta) { puertaFin[plantaActual()] = true; continue; }   // no aparece la puerta: se baja igualmente
+      if ((!meta || meta.length < 2) && (await empujarBloqueador(t))) continue;   // algo tapa el paso hacia la niebla: se prueba a chocar con ello
       if (!meta || meta.length < 2) { msg = 'No queda nada por explorar desde aquí (sin ruta a zonas nuevas). Parado.'; console.log('[axg] parado: sin frontera', t.jugador, t.entidades); break; }
       msg = esperaPuerta ? `🚪 Planta con puerta: busco la puerta… (${pasos(meta)} pasos)` : `Explorando… (${pasos(meta)} pasos al siguiente hueco)`; pintar();
       const destino = meta[meta.length - 1];
       if (!(await clicCelda(destino, t))) { if (++sinCambio > 3) { msg = 'El juego no responde a los clics. Parado.'; break; } } else sinCambio = 0;
       await pausa(600, 1000);
     }
+    if (msg && msg !== 'Exploración parada.') ultimaParada = msg;
     explorando = false;
     mostrarPildora(false);
     pintar();
