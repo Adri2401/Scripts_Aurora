@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.1.0
+// @version      1.1.1
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -178,12 +178,12 @@
       { href: '/album',          icon: '📷', label: 'Álbum' },
       { href: '/buceo',          icon: '🤿', label: 'Buceo' },
       { href: '/jessie-y-james', icon: '🎈', label: 'Jessie y James' },
-      { href: '/valle',          icon: '🌄', label: 'Valle Aurora' },
       { href: '/salon',          icon: '🎴', label: 'Salón' },
       SAFARI('kanto', 'Kanto'), SAFARI('johto', 'Johto'), SAFARI('hoenn', 'Hoenn'), SAFARI('sinnoh', 'Sinnoh'), SAFARI('teselia', 'Teselia'),
     ] },
     { id: 'pvp', titulo: 'PvP', sub: 'Contra los demás', icono: '⚔️', items: [
       { href: '/isla',     icon: '🏝️', label: 'Isla Espejismo' },
+      { href: '/valle',    icon: '🌄', label: 'Valle Aurora' },
       { href: '/torre',    icon: '🗼', label: 'Torre Desafío' },
       { href: '/tronos',   icon: '👑', label: 'Los Tronos' },
       { href: '/metro',    icon: '🚇', label: 'Metro Batalla' },
