@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Golf (hoyo en el mínimo de golpes)
 // @namespace    auroradex-golf
-// @version      1.1.0
+// @version      1.1.1
 // @description  Solo en /golf. Calcula con la física del propio juego el tiro (ángulo y fuerza) que mete la bola en el mínimo de golpes y lo tira solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -204,11 +204,27 @@
   /* ------------------------------------------------------------------ *
    *  CONEXIÓN CON EL JUEGO (props del tablero: filas, bola, bloqueado y disparar)
    * ------------------------------------------------------------------ */
+  function actual(f) {
+    if (!f) return f;
+    for (const c of [f, f.alternate]) {
+      if (!c) continue;
+      let r = c; while (r.return) r = r.return;
+      if (r.tag === 3 && r.stateNode && r.stateNode.current === r) return c;
+    }
+    return f;
+  }
+  // Posición de la bola según el dibujo (img «La bola», 38 px centrada en casillas de 32 px con 4 px de borde)
+  function bolaEnPantalla() {
+    const img = document.querySelector('main img[alt="La bola"]');
+    if (!img) return null;
+    return { x: (parseFloat(img.style.left) + 19 - 4) / 32, y: (parseFloat(img.style.top) + 19 - 4) / 32 };
+  }
   function tablero() {
     const div = document.querySelector('main div.relative.touch-none.select-none');
     if (!div) return null;
     const k = Object.keys(div).find(x => x.startsWith('__reactFiber$'));
-    for (let f = k && div[k]; f; f = f.return) {
+    // La fibra guardada en el nodo puede ser la copia vieja (React alterna dos): se usa la que está en pantalla
+    for (let f = k && actual(div[k]); f; f = f.return) {
       const p = f.memoizedProps;
       if (p && Array.isArray(p.filas) && p.bola && typeof p.disparar === 'function') return { div, props: p };
     }
@@ -228,7 +244,7 @@
       for (let golpe = 0; golpe < 12 && jugando; golpe++) {
         let p = leer();
         const t0 = Date.now();
-        while (p && p.bloqueado && Date.now() - t0 < 15000) { await sleep(200); p = leer(); }
+        while (p && p.bloqueado && Date.now() - t0 < 15000) { await sleep(150); p = leer(); }
         if (!p) { decir('No veo el tablero.'); break; }
         if (enHoyo(p) || /dentro en/i.test(document.querySelector('main')?.textContent || '')) { decir('⛳ ¡Dentro!'); break; }
         const n = nivelDe(p.filas), pos = { x: p.bola.x, y: p.bola.y };
@@ -243,19 +259,18 @@
         const tiro = plan.tiros.shift();
         decir(`Plan: ${plan.tiros.length + 1} golpe(s) más · tiro a ${tiro.angulo}° con fuerza ${tiro.potencia}.`);
         await sleep(350);
-        const antes = JSON.stringify(p.bola);
         p.disparar(tiro.angulo, tiro.potencia);
-        // espera a que la bola termine de moverse
+        // Espera a que la bola se quede quieta en pantalla y el juego vuelva a dejar tirar
         const t1 = Date.now();
-        await sleep(400);
-        while (Date.now() - t1 < 20000) {
-          const q = leer();
+        let ultima = '', quietaDesde = Date.now();
+        await sleep(500);
+        while (Date.now() - t1 < 25000 && jugando) {
+          const b = JSON.stringify(bolaEnPantalla()), q = leer();
+          if (b !== ultima) { ultima = b; quietaDesde = Date.now(); }
           if (!q) break;
-          if (!q.bloqueado && JSON.stringify(q.bola) !== antes) break;
-          if (!q.bloqueado && Date.now() - t1 > 3000) break;
-          await sleep(200);
+          if (!q.bloqueado && Date.now() - quietaDesde > 450) break;
+          await sleep(120);
         }
-        await sleep(300);
       }
     } catch (e) {
       console.error('[axgolf]', e);
