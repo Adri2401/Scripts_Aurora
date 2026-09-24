@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.5.0
+// @version      2.6.0
 // @description  Auto-explora y captura; ante shiny/legendario vibra, notifica y PARA la macro para captura manual. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -874,32 +874,31 @@
     renderUI();
   }
 
+  // Mensaje discreto y breve (texto casi transparente abajo). Sin notificaciones del sistema ni sonido.
+  function toast(text, ms = 2500) {
+    const viejo = document.getElementById('adx-toast');
+    if (viejo) viejo.remove();
+    const t = document.createElement('div');
+    t.id = 'adx-toast';
+    t.textContent = text;
+    t.style.cssText = 'position:fixed;left:50%;bottom:calc(var(--nav-alto,4rem) + 1.25rem);transform:translateX(-50%);z-index:2147483000;' +
+      'max-width:88vw;padding:4px 12px;border-radius:999px;text-align:center;pointer-events:none;' +
+      'font:700 13px/1.3 system-ui,sans-serif;color:rgba(255,255,255,.8);background:rgba(0,0,0,.22);opacity:0;transition:opacity .25s ease';
+    document.body.appendChild(t);
+    requestAnimationFrame(() => { t.style.opacity = '1'; });
+    setTimeout(() => { t.style.opacity = '0'; }, Math.max(0, ms - 300));
+    setTimeout(() => t.remove(), ms);
+  }
+
   function notify(text) {
     console.warn('[ADX]', text);
-    try {
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Auroradex Macro', { body: text });
-      }
-    } catch { /* ignorar */ }
+    toast(text);
   }
 
-  function beep() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      [880, 1320, 1760].forEach((f, i) => {
-        const o = ctx.createOscillator(), g = ctx.createGain();
-        o.frequency.value = f; o.connect(g); g.connect(ctx.destination);
-        g.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.16);
-        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.16 + 0.14);
-        o.start(ctx.currentTime + i * 0.16); o.stop(ctx.currentTime + i * 0.16 + 0.15);
-      });
-    } catch { /* sin audio */ }
-  }
-
-  // Vibración larga (móvil): usada solo para avisos de shiny/legendario
+  // Una sola vibración corta (móvil)
   function vibrate() {
     try {
-      if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 400, 150, 800]);
+      if (navigator.vibrate) navigator.vibrate(220);
     } catch { /* sin vibración (navegador de escritorio, permisos, etc.) */ }
   }
 
@@ -914,9 +913,6 @@
     }
     const lim0 = getEnergyLimit(), en0 = readEnergy();
     if (lim0 && en0 && en0.normal + en0.vet < lim0) log(`Aviso: pides ${lim0} de energía y ahora tienes ${en0.normal + en0.vet}; parará antes si se acaba.`);
-    try {
-      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-    } catch { /* ignorar */ }
     Object.assign(S, {
       running: true, phase: 'on', explores: 0, throws: 0, sinceNursery: 0, hatched: 0, shiny: 0, legendary: 0, noBallsSince: 0,
       nurseryIn: CONFIG.NURSERY_FALLBACK_EXPLORES, nurseryDue: true, encThrows: 0, encKey: '', noEffect: 0, lastProgress: Date.now(), disabledSince: 0,
@@ -943,7 +939,11 @@
     const resumen = `${S.explores} exploraciones · ${S.spent} de energía · ${S.hatched} huevos · ${fmtTime(S.endedAt - S.startedAt)}`;
     setMsg(`${reason || 'Macro detenida.'} — ${resumen}`);
     log('Detenida:', reason || '(manual)');
-    if (alert) notify(reason);
+    if (alert) {
+      vibrate();
+      const corto = /^(L[ií]mite|Hecho)/.test(reason || '') ? 'Exploración terminada' : String(reason || 'Exploración terminada');
+      toast(corto.length > 90 ? corto.slice(0, 87) + '…' : corto, 2500);
+    }
   }
 
   const toggle = () => (S.running ? stop('Detenida manualmente.') : start());
@@ -1268,13 +1268,12 @@
     setMsg(`${who} · ${det} → ${kindTxt}`);
 
     if (rare) {
-      beep();
       const txt = `${info.shiny ? '¡SHINY!' : ''}${info.shiny && info.legendary ? ' ' : ''}${info.legendary ? '¡LEGENDARIO!' : ''} ${who} → ${kindTxt}`;
       notify(txt);
     }
   }
 
-  // Shiny o legendario: NO se lanza ninguna bola. Se avisa (sonido + vibración + notificación)
+  // Shiny o legendario: NO se lanza ninguna bola. Se avisa (una vibración y un mensaje breve)
   // y se detiene la macro por completo para que captures a mano.
   function handleRareEncounter(info) {
     if (info.shiny) S.shiny++;
@@ -1283,10 +1282,7 @@
     const tag = `${info.shiny ? '¡SHINY! ' : ''}${info.legendary ? '¡LEGENDARIO! ' : ''}`;
     const txt = `${tag}${who} — ¡captúralo tú! Macro detenida.`;
     log('★', txt);
-    beep();
-    vibrate();
-    notify(txt);
-    stop(txt);
+    stop(txt, { alert: true });
     return true;
   }
 
