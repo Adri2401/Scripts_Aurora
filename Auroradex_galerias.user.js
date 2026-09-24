@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.3.0
+// @version      0.4.0
 // @description  Minijuego de bajar plantas: resalta la escalera y los objetos que se vean, dibuja el camino más corto, explora solo hasta encontrar la escalera y permite copiar un diagnóstico del estado interno del juego.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -76,25 +76,39 @@
       celdas.set(c + ',' + f, { c, f, tipo, img, pisable, btn: b });
       maxC = Math.max(maxC, c); maxF = Math.max(maxF, f);
     }
-    // Jugador: el sprite de /personajes/ mide 2 casillas de alto; pisa la de abajo
-    let jugador = null;
-    for (const s of $$(':scope > span', raiz)) {
-      if (!/personajes\//.test(s.style.backgroundImage || '')) continue;
-      const c = Math.round(parseFloat(s.style.left) / w);
-      const f = Math.round(parseFloat(s.style.top) / w + (parseFloat(s.style.height) / w || 1) - 1);
+    // Jugador: el centro de la luz de la antorcha («circle at 168px 168px») cae en su casilla. Otros sprites de
+    // /personajes/ (como el mercader) son personajes del tablero. Un sprite mide 2 casillas de alto y pisa la de abajo.
+    const spritePos = s => ({
+      c: Math.round(parseFloat(s.style.left) / w),
+      f: Math.round(parseFloat(s.style.top) / w + (parseFloat(s.style.height) / w || 1) - 1),
+    });
+    let jugador = null, spriteJugador = null;
+    const luz = $$(':scope > span', raiz).map(s => (s.style.background || s.style.backgroundImage || '').match(/circle at\s+([\d.]+)px\s+([\d.]+)px/)).find(Boolean);
+    const sprites = $$(':scope > span', raiz).filter(s => /personajes\//.test(s.style.backgroundImage || ''));
+    if (luz) {
+      const c = Math.floor(parseFloat(luz[1]) / w), f = Math.floor(parseFloat(luz[2]) / w);
+      spriteJugador = sprites.find(s => { const p = spritePos(s); return p.c === c && p.f === f; }) || null;
       jugador = { c, f };
+    } else if (sprites.length) {
+      spriteJugador = sprites[sprites.length - 1];
+      jugador = spritePos(spriteJugador);
     }
-    // Entidades dibujadas encima del suelo (no son botones): entrenadores (<img>), remolinos y otros objetos (<span> con imagen)
+    // Entidades dibujadas encima del suelo (no son botones): entrenadores, mercader, remolinos y otros objetos
     const entidades = [];
     for (const el of $$(':scope > img, :scope > span', raiz)) {
       const st = el.style, bg = st.backgroundImage || '', src = el.tagName === 'IMG' ? (el.getAttribute('src') || '') : '';
-      if (/personajes\//.test(bg) || /inset-0/.test(el.className || '')) continue;      // jugador y capa de oscuridad
+      if (el === spriteJugador || /inset-0/.test(el.className || '')) continue;      // jugador y capa de oscuridad
       const left = parseFloat(st.left), top = parseFloat(st.top);
       if (Number.isNaN(left) || Number.isNaN(top)) continue;
       const wd = parseFloat(st.width) || w, ht = parseFloat(st.height) || w;
       const nombre = ((src || bg).match(/\/([^\/"')]+)\.(?:png|webp|gif|jpe?g)/i) || [])[1] || '';
-      const tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : 'objeto';
-      entidades.push({ c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w), tipo, nombre });
+      let tipo, pos;
+      if (/personajes\//.test(bg)) { tipo = /ricach|mercader|vendedor|nomada/i.test(nombre) ? 'mercader' : 'personaje'; pos = spritePos(el); }
+      else {
+        tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : 'objeto';
+        pos = { c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w) };
+      }
+      entidades.push({ c: pos.c, f: pos.f, tipo, nombre });
     }
     const ocupadas = new Set(entidades.filter(e => e.tipo !== 'objeto').map(e => e.c + ',' + e.f));
     return { raiz, w, celdas, cols: maxC + 1, filas: maxF + 1, jugador, entidades, ocupadas };
@@ -160,6 +174,8 @@
     const ESTILO = {
       entrenador: 'box-shadow:inset 0 0 0 2px #ff9800;background:rgba(255,152,0,.25)',
       remolino: 'box-shadow:inset 0 0 0 2px #b388ff;background:rgba(179,136,255,.28)',
+      mercader: 'box-shadow:inset 0 0 0 2px #ffd54f;background:rgba(255,213,79,.28)',
+      personaje: 'box-shadow:inset 0 0 0 2px #ff9800;background:rgba(255,152,0,.22)',
       objeto: 'box-shadow:inset 0 0 0 2px #4fc3f7;background:rgba(79,195,247,.22)',
     };
     for (const o of otros) html += marcar(o, ESTILO[o.tipo] || ESTILO.objeto);
@@ -264,6 +280,8 @@
     partes.push(a.escaleras.length ? `🪜 Escalera a la vista${a.ruta ? ` · ${pasos(a.ruta)} pasos` : ' (sin camino conocido)'}` : '🪜 Escalera aún no descubierta');
     const cuenta = tp => a.otros.filter(o => o.tipo === tp).length;
     if (cuenta('entrenador')) partes.push(`👤 ${cuenta('entrenador')} entrenador(es)`);
+    if (cuenta('mercader')) partes.push(`🛒 mercader`);
+    if (cuenta('personaje')) partes.push(`🧍 ${cuenta('personaje')} personaje(s)`);
     if (cuenta('remolino')) partes.push(`🌀 ${cuenta('remolino')} remolino(s)`);
     if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} objeto(s)`);
     estado.textContent = partes.join(' · ');
@@ -279,6 +297,7 @@
       await sleep(120);
       const n = leerTablero();
       if (!n) return false;
+      if ($$('button').some(x => !x.closest('#' + PANEL_ID) && /^\s*Despedirse\s*$/i.test(x.textContent || ''))) return true;   // se abrió el mercader
       // el tablero se desplaza con la cámara: se considera hecho cuando cambia lo que se ve
       const firma = [...n.celdas.values()].map(c => c.tipo[0]).join('');
       const firmaAntes = [...t.celdas.values()].map(c => c.tipo[0]).join('');
@@ -287,11 +306,24 @@
     return false;
   }
 
+  // Si se ha abierto la ventana del mercader nómada (o cualquier otra con «Despedirse»), se cierra y se sigue
+  async function despedirse() {
+    const b = $$('button').find(x => !x.closest('#' + PANEL_ID) && !x.disabled && /^\s*Despedirse\s*$/i.test(x.textContent || ''));
+    if (!b) return false;
+    const quien = ($$('h3').map(h => h.textContent.trim()).find(t => /mercader|nomada|nómada/i.test(t))) || 'ventana';
+    b.click();
+    msg = `Despedido de «${quien}»; sigo buscando la escalera.`;
+    pintar();
+    await sleep(350);
+    return true;
+  }
+
   async function explorar() {
     if (explorando) { explorando = false; msg = 'Exploración parada.'; pintar(); return; }
     explorando = true;
     let sinCambio = 0;
     while (explorando) {
+      if (await despedirse()) continue;
       const t = leerTablero();
       if (!t) { msg = 'Sin tablero: parado.'; break; }
       const esc = [...t.celdas.values()].find(c => c.tipo === 'escalera');
@@ -352,7 +384,7 @@
   }
 
   // Para probar sin la web
-  window.__axGalerias = { leerTablero, camino, esFrontera, diagnostico, asegurarPanel };
+  window.__axGalerias = { leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse };
 
   esperarHidratacion().then(() => {
     asegurarPanel();
