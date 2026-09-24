@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.2.0
+// @version      1.2.1
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -169,9 +169,9 @@
       { href: '/valle',    icon: '🌄', label: 'Valle Aurora' },
       { href: '/torre',    icon: '🗼', label: 'Torre Desafío' },
       { href: '/tronos',   icon: '👑', label: 'Los Tronos' },
-      { href: '/metro',    icon: '🚇', label: 'Metro Batalla' },
       { href: '/entranas', icon: '⛰️', label: 'Monte Plateado' },
-      { href: '/castillo', icon: '🏰', label: 'Castillo Ancestral' },
+      { href: '/metro',    icon: '🚇', label: 'Metro Batalla', ...T },
+      { href: '/castillo', icon: '🏰', label: 'Castillo Ancestral', ...T },
     ] },
     // Los Safari (porRegion) se dibujan siempre al final del bloque, aparte y sin título
     { id: 'pve', titulo: 'PvE', sub: 'Lo de cada día', icono: '📅', diario: true, items: [
