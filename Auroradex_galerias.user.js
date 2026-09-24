@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.1.0
+// @version      0.2.0
 // @description  Minijuego de bajar plantas: resalta la escalera y los objetos que se vean, dibuja el camino más corto, explora solo hasta encontrar la escalera y permite copiar un diagnóstico del estado interno del juego.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -84,13 +84,27 @@
       const f = Math.round(parseFloat(s.style.top) / w + (parseFloat(s.style.height) / w || 1) - 1);
       jugador = { c, f };
     }
-    return { raiz, w, celdas, cols: maxC + 1, filas: maxF + 1, jugador };
+    // Entidades dibujadas encima del suelo (no son botones): entrenadores (<img>), remolinos y otros objetos (<span> con imagen)
+    const entidades = [];
+    for (const el of $$(':scope > img, :scope > span', raiz)) {
+      const st = el.style, bg = st.backgroundImage || '', src = el.tagName === 'IMG' ? (el.getAttribute('src') || '') : '';
+      if (/personajes\//.test(bg) || /inset-0/.test(el.className || '')) continue;      // jugador y capa de oscuridad
+      const left = parseFloat(st.left), top = parseFloat(st.top);
+      if (Number.isNaN(left) || Number.isNaN(top)) continue;
+      const wd = parseFloat(st.width) || w, ht = parseFloat(st.height) || w;
+      const nombre = ((src || bg).match(/\/([^\/"')]+)\.(?:png|webp|gif|jpe?g)/i) || [])[1] || '';
+      const tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : 'objeto';
+      entidades.push({ c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w), tipo, nombre });
+    }
+    const ocupadas = new Set(entidades.filter(e => e.tipo !== 'objeto').map(e => e.c + ',' + e.f));
+    return { raiz, w, celdas, cols: maxC + 1, filas: maxF + 1, jugador, entidades, ocupadas };
   }
 
   const VECINOS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
   // Camino más corto (en pasos) a la casilla que cumpla `esMeta`, por casillas pisables ya visibles
-  function camino(t, esMeta) {
+  // `evitar`: casillas con entrenador o remolino; se rodean si hay otra ruta (si no, se pasa por ellas)
+  function camino(t, esMeta, evitar = true) {
     if (!t.jugador) return null;
     const ini = t.jugador.c + ',' + t.jugador.f;
     const prev = new Map([[ini, null]]);
@@ -109,6 +123,7 @@
         if (prev.has(nk)) continue;
         const n = t.celdas.get(nk);
         if (!n || !(n.pisable || n.tipo === 'escalera')) continue;
+        if (evitar && t.ocupadas && t.ocupadas.has(nk) && n.tipo !== 'escalera' && !esMeta(n)) continue;
         prev.set(nk, k);
         cola.push(nk);
       }
@@ -117,7 +132,9 @@
   }
 
   // Casilla pisable que toca la niebla: el mejor sitio al que ir a descubrir más mapa
-  const esFrontera = t => cel => cel.pisable && VECINOS.some(([dc, df]) => {
+  const rutaA = (t, esMeta) => camino(t, esMeta, true) || camino(t, esMeta, false);
+
+  const esFrontera = t => cel => cel.pisable && !(t.ocupadas && t.ocupadas.has(cel.c + ',' + cel.f)) && VECINOS.some(([dc, df]) => {
     const n = t.celdas.get((cel.c + dc) + ',' + (cel.f + df));
     return n && n.tipo === 'niebla';
   });
@@ -140,7 +157,12 @@
       html += marca(cel, `display:grid;place-items:center;color:#fff;font:800 11px system-ui;background:rgba(255,214,64,.38);box-shadow:inset 0 0 0 2px rgba(255,214,64,.9)`).replace('></span>', `>${i + 1}</span>`);
     });
     for (const e of escaleras) html += marcar(e, 'box-shadow:inset 0 0 0 3px #3ddc84,0 0 14px 4px rgba(61,220,132,.8);background:rgba(61,220,132,.28)');
-    for (const o of otros) html += marcar(o, 'box-shadow:inset 0 0 0 2px #4fc3f7;background:rgba(79,195,247,.22)');
+    const ESTILO = {
+      entrenador: 'box-shadow:inset 0 0 0 2px #ff9800;background:rgba(255,152,0,.25)',
+      remolino: 'box-shadow:inset 0 0 0 2px #b388ff;background:rgba(179,136,255,.28)',
+      objeto: 'box-shadow:inset 0 0 0 2px #4fc3f7;background:rgba(79,195,247,.22)',
+    };
+    for (const o of otros) html += marcar(o, ESTILO[o.tipo] || ESTILO.objeto);
     function marcar(cel, estilo) { return marca(cel, estilo); }
     if (ov.dataset.h !== html) { ov.innerHTML = html; ov.dataset.h = html; }
   }
@@ -204,8 +226,8 @@
     const t = leerTablero();
     if (!t) return null;
     const escaleras = [...t.celdas.values()].filter(c => c.tipo === 'escalera');
-    const otros = [...t.celdas.values()].filter(c => c.tipo === 'otro');
-    const ruta = escaleras.length ? camino(t, c => c.tipo === 'escalera') : null;
+    const otros = [...[...t.celdas.values()].filter(c => c.tipo === 'otro').map(c => ({ c: c.c, f: c.f, tipo: 'objeto' })), ...t.entidades];
+    const ruta = escaleras.length ? rutaA(t, c => c.tipo === 'escalera') : null;
     return { t, escaleras, otros, ruta };
   }
 
@@ -217,7 +239,10 @@
     if (mostrar) dibujar(a.t, a.ruta, a.escaleras, a.otros); else quitarDibujo();
     const partes = [];
     partes.push(a.escaleras.length ? `🪜 Escalera a la vista${a.ruta ? ` · ${pasos(a.ruta)} pasos` : ' (sin camino conocido)'}` : '🪜 Escalera aún no descubierta');
-    if (a.otros.length) partes.push(`✨ ${a.otros.length} objetos/personajes visibles`);
+    const cuenta = tp => a.otros.filter(o => o.tipo === tp).length;
+    if (cuenta('entrenador')) partes.push(`👤 ${cuenta('entrenador')} entrenador(es)`);
+    if (cuenta('remolino')) partes.push(`🌀 ${cuenta('remolino')} remolino(s)`);
+    if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} objeto(s)`);
     estado.textContent = partes.join(' · ');
     panel.querySelector('.axg-msg').textContent = msg;
     panel.querySelector('[data-a="auto"]').textContent = explorando ? '■ Parar exploración' : '🧭 Explorar hasta la escalera';
@@ -248,7 +273,7 @@
       if (!t) { msg = 'Sin tablero: parado.'; break; }
       const esc = [...t.celdas.values()].find(c => c.tipo === 'escalera');
       if (esc) {
-        const r = camino(t, c => c.tipo === 'escalera');
+        const r = rutaA(t, c => c.tipo === 'escalera');
         if (r && r.length > 1) {
           msg = `Escalera a ${pasos(r)} pasos: voy.`; pintar();
           if (!(await clicCelda(esc, t))) sinCambio++; else sinCambio = 0;
@@ -257,7 +282,7 @@
         }
         msg = '🪜 Ya estás en la escalera o sin camino. Parado.'; break;
       }
-      const meta = camino(t, esFrontera(t));
+      const meta = rutaA(t, esFrontera(t));
       if (!meta || meta.length < 2) { msg = 'No queda nada por explorar desde aquí. Parado.'; break; }
       msg = `Explorando… (${pasos(meta)} pasos al siguiente hueco)`; pintar();
       const destino = meta[meta.length - 1];
