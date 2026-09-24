@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.1.1
+// @version      1.2.0
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -164,6 +164,15 @@
       { href: '/esmalte',     icon: '🏛️', label: 'Vitrina de Esmalte' },
       { href: '/gachapon',    icon: '🎰', label: 'Máquina de Fichas' },
     ] },
+    { id: 'pvp', titulo: 'PvP', sub: 'Contra los demás', icono: '⚔️', items: [
+      { href: '/isla',     icon: '🏝️', label: 'Isla Espejismo' },
+      { href: '/valle',    icon: '🌄', label: 'Valle Aurora' },
+      { href: '/torre',    icon: '🗼', label: 'Torre Desafío' },
+      { href: '/tronos',   icon: '👑', label: 'Los Tronos' },
+      { href: '/metro',    icon: '🚇', label: 'Metro Batalla' },
+      { href: '/entranas', icon: '⛰️', label: 'Monte Plateado' },
+      { href: '/castillo', icon: '🏰', label: 'Castillo Ancestral' },
+    ] },
     // Los Safari (porRegion) se dibujan siempre al final del bloque, aparte y sin título
     { id: 'pve', titulo: 'PvE', sub: 'Lo de cada día', icono: '📅', diario: true, items: [
       { href: '/solar',          icon: '🌙', label: 'Solar', ...T },
@@ -180,15 +189,6 @@
       { href: '/jessie-y-james', icon: '🎈', label: 'Jessie y James' },
       { href: '/salon',          icon: '🎴', label: 'Salón' },
       SAFARI('kanto', 'Kanto'), SAFARI('johto', 'Johto'), SAFARI('hoenn', 'Hoenn'), SAFARI('sinnoh', 'Sinnoh'), SAFARI('teselia', 'Teselia'),
-    ] },
-    { id: 'pvp', titulo: 'PvP', sub: 'Contra los demás', icono: '⚔️', items: [
-      { href: '/isla',     icon: '🏝️', label: 'Isla Espejismo' },
-      { href: '/valle',    icon: '🌄', label: 'Valle Aurora' },
-      { href: '/torre',    icon: '🗼', label: 'Torre Desafío' },
-      { href: '/tronos',   icon: '👑', label: 'Los Tronos' },
-      { href: '/metro',    icon: '🚇', label: 'Metro Batalla' },
-      { href: '/entranas', icon: '⛰️', label: 'Monte Plateado' },
-      { href: '/castillo', icon: '🏰', label: 'Castillo Ancestral' },
     ] },
     { id: 'extra', titulo: 'Extra', icono: '🧰', items: [
       { href: '/golf',       icon: '⛳', label: 'Golf' },
@@ -321,6 +321,8 @@
     return label ? { icon: icon || '🔹', label } : null;
   }
 
+  const regionesConocidas = () => new Set(['kanto', 'johto', 'hoenn', 'sinnoh', 'teselia', ...Object.keys(lsJSON(MENUS_KEY, {}))]);
+
   function anotarNovedadesDelMenu() {
     const conocidos = hrefsConocidos();
     const extras = lsJSON(EXTRAS_KEY, {});
@@ -334,6 +336,10 @@
       const datos = leerItemDeMenu(a);
       if (!datos) continue;
       const nuevo = { ...datos, bloque: FORZAR_BLOQUE[href] || bloque || 'extra' };
+      // Si el Menú dice «Solo en Teselia» (o cualquier región conocida), el acceso viaja solo hasta allí
+      const solo = a.textContent.replace(/\s+/g, ' ').match(/solo (?:en|aparece en|se puede en)\s+([A-Za-zÁÉÍÓÚáéíóúñ]+)/i);
+      const reg = solo && normalizarTexto(solo[1]);
+      if (reg && regionesConocidas().has(reg)) nuevo.region = reg;
       if (JSON.stringify(extras[href]) !== JSON.stringify(nuevo)) { extras[href] = nuevo; cambio = true; }
     }
     if (cambio) lsPut(EXTRAS_KEY, extras);
@@ -347,7 +353,11 @@
     const extras = lsJSON(EXTRAS_KEY, {});
     for (const href of Object.keys(extras)) {
       const destino = FORZAR_BLOQUE[href] || ALIAS_BLOQUE[extras[href].bloque] || extras[href].bloque;
-      if (destino === b.id && !conocidos.has(href) && !ya.has(href)) items.push({ href, icon: extras[href].icon, label: extras[href].label });
+      if (destino === b.id && !conocidos.has(href) && !ya.has(href)) {
+        const it = { href, icon: extras[href].icon, label: extras[href].label };
+        if (extras[href].region) { it.region = extras[href].region; it.regionLabel = cap(extras[href].region); }
+        items.push(it);
+      }
     }
     if (b.id === 'pve') {
       const conSafari = new Set(items.filter(i => i.href === '/safari').map(i => i.region));

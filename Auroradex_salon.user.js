@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Salón Malvalona Auto
 // @namespace    auroradex-salon-auto
-// @version      1.3.1
-// @description  Juega solo a «Sube o Baja» del Salón de Malvalona con cuenta exacta de cartas. Modo Respiros: compra los 20 respiros del cupo diario (1 respiro = 1 de energía, 1 partida = -1) perdiendo el mínimo de energía posible. Modo Vales: maximiza el valor esperado.
+// @version      1.4.0
+// @description  Juega solo a «Sube o Baja» del Salón de Malvalona con cuenta exacta de cartas. Modo Respiros: juega con las mínimas partidas hasta reunir los vales de TODOS los respiros que quedan (15 × respiros) y entonces los compra seguidos. Modo Vales: maximiza el valor esperado.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_salon.user.js
@@ -497,8 +497,14 @@
             return;
           }
           const v = readVales() ?? 0;
-          const rb = respiroBtn(false);
-          if (rb && v >= o.price) { if (await comprarRespiro()) return; }
+          // Se juega hasta reunir los vales de TODOS los respiros que quedan (15 × respiros); entonces se compran seguidos.
+          // Excepción: si no se puede jugar más (sin energía), se compra lo que alcance para poder seguir.
+          const suficiente = !!o.T && v >= o.T;
+          const sinEnergia = !g.canPlay;
+          if (respiroBtn(false) && v >= o.price && (suficiente || sinEnergia)) {
+            if (suficiente && ses.respiros === 0) log(`🎟️ ${v} vales: compro los ${o.need} respiros que quedan.`);
+            if (await comprarRespiro()) return;
+          }
           if (!o.cupo && !respiroBtn(true)) { stop('No encuentro el Mostrador ni el cupo de energía. Parado.'); return; }
         }
 
