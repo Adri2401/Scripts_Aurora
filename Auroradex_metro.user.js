@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Metro Batalla (pelear en bucle y ventaja de tipos)
 // @namespace    auroradex-metro
-// @version      1.0.0
-// @description  Solo en /metro. Pulsa «Pelear» en bucle (con tope de paradas o de racha) y analiza tu equipo contra el del rival: quién gana a quién por tipos y nivel, con aviso si conviene «Cambiar vía».
+// @version      1.1.0
+// @description  Solo en /metro. Al elegir equipo analiza tus seis (debilidades, estadísticas, flojos) y marca el mejor orden; en cada parada predice el combate. Pulsa «Pelear» en bucle con tope de paradas o de racha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_metro.user.js
@@ -94,7 +94,7 @@
     try {
       const d = await pedirJSON('https://pokeapi.co/api/v2/pokemon/' + num);
       const t = (d.types || []).sort((a, b) => a.slot - b.slot).map(x => DE_INGLES[x.type.name]).filter(Boolean);
-      if (t.length) { tiposGuardados[num] = t; lsPut(LS_TIPOS, tiposGuardados); pintarAnalisis(); }
+      if (t.length) { tiposGuardados[num] = t; lsPut(LS_TIPOS, tiposGuardados); refrescarTodo(); }
       return t;
     } catch { return null; }
     finally { pidiendo.delete(num); }
@@ -169,14 +169,17 @@
 
   const mult = x => (x === 0 ? '×0' : x === 0.25 ? '×¼' : x === 0.5 ? '×½' : '×' + x);
   let firmaAnalisis = '';
+  const refrescarTodo = () => { firmaAnalisis = ''; firmaEquipo = ''; memoEquipo = null; pintarAnalisis(); pintarEquipo(); };
   function pintarAnalisis() {
     const panel = document.getElementById(PANEL_ID);
     if (!panel) return;
     const c = leerCombate();
-    if (c) for (const p of [...c.mios, ...c.rivales]) if (!p.tipos.length) tiposDe(p.num);
+    if (c) for (const p of [...c.mios, ...c.rivales]) if (!pokeGuardados[p.num]) datosDe(p.num);
+    if (c && c.rivales.length && c.rivales.every(r => r.num)) apuntarRivales(c);
     const a = analizar(c);
+    const pr = prediccion(c);
     const caja = panel.querySelector('.axm-analisis');
-    const firma = JSON.stringify(a && [a.nota, a.filas.map(f => [f.r.nombre, f.r.tipos, f.mejor && f.mejor.m.nombre])]);
+    const firma = JSON.stringify(a && [a.nota, pr, a.filas.map(f => [f.r.nombre, f.r.tipos, f.mejor && f.mejor.m.nombre])]);
     if (firma === firmaAnalisis) return;
     firmaAnalisis = firma;
     if (!a) { caja.innerHTML = ''; return; }
@@ -197,8 +200,244 @@
             <p class="text-[9px] font-bold" style="color:#8A93A6">le hace ${mult(f.mejor.ataque)} · recibe ${mult(f.mejor.defensa)}</p>
           </div>` : ''}
         </div>`).join('')}
+      ${pr ? `<p class="text-[11px] font-extrabold" style="color:${pr.gana ? '#8FD88A' : '#FF6B6B'}">Predicción con este orden: ${pr.gana ? `ganas (te quedan ${pr.vivos} en pie)` : `pierdes (le quedan ${pr.restantes} al rival)`}</p>` : ''}
       ${a.sinTipos ? '<p class="text-[10px] font-semibold" style="color:#8A93A6">Buscando los tipos que faltan…</p>' : ''}
-      ${a.nota < -0.8 && cambiosQuedan() > 0 ? '<p class="text-[11px] font-bold" style="color:#FFB23E">💡 Mala pinta: quizá compense «Cambiar vía».</p>' : ''}`;
+      ${((pr && !pr.gana) || (!pr && a.nota < -0.8)) && cambiosQuedan() > 0 ? '<p class="text-[11px] font-bold" style="color:#FFB23E">💡 Mala pinta: quizá compense «Cambiar vía».</p>' : ''}`;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  MODELO DE COMBATE (aproximado: el juego calcula el combate en su servidor)
+   *  1 contra 1, sin cambios: el ganador sigue con la vida que le quede contra el siguiente. Cada uno ataca con
+   *  el mejor de SUS tipos (ataque de 80 de potencia, ×1,5 por ser de su tipo), usa el mayor de Ataque/At. Esp.
+   *  contra la defensa que toque, y pega primero el más rápido. Estadísticas: las base de PokéAPI al nivel que toque.
+   * ------------------------------------------------------------------ */
+  const LS_POKE = 'axm-poke';
+  const pokeGuardados = lsGet(LS_POKE, {});
+  const pidiendoPoke = new Set();
+  async function datosDe(num) {
+    if (!num) return null;
+    if (pokeGuardados[num]) return pokeGuardados[num];
+    if (pidiendoPoke.has(num)) return null;
+    pidiendoPoke.add(num);
+    try {
+      const d = await pedirJSON('https://pokeapi.co/api/v2/pokemon/' + num);
+      const t = (d.types || []).sort((a, b) => a.slot - b.slot).map(x => DE_INGLES[x.type.name]).filter(Boolean);
+      const orden = ['hp', 'attack', 'defense', 'special-attack', 'special-defense', 'speed'];
+      const s = orden.map(k => ((d.stats || []).find(x => x.stat.name === k) || {}).base_stat || 70);
+      if (t.length) {
+        pokeGuardados[num] = { t, s };
+        lsPut(LS_POKE, pokeGuardados);
+        tiposGuardados[num] = t; lsPut(LS_TIPOS, tiposGuardados);
+        refrescarTodo();
+      }
+      return pokeGuardados[num];
+    } catch { return null; }
+    finally { pidiendoPoke.delete(num); }
+  }
+
+  // Luchador listo para el modelo: tipos (los de la web si los enseña), estadísticas al nivel dado
+  function luchador(p, nivelForzado, baseDirecta) {
+    const d = baseDirecta ? { s: baseDirecta, t: p.tipos } : pokeGuardados[p.num];
+    if (!d) return null;
+    const L = nivelForzado || p.nivel || 50, b = d.s;
+    const st = i => Math.floor(2 * b[i] * L / 100) + 5;
+    return { nombre: p.nombre, num: p.num, nivel: L, tipos: (p.tipos && p.tipos.length) ? p.tipos : d.t, hp: Math.floor(2 * b[0] * L / 100) + L + 10, atk: st(1), def: st(2), spa: st(3), spd: st(4), spe: st(5), bst: b.reduce((x, y) => x + y, 0) };
+  }
+  function dano(a, b) {
+    let mejor = 0;
+    for (const t of a.tipos) {
+      const fis = a.atk >= a.spa, A = fis ? a.atk : a.spa, D = fis ? b.def : b.spd;
+      const base = ((2 * a.nivel / 5 + 2) * 80 * A / D) / 50 + 2;
+      mejor = Math.max(mejor, base * 1.5 * eficacia(t, b.tipos));
+    }
+    return mejor;
+  }
+  // Un duelo: devuelve quién gana y con cuánta vida
+  function duelo(a, hpA, b, hpB) {
+    const dA = dano(a, b), dB = dano(b, a);
+    const tA = dA > 0 ? Math.ceil(hpB / dA) : Infinity, tB = dB > 0 ? Math.ceil(hpA / dB) : Infinity;
+    if (tA === Infinity && tB === Infinity) return hpA / a.hp >= hpB / b.hp ? { ganaA: true, hpA, hpB: 0 } : { ganaA: false, hpA: 0, hpB };
+    const primeroA = a.spe > b.spe || (a.spe === b.spe && hpA >= hpB);
+    if (primeroA) return tA <= tB ? { ganaA: true, hpA: hpA - (tA - 1) * dB, hpB: 0 } : { ganaA: false, hpA: 0, hpB: hpB - tB * dA };
+    return tB <= tA ? { ganaA: false, hpA: 0, hpB: hpB - (tB - 1) * dA } : { ganaA: true, hpA: hpA - tA * dB, hpB: 0 };
+  }
+  // Combate completo en orden; `vidaA` opcional (fracciones 0..1, para la Línea Negra)
+  function combate(mios, rivales, vidaA) {
+    let i = 0, j = 0, hpA = mios[0] ? mios[0].hp * (vidaA ? vidaA[0] : 1) : 0, hpB = rivales[0] ? rivales[0].hp : 0;
+    while (i < mios.length && j < rivales.length) {
+      if (hpA <= 0) { i++; if (i < mios.length) hpA = mios[i].hp * (vidaA ? vidaA[i] : 1); continue; }
+      const r = duelo(mios[i], hpA, rivales[j], hpB);
+      if (r.ganaA) { hpA = r.hpA; j++; if (j < rivales.length) hpB = rivales[j].hp; }
+      else { hpB = r.hpB; i++; if (i < mios.length) hpA = mios[i].hp * (vidaA ? vidaA[i] : 1); }
+    }
+    return { gana: j >= rivales.length, vivos: mios.length - i, restantes: rivales.length - j };
+  }
+
+  /* ---- Rivales vistos por línea (para comparar con rivales de verdad) ---- */
+  const LS_RIVALES = 'axm-rivales';
+  const lineaActual = () => { const h = $$('main h1').find(x => /l[ií]nea/i.test(x.textContent || '')); return h ? norm(h.textContent).replace(/^linea\s+/, '') : 'metro'; };
+  function apuntarRivales(c) {
+    const todos = lsGet(LS_RIVALES, {}), l = lineaActual(), lista = todos[l] || [];
+    const clave = c.rivales.map(r => r.num + '@' + r.nivel).join(',');
+    if (lista.some(e => e.clave === clave)) return;
+    lista.push({ clave, equipo: c.rivales.map(r => ({ num: r.num, nombre: r.nombre, nivel: r.nivel })) });
+    todos[l] = lista.slice(-80);
+    lsPut(LS_RIVALES, todos);
+  }
+  // Rivales de referencia: los vistos en esta línea (si hay bastantes) o un banco genérico de todos los tipos
+  const GENERICOS = ['normal', 'fuego', 'agua', 'planta', 'electrico', 'hielo', 'lucha', 'veneno', 'tierra', 'volador', 'psiquico', 'bicho', 'roca', 'fantasma', 'dragon', 'siniestro', 'acero',
+    'agua/tierra', 'fuego/volador', 'planta/veneno', 'dragon/volador', 'acero/psiquico', 'agua/volador', 'roca/tierra', 'bicho/volador', 'psiquico/fantasma', 'siniestro/fantasma', 'electrico/acero', 'hielo/agua', 'lucha/acero', 'normal/volador', 'dragon/tierra'];
+  function bancoRivales(nivel, base = 85) {
+    const vistos = (lsGet(LS_RIVALES, {})[lineaActual()] || []);
+    const equipos = [];
+    for (const e of vistos) {
+      for (const p of e.equipo) if (!pokeGuardados[p.num]) datosDe(p.num);
+      const eq = e.equipo.map(p => luchador({ ...p, tipos: null }, lineaActual() === 'verde' ? 50 : p.nivel)).filter(Boolean);
+      if (eq.length === e.equipo.length && eq.length) equipos.push(eq);
+    }
+    if (equipos.length >= 8) return { equipos, origen: `${equipos.length} equipos rivales que ya te han salido en esta línea` };
+    // genérico: tríos al azar de un banco de 32 tipos con la misma fuerza media que tu equipo (así se nota quién rinde más)
+    let semilla = 7; const azar = () => (semilla = (semilla * 16807) % 2147483647) / 2147483647;
+    // cada tipo en 4 variantes (rápido, lento, de ataque, de aguante) con la misma suma de estadísticas
+    const PERFILES = [[0, 0, 0, 0, 0, 25], [10, 5, 10, 5, 10, -40], [-5, 20, -10, 20, -10, -15], [20, -10, 15, -10, 15, -30]];
+    const banco = [];
+    for (const t of GENERICOS) PERFILES.forEach((pf, i) => {
+      const b6 = pf.map(d => Math.max(30, base + d + Math.round((azar() - 0.5) * 10)));
+      banco.push(luchador({ nombre: t + ' · ' + i, num: 'g', tipos: t.split('/'), nivel }, nivel, b6));
+    });
+    for (let k = 0; k < 300; k++) { const a = [...banco].sort(() => azar() - 0.5).slice(0, 3); equipos.push(a); }
+    return { equipos, origen: vistos.length ? `rivales genéricos (solo llevas ${vistos.length} equipos vistos en esta línea)` : 'rivales genéricos de todos los tipos (aún no has visto rivales en esta línea)' };
+  }
+
+  // Debilidades y resistencias de un Pokémon por sus tipos
+  function defensa(tipos) {
+    const deb = [], res = [], inm = [];
+    for (const t of Object.keys(TABLA)) {
+      const e = eficacia(t, tipos);
+      if (e >= 2) deb.push(e >= 4 ? bonito(t) + ' ×4' : bonito(t));
+      else if (e === 0) inm.push(bonito(t));
+      else if (e < 1) res.push(bonito(t));
+    }
+    return { deb, res, inm, x4: deb.some(d => /×4/.test(d)) };
+  }
+
+  /* ---- Pantalla «¿Con quién subes?»: análisis de los seis y mejor orden ---- */
+  function seccionElegir() {
+    return $$('main section').find(s => !ajeno(s) && /con qui[eé]n subes|elige tres/i.test((s.querySelector('p') || {}).textContent || ''));
+  }
+  function leerBanquillo() {
+    const sec = seccionElegir();
+    if (!sec) return null;
+    const tam = parseInt(((sec.querySelector('span span') || sec.querySelector('span') || {}).textContent || '').split('/')[1], 10) || 3;
+    const cands = $$('div.grid button', sec).map(b => {
+      const img = b.querySelector('img'), ps = $$('p', b).map(p => p.textContent.trim());
+      const num = parseInt(((img && img.getAttribute('src')) || '').match(/\/(\d+)(?:[-_][a-z0-9]+)?\.(?:png|gif|webp)/i)?.[1], 10) || null;
+      const marca = b.querySelector('span.absolute');
+      return { boton: b, nombre: ps[0] || '?', nivel: parseInt((ps.find(t => /^Nv\./.test(t)) || '').replace(/\D/g, ''), 10) || 50, num, orden: marca ? parseInt(marca.textContent, 10) : 0, tipos: null };
+    });
+    return { sec, tam, cands };
+  }
+  function permutaciones(arr, k) {
+    const out = [];
+    const rec = (pref, resto) => { if (pref.length === k) { out.push(pref); return; } resto.forEach((x, i) => rec([...pref, x], resto.filter((_, j) => j !== i))); };
+    rec([], arr);
+    return out;
+  }
+  function analizarEquipo(b) {
+    const verde = lineaActual() === 'verde';
+    const mios = b.cands.map(c => ({ c, l: luchador(c, verde ? 50 : c.nivel) }));
+    const faltan = mios.filter(m => !m.l);
+    if (faltan.length) return { faltan: faltan.length };
+    const nivelMedio = Math.round(mios.reduce((s, m) => s + m.l.nivel, 0) / mios.length);
+    const baseMedia = Math.round(mios.reduce((s, m) => s + m.l.bst, 0) / mios.length / 6);
+    const { equipos, origen } = bancoRivales(verde ? 50 : nivelMedio, baseMedia);
+    // cada uno por separado: qué parte de los rivales tumba de uno en uno
+    const rivalesSueltos = [...new Map(equipos.flat().map(r => [r.nombre + r.nivel, r])).values()];
+    const fichas = mios.map(m => {
+      const gana = rivalesSueltos.filter(r => duelo(m.l, m.l.hp, r, r.hp).ganaA).length / rivalesSueltos.length;
+      const d = defensa(m.l.tipos);
+      const ojo = [];
+      if (d.x4) ojo.push('una debilidad ×4');
+      if (d.deb.length >= 5) ojo.push(`${d.deb.length} debilidades`);
+      if (m.l.bst < 420) ojo.push(`estadísticas bajas (${m.l.bst})`);
+      return { ...m, gana, d, ojo, flojo: false };
+    });
+    // «Flojo»: de los que peor rinden del grupo y además con motivos (o muy por debajo de la media)
+    const media = fichas.reduce((s, f) => s + f.gana, 0) / fichas.length;
+    for (const f of fichas) f.flojo = f.gana < media - 0.15 || (f.gana < media && f.ojo.length > 0);
+    // el mejor orden: todos los tríos ordenados contra los mismos equipos rivales
+    let mejor = null;
+    for (const orden of permutaciones(fichas, Math.min(b.tam, fichas.length))) {
+      let ganadas = 0, vivos = 0;
+      for (const eq of equipos) { const r = combate(orden.map(f => f.l), eq); if (r.gana) { ganadas++; vivos += r.vivos; } }
+      const nota = ganadas / equipos.length + vivos / equipos.length / 100;
+      if (!mejor || nota > mejor.nota) mejor = { orden, nota, ganadas: ganadas / equipos.length };
+    }
+    return { fichas, mejor, origen };
+  }
+
+  let firmaEquipo = '', memoEquipo = null;
+  function pintarEquipo() {
+    let caja = document.getElementById('axm-equipo');
+    const b = enMetro() ? leerBanquillo() : null;
+    if (!b || !b.cands.length) { if (caja) caja.remove(); firmaEquipo = ''; return; }
+    for (const c of b.cands) if (!pokeGuardados[c.num]) datosDe(c.num);
+    if (!caja) {
+      caja = document.createElement('section');
+      caja.id = 'axm-equipo';
+      caja.className = 'space-y-2 rounded-card p-3';
+      caja.style.cssText = 'background:#171B23;border:2px solid #2F3644';
+    }
+    if (caja.previousElementSibling !== b.sec) b.sec.insertAdjacentElement('afterend', caja);
+    const entrada = JSON.stringify([lineaActual(), b.cands.map(c => [c.num, c.nivel, !!pokeGuardados[c.num]]), (lsGet(LS_RIVALES, {})[lineaActual()] || []).length]);
+    if (!memoEquipo || memoEquipo.entrada !== entrada) memoEquipo = { entrada, a: analizarEquipo(b) };
+    const a = memoEquipo.a;
+    const firma = JSON.stringify(a.faltan ? ['f', a.faltan] : [a.origen, a.mejor.orden.map(f => f.c.nombre), a.fichas.map(f => [f.c.nombre, Math.round(f.gana * 100)])]);
+    if (firma === firmaEquipo) return;
+    firmaEquipo = firma;
+    if (a.faltan) { caja.innerHTML = `<p class="text-[11px] font-semibold" style="color:#8A93A6">Buscando estadísticas de ${a.faltan} Pokémon…</p>`; return; }
+    const chip = t => `<span class="rounded-pill px-1 text-[8px] font-extrabold uppercase" style="border:1px solid #8A93A6;color:#C9CFDB">${bonito(t)}</span>`;
+    const pct = x => Math.round(x * 100) + '%';
+    const color = x => (x >= 0.6 ? '#8FD88A' : x >= 0.4 ? '#E6D36A' : '#FF6B6B');
+    caja.innerHTML = `
+      <div class="flex items-center justify-between gap-2">
+        <p class="text-xs font-extrabold uppercase tracking-wide" style="color:#E8ECF3">Mejor orden</p>
+        <span class="font-mono text-xs font-bold" style="color:${color(a.mejor.ganadas)}">gana ~${pct(a.mejor.ganadas)}</span>
+      </div>
+      <p class="text-sm font-extrabold" style="color:#E8ECF3">${a.mejor.orden.map((f, i) => `${i + 1}. ${f.c.nombre}`).join(' · ')}</p>
+      <button type="button" data-a="elegir" class="w-full rounded-card py-2 text-xs font-extrabold transition active:scale-[0.98]" style="background:#E8ECF3;color:#101319">✔ Marcar este orden</button>
+      <p class="text-[10px] font-semibold" style="color:#8A93A6">Comparado con ${a.origen}. «Gana» es contra rivales de tu mismo nivel de fuerza. Es una estimación: el juego no enseña su fórmula de combate.</p>
+      ${a.fichas.slice().sort((x, y) => y.gana - x.gana).map(f => `
+        <div class="rounded-card p-1.5" style="background:#1F2430">
+          <div class="flex items-center justify-between gap-2">
+            <p class="truncate text-[11px] font-extrabold" style="color:#E8ECF3">${f.flojo ? '⚠️ ' : ''}${f.c.nombre} <span style="color:#8A93A6">· ${f.l.bst} base</span></p>
+            <span class="text-[10px] font-extrabold" style="color:${color(f.gana)}">gana ${pct(f.gana)} de 1 en 1</span>
+          </div>
+          <span class="flex flex-wrap gap-0.5">${f.l.tipos.map(chip).join('')}</span>
+          <p class="text-[9px] font-bold" style="color:#8A93A6">Débil a: ${f.d.deb.join(', ') || 'nada'}${f.d.inm.length ? ' · inmune a: ' + f.d.inm.join(', ') : ''}</p>
+          ${f.flojo ? `<p class="text-[9px] font-bold" style="color:#FFB23E">Flojo: mejor no llevarlo${f.ojo.length ? ' (' + f.ojo.join(', ') + ')' : ''}.</p>` : f.ojo.length ? `<p class="text-[9px] font-bold" style="color:#8A93A6">Ojo: ${f.ojo.join(', ')}.</p>` : ''}
+        </div>`).join('')}`;
+    caja.querySelector('[data-a="elegir"]').addEventListener('click', async e => {
+      e.preventDefault(); e.stopPropagation();
+      // se desmarcan los que haya (del último al primero) y se marcan en el orden recomendado
+      let bb = leerBanquillo();
+      for (const c of bb.cands.filter(x => x.orden).sort((x, y) => y.orden - x.orden)) { c.boton.click(); await sleep(250); }
+      for (const f of a.mejor.orden) {
+        bb = leerBanquillo();
+        const c = bb.cands.find(x => x.num === f.c.num && x.nombre === f.c.nombre && !x.orden);
+        if (c) { c.boton.click(); await sleep(300); }
+      }
+    });
+  }
+
+  // Predicción del combate de la parada con el orden actual (tuyos en el orden en que salen)
+  function prediccion(c) {
+    if (!c) return null;
+    const verde = lineaActual() === 'verde';
+    const mios = c.mios.map(p => luchador(p, verde ? 50 : p.nivel)), rivales = c.rivales.map(p => luchador({ ...p, tipos: null }, verde ? 50 : p.nivel));
+    if (mios.some(x => !x) || rivales.some(x => !x)) return null;
+    const vida = lineaActual() === 'negra' ? c.mios.map(p => (p.vida == null ? 1 : p.vida / 100)) : null;
+    return combate(mios, rivales, vida);
   }
 
   /* ------------------------------------------------------------------ *
@@ -231,7 +470,8 @@
         if (pel && !pel.disabled) {
           // ¿Rival malo y quedan cambios de vía? (opcional)
           const a = analizar(leerCombate());
-          if (opc.cambiarVia && a && !a.sinTipos && a.nota < -0.8 && cambiosQuedan() > 0) {
+          const pr = prediccion(leerCombate());
+          if (opc.cambiarVia && a && !a.sinTipos && (pr ? !pr.gana : a.nota < -0.8) && cambiosQuedan() > 0) {
             decir(`Rival en desventaja para ti (${a.veredicto.txt}): cambio de vía.`);
             botonCambiarVia().click();
             await pausa(1200, 1800);
@@ -311,11 +551,13 @@
   }
   function montar() {
     let panel = document.getElementById(PANEL_ID);
-    if (!enMetro()) { enMarcha = false; if (panel) panel.remove(); return; }
+    if (!enMetro()) { enMarcha = false; if (panel) panel.remove(); pintarEquipo(); return; }
     const pel = botonPelear();
+    if (!pel && !seccionParada()) pintarEquipo();
     const ancla = pel || (seccionParada() && seccionParada().parentElement.lastElementChild);
     if (!ancla) { if (panel && !enMarcha) panel.remove(); return; }
     if (!panel) { panel = construir(); firmaAnalisis = ''; }
+    pintarEquipo();
     if (pel && panel.previousElementSibling !== pel) pel.insertAdjacentElement('afterend', panel);
     else if (!pel && !panel.isConnected) ancla.insertAdjacentElement('afterend', panel);
     pintarBoton();
