@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Safari Auto
 // @namespace    http://tampermonkey.net/
-// @version      1.2.1
+// @version      1.2.2
 // @description  Panel integrado con dos modos: spam de Balls y estrategia óptima (programación dinámica con Cebo/Roca/Ball/Dejar marchar, aprendiendo de tus resultados y ajustando el precio de las Balls). Se para solo si la visita de hoy ya está hecha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -54,10 +54,10 @@
     exclusiveWeight: 3,  // un Pokémon exclusivo de la reserva vale como 3 normales
     autoEnter: true,
     letGoEnabled: true,
-    defRock: { pm: 1.50, qm: 1.80 },
-    defBait: { pm: 0.85, qm: 0.50 },
-    defEncRate: 0.75,
-    defAvgP: 0.40,
+    defRock: { pm: 1.53, qm: 1.74 },   // medido en 21 usos reales
+    defBait: { pm: 0.88, qm: 0.51 },   // medido en 112 usos reales
+    defEncRate: 0.77,   // un encuentro cada 1,3 pasos (medido)
+    defAvgP: 0.41,
     mountDelay: 1200,   // espera a que React termine de hidratar antes de tocar el DOM
   };
 
@@ -281,7 +281,7 @@
     return {
       rock: { pm: CFG.defRock.pm, qm: CFG.defRock.qm, n: 0 },
       bait: { pm: CFG.defBait.pm, qm: CFG.defBait.qm, n: 0 },
-      ballF: { pm: 1.0, qm: 1.25, n: 0 },   // efecto de FALLAR una Ball: el bicho se pone nervioso
+      ballF: { pm: 1.0, qm: 1.83, n: 0 },   // efecto de FALLAR una Ball: el bicho se pone nervioso
       risk: { rock: { base: 0, flee: 0, n: 0 }, bait: { base: 0, flee: 0, n: 0 } },
       enc:  { steps: 0, found: 0, sumP: 0, nP: 0, samples: [] },   // samples: (atrapa, huye) inicial de los últimos encuentros
     };
