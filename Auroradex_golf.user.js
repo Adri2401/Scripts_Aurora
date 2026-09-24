@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Golf (hoyo en el mínimo de golpes)
 // @namespace    auroradex-golf
-// @version      1.0.0
+// @version      1.1.0
 // @description  Solo en /golf. Calcula con la física del propio juego el tiro (ángulo y fuerza) que mete la bola en el mínimo de golpes y lo tira solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -128,73 +128,79 @@
     return d;
   }
 
-  // Tiros que meten la bola desde `pos` (verificados con la física exacta). Se prefiere el de más margen de fuerza.
-  function tirosAlHoyo(n, pos) {
-    const buenos = [];
+  // Ceder el turno al navegador sin las esperas mínimas de setTimeout (así la página no se congela y no se pierde tiempo)
+  const ceder = () => new Promise(r => { const c = new MessageChannel(); c.port1.onmessage = () => r(); c.port2.postMessage(0); });
+
+  // Mejor tiro al hoyo desde `pos` a partir de los abanicos ya calculados: la fuerza del medio del tramo que entra
+  // (la más segura), comprobado con la física exacta. null si ninguno entra.
+  function tiroAlHoyo(n, pos, abanicos) {
+    let mejor = null;
     for (let a = 0; a < 360; a++) {
-      const r = abanico(n, pos, a);
+      const r = abanicos[a];
       for (let j = 0; j < r.length; j++) if (r[j].evento === 'hoyo') {
-        // de las fuerzas que entran, la del medio (la más segura)
         let k = j; while (k + 1 < r.length && r[k + 1].evento === 'hoyo') k++;
-        const pot = POTENCIAS[Math.floor((j + k) / 2)];
-        if (tiroExacto(n, pos, a, pot).evento === 'hoyo') buenos.push({ angulo: a, potencia: pot, holgura: k - j });
+        if (!mejor || k - j > mejor.holgura) {
+          const pot = POTENCIAS[Math.floor((j + k) / 2)];
+          if (tiroExacto(n, pos, a, pot).evento === 'hoyo') mejor = { angulo: a, potencia: pot, holgura: k - j };
+        }
         break;
       }
     }
-    buenos.sort((p, q) => q.holgura - p.holgura);
-    return buenos;
+    return mejor;
   }
 
-  /* Búsqueda por niveles: golpe 1 → ¿entra? Si no, se miran las posiciones a las que se llega (ordenadas por cercanía
-   * al hoyo) y desde cuáles entra con el golpe 2, y así sucesivamente. Se devuelve el primer golpe del mejor plan. */
-  async function planificar(n, pos, alAvisar) {
-    const directo = tirosAlHoyo(n, pos);
-    if (directo.length) return { golpes: 1, tiro: directo[0] };
+  /* Búsqueda por niveles (golpe 1, 2, 3…). Cada posición se calcula una sola vez: sus 360 abanicos dicen a la vez si
+   * alguno entra en el hoyo y a qué sitios se puede llegar. De cada nivel se sigue con las posiciones más cercanas al
+   * hoyo (por el recorrido real, sin atravesar paredes ni agua). Devuelve la lista completa de tiros. */
+  async function planificar(n, pos, avisar = () => {}) {
     const dist = mapaDistancias(n);
     const puntuar = p => { const c = dist[Math.floor(p.y)]?.[Math.floor(p.x)]; return c === undefined ? Infinity : c; };
-    let nivel = [{ pos, primero: null }];
-    const vistos = new Set([pos.x.toFixed(2) + ',' + pos.y.toFixed(2)]);
-    for (let golpes = 2; golpes <= 7; golpes++) {
-      // hijos del nivel actual
+    const clave = p => Math.round(p.x * 20) + ',' + Math.round(p.y * 20);
+    const vistos = new Set([clave(pos)]);
+    let nivel = [{ pos, tiros: [] }];
+    let ultimoCeder = performance.now();
+    for (let golpes = 1; golpes <= 9 && nivel.length; golpes++) {
+      avisar(`Calculando… (planes de ${golpes} golpe${golpes > 1 ? 's' : ''})`);
       const hijos = [];
       for (const s of nivel) {
+        const abanicos = new Array(360);
+        for (let a = 0; a < 360; a++) abanicos[a] = abanico(n, s.pos, a);
+        const t = tiroAlHoyo(n, s.pos, abanicos);
+        if (t) return { golpes, tiros: [...s.tiros, t] };
         for (let a = 0; a < 360; a++) {
-          const r = abanico(n, s.pos, a);
+          const r = abanicos[a];
           for (let j = 0; j < r.length; j++) {
             if (r[j].evento !== 'parada') continue;
-            const f = r[j].final, clave = f.x.toFixed(2) + ',' + f.y.toFixed(2);
-            if (vistos.has(clave)) continue;
-            vistos.add(clave);
-            hijos.push({ pos: f, primero: s.primero || { angulo: a, potencia: POTENCIAS[j] }, h: puntuar(f) });
+            const f = r[j].final, k = clave(f);
+            if (vistos.has(k)) continue;
+            vistos.add(k);
+            const h = puntuar(f);
+            if (h !== Infinity) hijos.push({ pos: f, tiros: [...s.tiros, { angulo: a, potencia: POTENCIAS[j] }], h });
           }
         }
-        await sleep(0);
+        if (performance.now() - ultimoCeder > 40) { await ceder(); ultimoCeder = performance.now(); }
       }
       hijos.sort((p, q) => p.h - q.h);
-      // variedad: como mucho 3 posiciones por casilla
-      const porCasilla = {}, candidatos = [];
-      for (const hj of hijos) {
-        if (hj.h === Infinity) continue;
+      const porCasilla = {};
+      nivel = hijos.filter(hj => {
         const k = Math.floor(hj.pos.x) + ',' + Math.floor(hj.pos.y);
-        if ((porCasilla[k] = (porCasilla[k] || 0) + 1) > 3) continue;
-        candidatos.push(hj);
-      }
-      alAvisar(`Buscando un plan de ${golpes} golpes… (${candidatos.length} posiciones)`);
-      const t0 = Date.now();
-      for (let i = 0; i < candidatos.length && Date.now() - t0 < 8000; i++) {
-        const c = candidatos[i];
-        if (tirosAlHoyo(n, c.pos).length) {
-          // el primer golpe debe llevar exactamente ahí (comprobado con la física exacta)
-          const r = tiroExacto(n, pos, c.primero.angulo, c.primero.potencia);
-          if (golpes > 2 || (r.evento === 'parada' && tirosAlHoyo(n, r.final).length)) return { golpes, tiro: c.primero };
-        }
-        if (i % 20 === 19) await sleep(0);
-      }
-      nivel = candidatos.slice(0, 250);
+        return (porCasilla[k] = (porCasilla[k] || 0) + 1) <= 2;
+      }).slice(0, 160);
     }
     return null;
   }
 
+  // Comprueba el plan con la física exacta desde la posición real; devuelve los tiros válidos o null
+  function planValido(n, pos, tiros) {
+    let p = pos;
+    for (let i = 0; i < tiros.length; i++) {
+      const r = tiroExacto(n, p, tiros[i].angulo, tiros[i].potencia);
+      if (r.evento === 'hoyo') return i === tiros.length - 1;
+      if (r.evento !== 'parada') return false;
+      p = r.final;
+    }
+    return false;
+  }
   /* ------------------------------------------------------------------ *
    *  CONEXIÓN CON EL JUEGO (props del tablero: filas, bola, bloqueado y disparar)
    * ------------------------------------------------------------------ */
@@ -217,6 +223,7 @@
   async function jugarHoyo() {
     if (jugando) { jugando = false; decir('Parado.'); pintarBoton(); return; }
     jugando = true; pintarBoton();
+    let plan = null;
     try {
       for (let golpe = 0; golpe < 12 && jugando; golpe++) {
         let p = leer();
@@ -225,15 +232,19 @@
         if (!p) { decir('No veo el tablero.'); break; }
         if (enHoyo(p) || /dentro en/i.test(document.querySelector('main')?.textContent || '')) { decir('⛳ ¡Dentro!'); break; }
         const n = nivelDe(p.filas), pos = { x: p.bola.x, y: p.bola.y };
-        decir('Calculando el mejor tiro…');
-        await sleep(30);
-        const plan = await planificar(n, pos, decir);
-        if (!jugando) break;
-        if (!plan) { decir('No encuentro cómo meterla (ni en 7 golpes). Tíralo tú.'); break; }
-        decir(`Plan: ${plan.golpes} golpe(s) · tiro a ${plan.tiro.angulo}° con fuerza ${plan.tiro.potencia}.`);
-        await sleep(500);
+        // El plan se calcula una vez por hoyo; mientras la bola acabe donde se esperaba, se siguen sus tiros sin recalcular
+        if (!plan || !planValido(n, pos, plan.tiros)) {
+          const t0 = performance.now();
+          plan = await planificar(n, pos, decir);
+          if (!jugando) break;
+          if (!plan) { decir('No encuentro cómo meterla (ni en 9 golpes). Tíralo tú.'); break; }
+          console.log(`[axgolf] plan de ${plan.golpes} golpes en ${Math.round(performance.now() - t0)} ms`, plan.tiros);
+        }
+        const tiro = plan.tiros.shift();
+        decir(`Plan: ${plan.tiros.length + 1} golpe(s) más · tiro a ${tiro.angulo}° con fuerza ${tiro.potencia}.`);
+        await sleep(350);
         const antes = JSON.stringify(p.bola);
-        p.disparar(plan.tiro.angulo, plan.tiro.potencia);
+        p.disparar(tiro.angulo, tiro.potencia);
         // espera a que la bola termine de moverse
         const t1 = Date.now();
         await sleep(400);
@@ -244,7 +255,7 @@
           if (!q.bloqueado && Date.now() - t1 > 3000) break;
           await sleep(200);
         }
-        await sleep(600);
+        await sleep(300);
       }
     } catch (e) {
       console.error('[axgolf]', e);
@@ -289,7 +300,7 @@
   }
 
   // Para probar sin la web
-  window.__axGolf = { tiroExacto, abanico, tirosAlHoyo, planificar, nivelDe };
+  window.__axGolf = { tiroExacto, abanico, planificar, planValido, nivelDe };
 
   esperarHidratacion().then(() => { tick(); setInterval(tick, 600); });
 })();
