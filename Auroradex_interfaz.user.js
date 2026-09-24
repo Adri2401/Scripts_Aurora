@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.3.0
+// @version      1.4.0
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -442,6 +442,70 @@
     } catch { /* sin red: se queda lo guardado */ }
     finally { menuPidiendo = false; }
   }
+  /* ─── Golf: retos con apuesta pendientes (el mismo número que enseña el botón «Retos con apuesta») ───
+   * Cuenta los retos que te han mandado y aún no has aceptado y los que están en juego y te toca tirar.
+   * Se leen de los datos que trae la propia página /golf, pedida en segundo plano. */
+  const GOLF_KEY = 'adx-accesos-golf';
+  let golfPidiendo = false, golfIntento = 0;
+  // Texto de los datos de Next.js («self.__next_f.push([1,"…"])») ya desescapado
+  function textoFlight(html) {
+    let t = '';
+    const re = /self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)/g;
+    let m;
+    while ((m = re.exec(html))) { try { t += JSON.parse(m[1]); } catch { /* trozo raro */ } }
+    return t;
+  }
+  function sacarLista(t, clave) {
+    const i = t.indexOf('"' + clave + '":[');
+    if (i < 0) return null;
+    const j = t.indexOf('[', i);
+    let d = 0, str = false, esc = false;
+    for (let k = j; k < t.length; k++) {
+      const ch = t[k];
+      if (str) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') str = false; continue; }
+      if (ch === '"') str = true;
+      else if (ch === '[' || ch === '{') d++;
+      else if (ch === ']' || ch === '}') { if (--d === 0) { try { return JSON.parse(t.slice(j, k + 1)); } catch { return null; } } }
+    }
+    return null;
+  }
+  function contarRetosGolf(t) {
+    const retos = sacarLista(t, 'retos'), mi = (t.match(/"miId":"([^"]+)"/) || [])[1];
+    if (!Array.isArray(retos) || !mi) return null;
+    const nada = v => v == null || v === '$undefined';
+    return retos.filter(r => {
+      const soyRetador = r.retadorId === mi, misTiros = soyRetador ? r.tirosRetador : r.tirosRetado;
+      return (r.estado === 'jugando' && nada(misTiros)) || (r.estado === 'pendiente' && !soyRetador);
+    }).length;
+  }
+  function guardarRetosGolf(n) {
+    if (n == null) return;
+    const g = lsJSON(GOLF_KEY, null);
+    lsPut(GOLF_KEY, { n, t: Date.now() });
+    if (!g || g.n !== n) repintarPanel();
+  }
+  // En /golf mismo: el globo rojo del botón «Retos con apuesta»
+  function leerRetosGolfEnPantalla() {
+    if (!/^\/golf\/?$/.test(location.pathname)) return;
+    const b = [...document.querySelectorAll('nav[aria-label="Secciones del campo"] button')].find(x => /retos con apuesta/i.test(x.textContent || ''));
+    if (!b) return;
+    const globo = b.querySelector('span');
+    guardarRetosGolf(globo ? parseInt(globo.textContent, 10) || 0 : 0);
+  }
+  async function refrescarGolf(forzar = false) {
+    if (golfPidiendo || /^\/golf\/?$/.test(location.pathname)) return;
+    if (!forzar && !document.getElementById(PANEL_ID)) return;
+    const g = lsJSON(GOLF_KEY, null);
+    if (!forzar && (Date.now() - golfIntento < 60000 || (g && Date.now() - g.t < MENU_REFRESCO))) return;
+    golfIntento = Date.now();
+    golfPidiendo = true;
+    try {
+      const r = await fetch('/golf', { credentials: 'same-origin' });
+      if (r.ok) guardarRetosGolf(contarRetosGolf(textoFlight(await r.text())));
+    } catch { /* sin red: se queda lo guardado */ }
+    finally { golfPidiendo = false; }
+  }
+
   function repintarPanel() {
     const panel = document.getElementById(PANEL_ID);
     if (panel) panel.replaceWith(crearPanel());
@@ -468,6 +532,7 @@
   }
   const pillDe = (it, est) => {
     if (it.href === '/salon') return pillSalon();
+    if (it.href === '/golf') { const g = lsJSON(GOLF_KEY, null); if (g && g.n > 0) return `${g.n} reto${g.n > 1 ? 's' : ''}`; }
     const leida = (est && est.estado[claveEstado(it)]) || '';
     if (!it.porRegion) return leida;
     if (hechosHoy().includes(claveEstado(it))) return 'hecho hoy';
@@ -704,7 +769,7 @@
       if (ev.button !== 0 || ev.metaKey || ev.ctrlKey) return;
       ev.preventDefault();
       enlace.textContent = 'actualizando…';
-      refrescarMenu(true).then(() => repintarPanel());
+      Promise.all([refrescarMenu(true), refrescarGolf(true)]).then(() => repintarPanel());
     });
     return wrapper;
   }
@@ -738,6 +803,8 @@
       desmontarSiNoToca();
       montar();
       refrescarMenu();
+      refrescarGolf();
+      leerRetosGolfEnPantalla();
     }, 150);
   });
 
@@ -749,8 +816,9 @@
     refrescarSalon();
     montar();
     refrescarMenu();
+    refrescarGolf();
     // Cada minuto: se pide el Menú si toca y se repinta (para que «hace N min» y las ✓ estén al día)
-    setInterval(() => { refrescarMenu(); if (document.visibilityState === 'visible') repintarPanel(); }, 60000);
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refrescarMenu(); });
+    setInterval(() => { refrescarMenu(); refrescarGolf(); if (document.visibilityState === 'visible') repintarPanel(); }, 60000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refrescarMenu(); refrescarGolf(); } });
   });
 })();
