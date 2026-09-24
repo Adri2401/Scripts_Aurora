@@ -431,7 +431,7 @@
   }
 
   /* ---- Puerta con acertijo: cuatro símbolos en orden según las líneas de las lápidas ---- */
-  const ORDINALES = [[/primer[oa]?/, 1], [/segund[oa]/, 2], [/tercer[oa]?/, 3], [/cuart[oa]/, 4]];
+  const ORDINALES = [[/\bprimer[oa]?\b/, 1], [/\bsegund[oa]\b/, 2], [/\btercer[oa]?\b/, 3], [/\bcuart[oa]\b/, 4]];
   const sinArticulo = s => norm(s).replace(/^(el|la|los|las)\s+/, '');
   async function atenderPuerta() {
     const huecos = botonesVisibles().filter(b => /^Hueco \d/.test(b.getAttribute('aria-label') || ''));
@@ -442,7 +442,7 @@
     const sol = new Array(huecos.length).fill(null);
     for (const l of lineas) {
       const ord = ORDINALES.find(([re]) => re.test(l));
-      const ns = nombres.filter(n => new RegExp('\b' + n + '\b').test(l));
+      const ns = nombres.filter(n => new RegExp('\\b' + n + '\\b').test(l));
       if (ord && ns.length === 1 && ord[1] <= sol.length) sol[ord[1] - 1] = ns[0];
     }
     const cerrarPuerta = async () => {
