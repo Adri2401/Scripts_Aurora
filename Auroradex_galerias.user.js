@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.8.0
-// @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
+// @version      0.9.0
+// @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_galerias.user.js
@@ -106,7 +106,7 @@
       let tipo, pos;
       if (/personajes\//.test(bg)) { tipo = /ricach|mercader|vendedor|nomada/i.test(nombre) ? 'mercader' : 'personaje'; pos = spritePos(el); }
       else {
-        tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : /lapida|tumba|sepultura/i.test(nombre) ? 'lapida' : 'objeto';
+        tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : /lapida|tumba|sepultura/i.test(nombre) ? 'lapida' : /jarron|vasija|urna|tinaja/i.test(nombre) ? 'jarron' : 'objeto';
         pos = { c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w) };
       }
       entidades.push({ c: pos.c, f: pos.f, tipo, nombre });
@@ -177,6 +177,7 @@
       remolino: 'box-shadow:inset 0 0 0 2px #b388ff;background:rgba(179,136,255,.28)',
       mercader: 'box-shadow:inset 0 0 0 2px #ffd54f;background:rgba(255,213,79,.28)',
       lapida: 'box-shadow:inset 0 0 0 2px #90a4ae;background:rgba(144,164,174,.3)',
+      jarron: 'box-shadow:inset 0 0 0 2px #ffb74d;background:rgba(255,183,77,.3)',
       personaje: 'box-shadow:inset 0 0 0 2px #ff9800;background:rgba(255,152,0,.22)',
       objeto: 'box-shadow:inset 0 0 0 2px #4fc3f7;background:rgba(79,195,247,.22)',
     };
@@ -258,7 +259,7 @@
   /* ------------------------------------------------------------------ *
    *  PANEL Y ACCIONES
    * ------------------------------------------------------------------ */
-  let mostrar = true, explorando = false, combatir = true, msg = '';
+  let mostrar = true, explorando = false, combatir = true, recoger = true, msg = '';
   let panel = null;
 
   function pasos(ruta) { return ruta ? ruta.length - 1 : null; }
@@ -287,6 +288,7 @@
     if (cuenta('personaje')) partes.push(`🧍 ${cuenta('personaje')} personaje(s)`);
     if (cuenta('remolino')) partes.push(`🌀 ${cuenta('remolino')} remolino(s)`);
     if (cuenta('lapida')) partes.push(`🪦 ${cuenta('lapida')} lápida(s)`);
+    if (cuenta('jarron')) partes.push(`🏺 ${cuenta('jarron')} jarrón(es)`);
     if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} objeto(s)`);
     estado.textContent = partes.join(' · ');
     panel.querySelector('.axg-msg').textContent = msg;
@@ -457,7 +459,8 @@
 
   const combatidos = new Set();
   const MAX_REMOLINOS = 5;                       // por planta, por si un remolino no desapareciera tras usarlo
-  let remolinosPlanta = { planta: '', n: 0 };
+  const MAX_JARRONES = 20;
+  let contadoresPlanta = { planta: '', remolino: 0, jarron: 0 };
 
   async function clicCelda(cel, t) {
     const antes = t.jugador ? `${t.jugador.c},${t.jugador.f}` : '';
@@ -492,31 +495,37 @@
       sinPantalla = 0;
       if (await gestionarLuz()) continue;
 
-      // Todos los combates posibles: primero los entrenadores que se vean
-      // (los remolinos también cuentan: pisarlos lanza un encuentro salvaje que se captura)
-      if (combatir) {
+      // Objetivos con los que chocar: entrenadores (combate), remolinos (encuentro salvaje) y jarrones (reliquias)
+      if (combatir || recoger) {
         const planta = plantaActual();
-        if (remolinosPlanta.planta !== planta) remolinosPlanta = { planta, n: 0 };
+        if (contadoresPlanta.planta !== planta) contadoresPlanta = { planta, remolino: 0, jarron: 0 };
         let mejor = null;
         for (const e of t.entidades) {
-          const esEntrenador = e.tipo === 'entrenador' && !combatidos.has(planta + '|' + e.nombre);
-          const esRemolino = e.tipo === 'remolino' && remolinosPlanta.n < MAX_REMOLINOS;
-          if (!esEntrenador && !esRemolino) continue;
+          const ok =
+            (combatir && e.tipo === 'entrenador' && !combatidos.has(planta + '|' + e.nombre)) ||
+            (combatir && e.tipo === 'remolino' && contadoresPlanta.remolino < MAX_REMOLINOS) ||
+            (recoger && e.tipo === 'jarron' && contadoresPlanta.jarron < MAX_JARRONES);
+          if (!ok) continue;
           const yo = t.jugador;
           const dist = yo ? Math.abs(e.c - yo.c) + Math.abs(e.f - yo.f) : 99;
           const ady = c => c.pisable && !t.ocupadas.has(c.c + ',' + c.f) && Math.abs(c.c - e.c) + Math.abs(c.f - e.f) === 1;
           const r = dist === 1 ? [null] : rutaA(t, ady);          // ya al lado, o ruta hasta una casilla contigua
-          if (r && (!mejor || r.length < mejor.r.length)) mejor = { e, r, ady, dist, esEntrenador };
+          if (r && (!mejor || r.length < mejor.r.length)) mejor = { e, r, dist };
         }
         if (mejor) {
-          const { e, r, ady, dist, esEntrenador } = mejor;
+          const { e, r, dist } = mejor;
+          const TXT = {
+            entrenador: ['⚔️ Reto a un entrenador…', '⚔️ Me acerco a un entrenador…'],
+            remolino: ['🌀 Piso el remolino (encuentro salvaje)…', '🌀 Me acerco a un remolino…'],
+            jarron: ['🏺 Rompo un jarrón…', '🏺 Voy a por un jarrón…'],
+          }[e.tipo];
           if (dist === 1) {
             // Al lado: se choca con la flecha (pulsar la casilla solo lleva hasta el borde)
-            if (esEntrenador) combatidos.add(planta + '|' + e.nombre); else remolinosPlanta.n++;
-            msg = esEntrenador ? '⚔️ Reto a un entrenador…' : '🌀 Piso el remolino (encuentro salvaje)…'; pintar();
+            if (e.tipo === 'entrenador') combatidos.add(planta + '|' + e.nombre); else contadoresPlanta[e.tipo]++;
+            msg = TXT[0]; pintar();
             if (await andar(e.c - t.jugador.c, e.f - t.jugador.f)) { await pausa(900, 1300); continue; }
           } else if (r.length > 1) {
-            msg = esEntrenador ? '⚔️ Me acerco a un entrenador…' : '🌀 Me acerco a un remolino…'; pintar();
+            msg = TXT[1]; pintar();
             await clicCelda(r[r.length - 1], t);
             await pausa(700, 1100);
             continue;
@@ -585,6 +594,7 @@
       <div class="grid grid-cols-2 gap-2">
         <button type="button" class="boton-suave !py-2 text-[11px]" data-a="ver">👁 Camino: sí</button>
         <button type="button" class="boton-suave !py-2 text-[11px]" data-a="combatir">⚔️ Combatir: sí</button>
+        <button type="button" class="boton-suave col-span-2 !py-2 text-[11px]" data-a="recoger">🏺 Recoger jarrones: sí</button>
       </div>
       <label class="flex items-center justify-between gap-2 text-[11px] font-extrabold text-tinta-500">🪔 Aceite (o cuerda si no queda) con ≤
         <input type="number" min="0" class="axg-luz w-20 rounded-card border-2 border-crema-200 bg-crema-50 px-2 py-1 text-sm font-semibold text-tinta-600 outline-none"> pasos</label>
@@ -598,6 +608,7 @@
     const campoLuz = sec.querySelector('.axg-luz');
     campoLuz.value = String(umbralLuz());
     campoLuz.addEventListener('input', () => { try { localStorage.setItem(LS_LUZ, campoLuz.value.trim()); } catch { /* sin storage */ } });
+    on('[data-a="recoger"]', () => { recoger = !recoger; sec.querySelector('[data-a="recoger"]').textContent = recoger ? '🏺 Recoger jarrones: sí' : '🏺 Recoger jarrones: no'; });
     on('[data-a="auto"]', explorar);
     on('[data-a="diag"]', async () => {
       const txt = diagnostico();
