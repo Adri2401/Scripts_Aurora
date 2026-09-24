@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Cazador de Manadas
 // @namespace    aurora-dex-manadas
-// @version      1.2.1
+// @version      1.2.2
 // @description  Lee las pistas del Canal Manadas, cambia de región solo, recorre el mapa buscando el tramo que cuadra y para en cuanto encuentra la manada.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -350,7 +350,6 @@
     }
   }
 
-  const pedirAvisos = () => { try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* nada */ } };
 
   // Si ya hay una búsqueda en marcha, la corta y espera a que su bucle termine antes de empezar la nueva
   async function pararLaAnterior() {
@@ -363,7 +362,6 @@
 
   async function arrancarBusqueda(s) {
     if (!await pararLaAnterior()) return;
-    pedirAvisos();
     setE({
       running: true, ok: false, err: false, directo: false,
       region: s.nombre, min: s.min, max: s.max, pista: s.pista, tipoElemental: s.tipoElemental,
@@ -375,7 +373,6 @@
 
   async function arrancarViajeDirecto(s) {
     if (!await pararLaAnterior()) return;
-    pedirAvisos();
     setE({
       running: true, ok: false, err: false, directo: true,
       region: s.nombre, lugar: s.lugar, pokemon: s.pokemon, inicio: Date.now(),
@@ -662,24 +659,38 @@
 
   /* ─────────────────────────── 11 · avisos finales ──────────────────────────── */
 
-  const DURACION_EXITO = 7000;
   const DURACION_ERROR = 4200;
 
-  function encontrada(motivo) {
+  // Mensaje discreto: texto casi transparente abajo, dura 2 s y desaparece (sin sonido, vibración ni notificación)
+  function toastDiscreto(msg) {
+    clearTimeout(temporizadorCierre);
+    borrarE();
+    const viejo = document.getElementById('mh-toast');
+    if (viejo) viejo.remove();
+    const t = document.createElement('div');
+    t.id = 'mh-toast';
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;left:50%;bottom:calc(var(--nav-alto,4rem) + 1.25rem);transform:translateX(-50%);z-index:2147483000;' +
+      'max-width:88vw;padding:4px 12px;border-radius:999px;text-align:center;pointer-events:none;' +
+      'font:700 13px/1.3 system-ui,sans-serif;color:rgba(255,255,255,.8);background:rgba(0,0,0,.22);' +
+      'opacity:0;transition:opacity .25s ease';
+    document.body.appendChild(t);
+    requestAnimationFrame(() => { t.style.opacity = '1'; });
+    setTimeout(() => { t.style.opacity = '0'; }, 1700);
+    setTimeout(() => t.remove(), 2000);
+  }
+
+  function encontrada() {
     const e = E();
     const donde = e.directo ? (e.lugar || nombreDelTramo()) : nombreDelTramo();
-    const msg = e.directo
-      ? `Ya estás en ${donde}. Busca a ${e.pokemon || 'la manada'}.`
-      : `Manada de ${e.region} en ${donde || 'este tramo'}.`;
-    const sub =
-      motivo === 'pista' ? 'Coincide la pista del Canal. Ya estás dentro.' :
-      motivo === 'boton' ? 'El tramo tiene el botón de manada. Ya estás dentro.' : '';
-    kAviso(msg);
-    finalizarAviso({ running: false, ok: true, err: false, msg, sub }, DURACION_EXITO);
+    toastDiscreto(e.directo
+      ? `Ya estás en ${donde}${e.pokemon ? ' · ' + e.pokemon : ''}`
+      : `Manada de ${e.region} en ${donde || 'este tramo'}`);
   }
 
   function terminar(ok, msg) {
-    finalizarAviso({ running: false, ok, err: !ok, msg, sub: '' }, ok ? DURACION_EXITO : DURACION_ERROR);
+    if (ok) toastDiscreto(msg);
+    else finalizarAviso({ running: false, ok, err: true, msg, sub: '' }, DURACION_ERROR);
   }
 
   let temporizadorCierre = null;
