@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.2.0
+// @version      0.3.0
 // @description  Minijuego de bajar plantas: resalta la escalera y los objetos que se vean, dibuja el camino más corto, explora solo hasta encontrar la escalera y permite copiar un diagnóstico del estado interno del juego.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -211,6 +211,29 @@
       while (h && n++ < 12 && typeof f.type !== 'string') { mirar(h.memoizedState, `f${i}.hook${n}`, 0); h = h.next; }
     }
     lineas.push('Hallazgos: ' + (hallazgos.length ? '\n  ' + hallazgos.slice(0, 40).join('\n  ') : 'ninguno'));
+
+    // Estructura del estado del juego (nombres de claves, tipos y tamaños; sin volcar datos personales)
+    const resumir = (v, d = 0, ruta = '') => {
+      if (v == null) return String(v);
+      if (typeof v === 'string') return `"${v.slice(0, 30)}${v.length > 30 ? '…' : ''}"`;
+      if (typeof v !== 'object') return String(v);
+      if (Array.isArray(v)) {
+        if (d >= 4) return `[${v.length}]`;
+        return `[${v.length}] ` + (v.length ? resumir(v[0], d + 1, ruta + '[0]') : '');
+      }
+      const claves = Object.keys(v);
+      if (d >= 4) return `{${claves.length} claves}`;
+      return '{' + claves.slice(0, 25).map(k => `${/escal|salida|stair|trampa|jarr|cofre|objeto|mapa|celda|tablero|vist/i.test(k) ? '★' : ''}${k}: ${resumir(v[k], d + 1, ruta + '.' + k)}`).join(', ') + (claves.length > 25 ? ', …' : '') + '}';
+    };
+    let g = clave ? btn[clave] : null;
+    for (let i = 0; g && i < 14; i++, g = g.return) {
+      const p = g.memoizedProps;
+      if (p && typeof g.type !== 'string' && p.exp && typeof p.exp === 'object') {
+        lineas.push('ESTRUCTURA exp: ' + resumir(p.exp).slice(0, 3500));
+        if (p.estado && typeof p.estado === 'object') lineas.push('ESTRUCTURA estado: ' + resumir(p.estado).slice(0, 2500));
+        break;
+      }
+    }
     return lineas.join('\n');
   }
 
