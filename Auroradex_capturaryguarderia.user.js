@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.6.0
+// @version      2.7.0
 // @description  Auto-explora y captura; ante shiny/legendario vibra, notifica y PARA la macro para captura manual. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -902,8 +902,24 @@
     } catch { /* sin vibración (navegador de escritorio, permisos, etc.) */ }
   }
 
+  // Notificación del sistema (solo para shiny/legendario). El permiso se pide al iniciar la macro (hace falta un toque).
+  function pedirPermisoNotif() {
+    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* sin notificaciones */ }
+  }
+  function notificarSistema(texto) {
+    try {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      const opts = { body: texto, tag: 'adx-raro', renotify: true, requireInteraction: true, icon: '/favicon.ico' };
+      try { new Notification('Aurora Dex', opts); }
+      catch {                                   // Chrome de Android no deja «new Notification»: se usa el service worker
+        if (navigator.serviceWorker) navigator.serviceWorker.getRegistration().then(r => r && r.showNotification('Aurora Dex', opts)).catch(() => {});
+      }
+    } catch { /* sin notificaciones */ }
+  }
+
   function start() {
     if (S.running) return;
+    pedirPermisoNotif();
     if (!onMap()) { notify('Abre la vista del mapa para iniciar la macro.'); return; }
     if (getMode() === 'pair' && !getPartner()) {
       const p2 = document.querySelector('#' + CONFIG.UI_ID + ' .adx-in-p2');
@@ -1273,7 +1289,7 @@
     }
   }
 
-  // Shiny o legendario: NO se lanza ninguna bola. Se avisa (una vibración y un mensaje breve)
+  // Shiny o legendario: NO se lanza ninguna bola. Se avisa (vibración, mensaje breve y notificación)
   // y se detiene la macro por completo para que captures a mano.
   function handleRareEncounter(info) {
     if (info.shiny) S.shiny++;
@@ -1283,6 +1299,7 @@
     const txt = `${tag}${who} — ¡captúralo tú! Macro detenida.`;
     log('★', txt);
     stop(txt, { alert: true });
+    notificarSistema(`${tag}${who}. Macro parada: captúralo tú.`);
     return true;
   }
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.2.1
+// @version      1.3.0
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -231,19 +231,45 @@
     return t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
   }
 
-  // Región actual desde el JSON que Next.js inyecta («"region":{"id":"hoenn"…»)
-  function regionActual() {
-    for (const s of document.querySelectorAll('script')) {
-      const m = s.textContent.replace(/\\"/g, '"').match(/"region":\{"id":"([a-z0-9_-]+)"/);
+  /* Región actual. Se mira, por orden: la chapa «Mapa de Kanto» del mapa, «Estás en» de la pantalla de viaje,
+   * «Estás aquí» del panel de regiones de la cabecera y el JSON de Next.js. La última vista se guarda, así que
+   * en páginas sin ninguna de esas pistas (el Menú, una actividad…) se usa la última conocida. */
+  const REGION_KEY = 'adx-region-actual';
+  function regionEnChapa(raiz = document) {
+    for (const el of raiz.querySelectorAll('span,div,button,p,h2,h3')) {
+      if (el.children.length > 2) continue;
+      const m = normalizarTexto(el.textContent || '').match(/^[^a-z]*mapa de ([a-z]+)$/);
       if (m) return m[1];
     }
     return null;
+  }
+  function regionEnPanelMedallas() {
+    for (const sp of document.querySelectorAll('li button span')) {
+      if (sp.children.length || !/^estas aqui$/.test(normalizarTexto(sp.textContent || ''))) continue;
+      const n = normalizarTexto(sp.parentElement.textContent.replace(sp.textContent, '')).match(/^[a-z]+/);
+      if (n) return n[0];
+    }
+    return null;
+  }
+  function regionEnJSON(texto) {
+    const m = String(texto).replace(/\\"/g, '"').match(/"region"\s*:\s*\{\s*"id"\s*:\s*"([a-z0-9_-]+)"/);
+    return m ? m[1] : null;
+  }
+  let regionMemo = { t: 0, v: null };
+  function regionActual() {
+    if (Date.now() - regionMemo.t < 400) return regionMemo.v;
+    let r = regionEnChapa() || regionEnPantallaDeViaje() || regionEnPanelMedallas();
+    if (!r) for (const sc of document.querySelectorAll('script')) { r = regionEnJSON(sc.textContent); if (r) break; }
+    if (r) { const g = lsJSON(REGION_KEY, null); if (!g || g.id !== r) lsPut(REGION_KEY, { id: r, t: Date.now() }); }
+    else { const g = lsJSON(REGION_KEY, null); r = g ? g.id : null; }
+    regionMemo = { t: Date.now(), v: r };
+    return r;
   }
 
   // Plan B en la pantalla de viaje: texto visible «Estás en» / «Sinnoh»
   function regionEnPantallaDeViaje() {
     for (const p of document.querySelectorAll('p.titulo-seccion')) {
-      if (normalizarTexto(p.textContent) === 'estas en' && p.nextElementSibling) return normalizarTexto(p.nextElementSibling.textContent);
+      if (normalizarTexto(p.textContent) === 'estas en' && p.nextElementSibling) return (normalizarTexto(p.nextElementSibling.textContent).match(/^[a-z]+/) || [null])[0];
     }
     return null;
   }
@@ -281,10 +307,9 @@
   const MENUS_KEY = 'adx-accesos-menus';
   const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 
-  function anotarMenuDeRegion() {
-    const reg = regionActual();
+  function anotarMenuDeRegion(raiz = document, reg = regionActual()) {
     if (!reg) return;
-    const hrefs = [...new Set([...document.querySelectorAll('main a[href^="/"]')].map(a => a.getAttribute('href')))];
+    const hrefs = [...new Set([...raiz.querySelectorAll('main a[href^="/"]')].map(a => a.getAttribute('href')))];
     if (hrefs.length < 10) return;   // menú a medio pintar
     const menus = lsJSON(MENUS_KEY, {});
     if (JSON.stringify(menus[reg]) === JSON.stringify(hrefs)) return;
@@ -294,8 +319,9 @@
 
   // Región a la que hay que viajar para usar el acceso, o null si sirve donde estás
   function regionNecesaria(item) {
-    if (item.region) return { id: item.region, label: item.regionLabel || cap(item.region) };
-    const cur = regionActual(), menus = lsJSON(MENUS_KEY, {});
+    const cur = regionActual();
+    if (item.region) return cur === item.region ? null : { id: item.region, label: item.regionLabel || cap(item.region) };
+    const menus = lsJSON(MENUS_KEY, {});
     if (!cur || !menus[cur] || menus[cur].includes(item.href)) return null;
     const otra = Object.keys(menus).find(r => r !== cur && menus[r].includes(item.href));
     return otra ? { id: otra, label: cap(otra) } : null;
@@ -323,11 +349,11 @@
 
   const regionesConocidas = () => new Set(['kanto', 'johto', 'hoenn', 'sinnoh', 'teselia', ...Object.keys(lsJSON(MENUS_KEY, {}))]);
 
-  function anotarNovedadesDelMenu() {
+  function anotarNovedadesDelMenu(raiz = document) {
     const conocidos = hrefsConocidos();
     const extras = lsJSON(EXTRAS_KEY, {});
     let cambio = false;
-    for (const a of document.querySelectorAll('main a[href^="/"]')) {
+    for (const a of raiz.querySelectorAll('main a[href^="/"]')) {
       const href = a.getAttribute('href');
       if (conocidos.has(href) || NO_ACCESO.has(href)) continue;
       const h2 = a.closest('section') && a.closest('section').querySelector('h2.titulo-seccion');
@@ -374,14 +400,17 @@
    * Se guarda con la fecha y el panel del mapa la enseña solo si es de hoy. */
   function leerEstadoDelMenu() {
     if (!/^\/menu\/?$/.test(location.pathname)) return;
-    anotarMenuDeRegion();
-    anotarNovedadesDelMenu();
+    leerEstadoDe(document, regionActual(), true);
+  }
+  // `seguro`: la región viene de la propia página (si no, no se aprende el Menú de esa región para no mezclarlo)
+  function leerEstadoDe(raiz, reg, seguro) {
+    if (seguro) anotarMenuDeRegion(raiz, reg);
+    anotarNovedadesDelMenu(raiz);
     const estado = {};
     // Lo de otras regiones («/safari@johto»…) se conserva del mismo día: el Menú solo enseña la región actual
     const previo = estadoDeHoy();
     if (previo) for (const k of Object.keys(previo.estado)) if (k.includes('@')) estado[k] = previo.estado[k];
-    const reg = regionActual();
-    for (const a of document.querySelectorAll('main a[href^="/"]')) {
+    for (const a of raiz.querySelectorAll('main a[href^="/"]')) {
       const p = a.querySelector('.pastilla');
       if (!p) continue;
       const txt = p.textContent.replace(/\s+/g, ' ').trim();
@@ -390,6 +419,43 @@
       if (reg) estado[`${href}@${reg}`] = txt;
     }
     if (Object.keys(estado).length) lsPut(ESTADO_KEY, { dia: hoy(), t: Date.now(), estado });
+    return Object.keys(estado).length > 0;
+  }
+
+  /* ─── El estado se refresca solo: se pide el Menú en segundo plano cada pocos minutos ─── */
+  const MENU_REFRESCO = 3 * 60 * 1000;
+  let menuPidiendo = false, menuIntento = 0;
+  async function refrescarMenu(forzar = false) {
+    if (/^\/menu\/?$/.test(location.pathname) || menuPidiendo) return;
+    if (!forzar && !document.getElementById(PANEL_ID)) return;           // solo mientras se ve el panel
+    const e = estadoDeHoy();
+    if (!forzar && (Date.now() - menuIntento < 60000 || (e && Date.now() - e.t < MENU_REFRESCO))) return;
+    menuIntento = Date.now();
+    menuPidiendo = true;
+    try {
+      const r = await fetch('/menu', { credentials: 'same-origin' });
+      if (!r.ok) return;
+      const html = await r.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const propia = regionEnJSON(html);
+      if (leerEstadoDe(doc, propia || regionActual(), !!propia)) repintarPanel();
+    } catch { /* sin red: se queda lo guardado */ }
+    finally { menuPidiendo = false; }
+  }
+  function repintarPanel() {
+    const panel = document.getElementById(PANEL_ID);
+    if (panel) panel.replaceWith(crearPanel());
+  }
+
+  /* ─── ¿Tarea hecha? (se pinta con ✓) ─────────────────────────────────── */
+  function esHecho(it, pill) {
+    if (!pill) return false;
+    const p = normalizarTexto(pill);
+    if (/hecho|parado|complet|terminad|agotad|conseguid|cobrad|recogid|reclamad|manana|sin (intentos|energia|tiradas|vidas|usos|turnos)|no quedan|ya has/.test(p)) return true;
+    const m = p.match(/^(\d+)\s*(?:de|\/)\s*(\d+)/);
+    if (!m) return false;
+    if (it.href === '/salon') return +m[1] === 0;                        // Salón: «N de 20» es lo que queda por comprar
+    return +m[2] > 0 && +m[1] >= +m[2];                                   // «30 de 30 hoy»: completo
   }
   // Pastilla de un acceso; los de varias regiones (Safari) guardan una por región: «/safari@kanto»
   const claveEstado = it => it.porRegion ? `${it.href}@${it.region}` : it.href;
@@ -548,7 +614,7 @@
     const a = document.createElement('a');
     a.href = item.href;
     const pill = pillDe(item, est);
-    const hecho = pill && /hecho|parado/i.test(pill);
+    const hecho = esHecho(item, pill);
     a.className = 'ax-item tarjeta' + (hecho ? ' ax-hecho' : '') + (location.pathname === item.href && (!item.porRegion || regionActual() === item.region) ? ' ax-aqui' : '');
     let tag = '';
     if (pill) {
@@ -587,7 +653,7 @@
     let resumen = b.sub || '';
     if (b.diario) {
       const conEstado = itemsDe(b).filter(i => pillDe(i, est));
-      const hechos = conEstado.filter(i => /hecho|parado/i.test(pillDe(i, est))).length;
+      const hechos = conEstado.filter(i => esHecho(i, pillDe(i, est))).length;
       if (conEstado.length) resumen = `${hechos} de ${conEstado.length} hechos hoy`;
     }
     det.innerHTML = `
@@ -600,7 +666,7 @@
       <ul class="ax-grid px-3 pb-3"></ul>`;
     const ul = det.querySelector('ul');
     // En PvE, lo pendiente primero y lo hecho al final; los Safari van siempre aparte, al final y sin título
-    const hecho = i => (/hecho|parado/i.test(pillDe(i, est)) ? 1 : 0);
+    const hecho = i => (esHecho(i, pillDe(i, est)) ? 1 : 0);
     const todos = b.diario ? itemsDe(b).sort((x, y) => hecho(x) - hecho(y)) : itemsDe(b);
     const esSafari = i => i.porRegion && i.href === '/safari';
     for (const it of todos.filter(i => !esSafari(i))) ul.appendChild(crearItem(it, est));
@@ -633,6 +699,13 @@
         <a href="/menu" class="text-[11px] font-bold text-tinta-400">${est ? `estado de hace ${mins < 1 ? 'un momento' : mins + ' min'} · ↻` : 'abre el Menú para ver qué queda hoy ›'}</a>
       </div>`;
     for (const b of BLOQUES) wrapper.appendChild(crearBloque(b, est, plegados));
+    const enlace = wrapper.querySelector('a[href="/menu"]');
+    if (est && enlace) enlace.addEventListener('click', ev => {             // ↻ refresca aquí mismo, sin ir al Menú
+      if (ev.button !== 0 || ev.metaKey || ev.ctrlKey) return;
+      ev.preventDefault();
+      enlace.textContent = 'actualizando…';
+      refrescarMenu(true).then(() => repintarPanel());
+    });
     return wrapper;
   }
 
@@ -664,6 +737,7 @@
       refrescarSalon();
       desmontarSiNoToca();
       montar();
+      refrescarMenu();
     }, 150);
   });
 
@@ -674,5 +748,9 @@
     refrescarSubasta();
     refrescarSalon();
     montar();
+    refrescarMenu();
+    // Cada minuto: se pide el Menú si toca y se repinta (para que «hace N min» y las ✓ estén al día)
+    setInterval(() => { refrescarMenu(); if (document.visibilityState === 'visible') repintarPanel(); }, 60000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refrescarMenu(); });
   });
 })();

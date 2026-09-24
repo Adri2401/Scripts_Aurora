@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.18.1
-// @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
+// @version      0.19.0
+// @description  Solo en /castillo. Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_galerias.user.js
@@ -938,9 +938,22 @@
     dejar.insertAdjacentElement('beforebegin', b);
   }
 
-  esperarHidratacion().then(() => {
-    setInterval(botonResolver, 600);
+  // Solo funciona en /castillo. La web no recarga al navegar, así que si sales se para la exploración y se quita todo.
+  const enCastillo = () => /^\/castillo(\/|$)/.test(location.pathname);
+  function quitarTodo() {
+    if (explorando) { explorando = false; msg = ''; }
+    if (panel && panel.parentElement) panel.remove();
+    quitarDibujo();
+    for (const id of ['axg-barra', 'axg-resolver', 'axg-toast']) { const el = document.getElementById(id); if (el) el.remove(); }
+  }
+  function tick() {
+    if (!enCastillo()) { quitarTodo(); return; }
     asegurarPanel();
-    setInterval(asegurarPanel, 500);
+  }
+
+  esperarHidratacion().then(() => {
+    setInterval(() => { if (enCastillo()) botonResolver(); }, 600);
+    tick();
+    setInterval(tick, 500);
   });
 })();
