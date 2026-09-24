@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.16.0
+// @version      0.17.0
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -481,8 +481,94 @@
     return true;
   }
 
+  // Espejo del Sol / Suelo Pulido: en las losas se resbala hasta chocar (roca o borde), la arena frena y hay que llegar al pedestal.
+  // Se busca el camino con menos movimientos (BFS) y se replanifica tras cada movimiento por si alguna regla difiere.
+  async function atenderPatinaje(manual = false) {
+    const boton = d => botonesVisibles().find(b => (b.getAttribute('aria-label') || '') === 'Resbalar hacia ' + d);
+    if (!boton('arriba')) return false;
+    const DIRS = { arriba: [0, -1], abajo: [0, 1], izquierda: [-1, 0], derecha: [1, 0] };
+    const leer = () => {
+      const ref = $$('span.absolute').find(x => /castillo\/(losa|monton|pedestal)/.test(x.style.backgroundImage || ''));
+      if (!ref) return null;
+      const w = parseFloat(ref.style.width) || 33;
+      const S = { rocas: new Set(), arena: new Set(), pedestal: null, yo: null, cols: 0, filas: 0 };
+      for (const el of ref.parentElement.children) {
+        const bg = el.style.backgroundImage || '', l = parseFloat(el.style.left), t = parseFloat(el.style.top);
+        if (Number.isNaN(l) || Number.isNaN(t)) continue;
+        const c = Math.round(l / w), f = Math.round(t / w);
+        if (/personajes\//.test(bg)) { S.yo = { c, f: f + Math.round((parseFloat(el.style.height) || w) / w) - 1 }; continue; }
+        S.cols = Math.max(S.cols, c + 1); S.filas = Math.max(S.filas, f + 1);
+        if (/deco-roca/.test(bg)) S.rocas.add(c + ',' + f);
+        else if (/monton/.test(bg)) S.arena.add(c + ',' + f);
+        else if (/pedestal/.test(bg)) S.pedestal = { c, f };
+      }
+      return S.yo && S.pedestal ? S : null;
+    };
+    const resbalar = (S, p, [dc, df]) => {                       // → { c, f, meta } o null si no se mueve
+      let c = p.c, f = p.f;
+      for (;;) {
+        const nc = c + dc, nf = f + df;
+        if (nc < 0 || nf < 0 || nc >= S.cols || nf >= S.filas || S.rocas.has(nc + ',' + nf)) break;
+        c = nc; f = nf;
+        if (c === S.pedestal.c && f === S.pedestal.f) return { c, f, meta: true };
+        if (S.arena.has(c + ',' + f)) break;
+      }
+      return c === p.c && f === p.f ? null : { c, f, meta: false };
+    };
+    const buscar = (S, maxMov) => {
+      const ini = S.yo.c + ',' + S.yo.f;
+      const prev = new Map([[ini, null]]);
+      let nivel = [S.yo];
+      for (let n = 1; n <= maxMov && nivel.length; n++) {
+        const sig = [];
+        for (const p of nivel) for (const d of Object.keys(DIRS)) {
+          const r = resbalar(S, p, DIRS[d]);
+          if (!r) continue;
+          const k = r.c + ',' + r.f;
+          if (prev.has(k)) continue;
+          prev.set(k, { de: p.c + ',' + p.f, d });
+          if (r.meta) { const ruta = []; for (let x = k; prev.get(x); x = prev.get(x).de) ruta.push(prev.get(x).d); return ruta.reverse(); }
+          sig.push(r);
+        }
+        nivel = sig;
+      }
+      return null;
+    };
+    const restantes = () => { const m = (document.body.textContent || '').match(/(\d+) de (\d+) movimientos/); return m ? parseInt(m[2], 10) - parseInt(m[1], 10) : 99; };
+    let reiniciado = false;
+    for (let it = 0; it < 25 && (explorando || manual); it++) {
+      const S = leer();
+      if (!S) break;                                              // la ventana se ha cerrado
+      if (S.yo.c === S.pedestal.c && S.yo.f === S.pedestal.f) break;
+      const ruta = buscar(S, restantes());
+      if (!ruta) {
+        const ini = botonesVisibles().find(x => !x.disabled && /al principio/i.test(x.textContent || ''));
+        if (ini && !reiniciado) { reiniciado = true; ini.click(); await pausa(500, 800); continue; }
+        if (manual) { toast('No encuentro camino al pedestal con los movimientos que quedan', 3500); return true; }
+        msg = '🚪 Suelo pulido: sin camino al pedestal; lo dejo.'; pintar();
+        puertaFin[plantaActual()] = true;
+        const c = botonesVisibles().find(x => /^\s*dejarlo para luego/i.test(norm(x.textContent))) || botonesVisibles().find(x => x.getAttribute('aria-label') === 'Cerrar');
+        if (c) c.click();
+        await sleep(400);
+        return true;
+      }
+      msg = `🚪 Suelo pulido: ${ruta.length} movimiento(s) hasta el pedestal.`; pintar();
+      const b = boton(ruta[0]);
+      if (!b || b.disabled) break;
+      await pausa(300, 500);
+      b.click();
+      await pausa(500, 800);
+    }
+    puertaFin[plantaActual()] = true;
+    await pausa(700, 1100);
+    const fin = botonesVisibles().find(x => !x.disabled && /^\s*(recoger|reclamar|coger|continuar|aceptar|cerrar|genial|vale|ok)\b/i.test(norm(x.textContent)));
+    if (fin && !boton('arriba')) { fin.click(); await sleep(400); }
+    return true;
+  }
+
   async function atenderPuerta(manual = false) {
     if (await atenderRunas(manual)) return true;
+    if (await atenderPatinaje(manual)) return true;
     const huecos = botonesVisibles().filter(b => /^Hueco \d/.test(b.getAttribute('aria-label') || ''));
     if (huecos.length < 2) {
       // Recién chocada una puerta y se abre una ventana que no conozco (runas, suelo pulido…): me paro para que me pases su HTML
@@ -802,7 +888,7 @@
   let resolviendo = false;
   function botonResolver() {
     const runas = botonesVisibles().some(b => /^Runa \d+, (encendida|apagada)/.test(b.getAttribute('aria-label') || ''));
-    const huecos = botonesVisibles().some(b => /^Hueco \d/.test(b.getAttribute('aria-label') || ''));
+    const huecos = botonesVisibles().some(b => /^(Hueco \d|Resbalar hacia)/.test(b.getAttribute('aria-label') || ''));
     const viejo = document.getElementById('axg-resolver');
     if (!runas && !huecos) { if (viejo) viejo.remove(); return; }
     if (viejo) return;
