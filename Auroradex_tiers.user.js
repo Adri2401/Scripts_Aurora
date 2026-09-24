@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.3.0
+// @version      1.3.1
 // @description  Solo en /equipo. Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -157,21 +157,31 @@
     if (a.num === HOLGAZAN) hA = 2 * hA - 1;
     if (b.num === HOLGAZAN) hB = 2 * hB - 1;
     const vel = a.spe > b.spe ? 0.5 : a.spe < b.spe ? -0.5 : 0;
-    return 1 / (1 + Math.exp(-2.2 * (hB - hA + vel)));
+    // relación entre los golpes que necesita el rival y los que necesita él (con medio golpe al más rápido):
+    // proporcional, así un +30% pesa claramente más que un +15% aunque ya gane casi siempre
+    const r = Math.max(0.05, hB + vel) / hA;
+    return r * r * r / (r * r * r + 1);
   }
-  const pctCon = yo => BANCO.reduce((x, r) => x + ventaja(yo, r), 0) / BANCO.length;
+  const pctCon = (yo, banco = BANCO) => banco.reduce((x, r) => x + ventaja(yo, r), 0) / banco.length;
+  // Rivales de su misma fuerza media: contra rivales más flojos un Pokémon muy bueno ya gana todo y ninguna mejora se nota
+  const bancosIguales = {};
+  function bancoIgual(d) {
+    const media = Math.round(d.s.reduce((x, y) => x + y, 0) / 6);
+    return bancosIguales[media] || (bancosIguales[media] = GEN.flatMap(t => PERFILES.map(pf => ({ ...stats(pf.map(v => Math.max(20, v + media - 80)), 50), L: 50, tipos: t.split('/'), num: 0 }))));
+  }
   // Cuánto sube su % de duelos ganados con cada objeto y con +10 % en cada estadística
   function mejoras(num, tipos, ids) {
     const d = datos[num];
     if (!d) return null;
     const base = { ...stats(d.s, 50), L: 50, tipos, num };
-    const p0 = pctCon(base);
-    const objetos = (ids || Object.keys(OBJETOS)).filter(id => OBJETOS[id]).map(id => ({ id, n: OBJETOS[id].n, gana: pctCon(conObjeto(base, id)) - p0 }))
+    const bi = bancoIgual(d);
+    const p0 = pctCon(base, bi);
+    const objetos = (ids || Object.keys(OBJETOS)).filter(id => OBJETOS[id]).map(id => ({ id, n: OBJETOS[id].n, gana: pctCon(conObjeto(base, id), bi) - p0 }))
       .sort((a, b) => b.gana - a.gana);
     const esp = Math.round((d.s[3] + d.s[4]) / 2), fisico = d.s[1] > esp;
     const prueba = [['PS', { hp: 10 }], [fisico ? 'Ataque' : 'Especial', fisico ? { atk: 10 } : { esp: 10 }], ['Defensa', { def: 10 }], ['Velocidad', { spe: 10 }]];
     if (fisico) prueba.push(['Especial', { esp: 10 }]);
-    const stats10 = prueba.map(([n, o]) => { OBJETOS.__p = { n, ...o }; const g = pctCon(conObjeto(base, '__p')) - p0; delete OBJETOS.__p; return { n, gana: g }; }).sort((a, b) => b.gana - a.gana);
+    const stats10 = prueba.map(([n, o]) => { OBJETOS.__p = { n, ...o }; const g = pctCon(conObjeto(base, '__p'), bi) - p0; delete OBJETOS.__p; return { n, gana: g }; }).sort((a, b) => b.gana - a.gana);
     return { p0, objetos, stats10 };
   }
   function analizar(num, tiposVistos) {
@@ -305,6 +315,13 @@
     const sec = tit && tit.parentElement;
     if (!sec) return { lleva: null, tienes: [] };
     const ids = $$('img[src*="/items/"]', sec).map(idObjeto).filter(Boolean);
+    const porNombre = {};
+    for (const [id, o] of Object.entries(OBJETOS)) porNombre[normT(o.n)] = id;
+    for (const b of $$('button, span', sec)) {
+      if (b.children.length > 3) continue;
+      const n = normT((b.textContent || '').replace(/\s*[x×]\s*\d+.*$/i, '').replace(/\bi\s*$/, ''));
+      if (porNombre[n] && !ids.includes(porNombre[n])) ids.push(porNombre[n]);
+    }
     const lleva = $$('button', sec).some(b => /^\s*quitar\s*$/i.test(b.textContent || '')) ? ids[0] : null;
     return { lleva, tienes: lleva ? [] : [...new Set(ids)] };
   }
@@ -318,7 +335,7 @@
     const mejor = m.objetos[0];
     caja.innerHTML = `
       <p class="titulo-seccion">Objetos</p>
-      <p class="text-[11px] font-semibold text-tinta-500">Qué estadística le sirve más (un +10% en cada una): <b>${m.stats10.map(x => `${x.n} ${mas(x.gana)}`).join(' › ')}</b> (puntos de % de victorias).</p>
+      <p class="text-[11px] font-semibold text-tinta-500">Qué estadística le sirve más (un +10% en cada una): <b>${m.stats10.map(x => `${x.n} ${mas(x.gana)}`).join(' › ')}</b>. Medido en puntos de % de victorias contra rivales de su misma fuerza (contra rivales flojos ya gana casi todo y no se notaría).</p>
       ${lleva ? `<p class="text-[11px] font-semibold text-tinta-500">Lleva <b>${OBJETOS[lleva] ? OBJETOS[lleva].n : lleva}</b>${conLleva ? `: le sube ${mas(conLleva.gana)} puntos de % de victorias${OBJETOS[lleva] && m.objetos[0] && m.objetos[0].id !== lleva && m.objetos[0].gana - conLleva.gana > 0.01 ? '' : ' (buena elección)'}.` : ' (no ayuda en combate: mejor uno de los de abajo si lo usas para pelear).'}</p>` : ''}
       ${propios.length ? `<p class="text-[11px] font-semibold text-tinta-500">De los que tienes, por orden: ${propios.map((o, i) => `<b>${i + 1}. ${o.n}</b> (${mas(o.gana)})`).join(' · ')}</p>` : ''}
       ${mejor && mejor.gana > 0.002 && mejor.gana - (conLleva ? conLleva.gana : 0) > 0.01 ? `<p class="text-[11px] font-semibold text-tinta-500">El mejor del juego para él: <b>${mejor.n}</b> (${mas(mejor.gana)})${m.objetos[1] && m.objetos[1].gana > 0.002 ? `, luego ${m.objetos.slice(1, 4).filter(o => o.gana > 0.002).map(o => `${o.n} (${mas(o.gana)})`).join(', ')}` : ''}.</p>` : ''}`;
@@ -477,5 +494,5 @@
   const arrancar = () => setTimeout(() => { listo = true; programar(); }, 1500);
   if (document.readyState === 'complete') arrancar(); else window.addEventListener('load', arrancar);
 
-  window.__axTiers = { analizar, stats, datos };
+  window.__axTiers = { analizar, stats, datos, mejoras };
 })();
