@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Metro Batalla (pelear en bucle y ventaja de tipos)
 // @namespace    auroradex-metro
-// @version      1.1.0
+// @version      1.2.0
 // @description  Solo en /metro. Al elegir equipo analiza tus seis (debilidades, estadísticas, flojos) y marca el mejor orden; en cada parada predice el combate. Pulsa «Pelear» en bucle con tope de paradas o de racha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -175,34 +175,40 @@
     if (!panel) return;
     const c = leerCombate();
     if (c) for (const p of [...c.mios, ...c.rivales]) if (!pokeGuardados[p.num]) datosDe(p.num);
-    if (c && c.rivales.length && c.rivales.every(r => r.num)) apuntarRivales(c);
+    if (c && c.rivales.length && c.rivales.every(r => r.num)) { apuntarRivales(c); guardarParada(c); }
     const a = analizar(c);
     const pr = prediccion(c);
     const caja = panel.querySelector('.axm-analisis');
-    const firma = JSON.stringify(a && [a.nota, pr, a.filas.map(f => [f.r.nombre, f.r.tipos, f.mejor && f.mejor.m.nombre])]);
+    const firma = JSON.stringify(a && [a.nota, pr && pr.duelos.map(d => [d.m.nombre, d.r.nombre, d.ganaM, Math.round(d.resto * 100)]), FACT, c.rivales.map(r => r.tipos)]);
     if (firma === firmaAnalisis) return;
     firmaAnalisis = firma;
     if (!a) { caja.innerHTML = ''; return; }
     const chip = t => `<span class="rounded-pill px-1 text-[8px] font-extrabold uppercase" style="border:1px solid #8A93A6;color:#C9CFDB">${bonito(t)}</span>`;
-    caja.innerHTML = `
-      <div class="flex items-center justify-between gap-2">
-        <p class="text-xs font-extrabold uppercase tracking-wide" style="color:#E8ECF3">Análisis de tipos</p>
-        <span class="font-mono text-xs font-bold" style="color:${a.veredicto.color}">${a.veredicto.txt}</span>
-      </div>
-      ${a.filas.map(f => `
+    const pct = x => Math.max(1, Math.round(x * 100)) + '%';
+    const veredicto = pr
+      ? (pr.gana ? (pr.vivos >= 2 ? { txt: `Ganas · te quedan ${pr.vivos}`, color: '#8FD88A' } : { txt: 'Ganas justo', color: '#E6D36A' }) : { txt: `Pierdes · le quedan ${pr.restantes}`, color: '#FF6B6B' })
+      : a.veredicto;
+    const filaDuelo = d => {
+      const e1 = tipoDeAtaque(d.m, d.r), e2 = tipoDeAtaque(d.r, d.m);
+      return `
         <div class="flex items-center gap-2 rounded-card p-1.5" style="background:#1F2430">
           <div class="min-w-0 flex-1">
-            <p class="truncate text-[11px] font-extrabold" style="color:#E8ECF3">${f.r.nombre} <span style="color:#8A93A6">Nv.${f.r.nivel || '?'}</span></p>
-            <span class="flex flex-wrap gap-0.5">${f.r.tipos.map(chip).join('') || '<span class="text-[9px]" style="color:#8A93A6">tipos…</span>'}</span>
+            <p class="truncate text-[11px] font-extrabold" style="color:#E8ECF3">${d.m.nombre} <span style="color:#8A93A6">vs</span> ${d.r.nombre}</p>
+            <p class="text-[9px] font-bold" style="color:#8A93A6">le hace ${e1.e === 0 ? 'Forcejeo' : mult(e1.e) + ' (' + bonito(e1.t) + ')'} · recibe ${e2.e === 0 ? 'Forcejeo' : mult(e2.e) + ' (' + bonito(e2.t) + ')'}</p>
           </div>
-          ${f.mejor ? `<div class="text-right">
-            <p class="text-[10px] font-extrabold" style="color:${f.mejor.puntos >= 0.5 ? '#8FD88A' : f.mejor.puntos >= -0.5 ? '#E6D36A' : '#FF6B6B'}">${f.mejor.puntos >= 0.5 ? '✔' : f.mejor.puntos >= -0.5 ? '≈' : '✖'} ${f.mejor.m.nombre}</p>
-            <p class="text-[9px] font-bold" style="color:#8A93A6">le hace ${mult(f.mejor.ataque)} · recibe ${mult(f.mejor.defensa)}</p>
-          </div>` : ''}
-        </div>`).join('')}
-      ${pr ? `<p class="text-[11px] font-extrabold" style="color:${pr.gana ? '#8FD88A' : '#FF6B6B'}">Predicción con este orden: ${pr.gana ? `ganas (te quedan ${pr.vivos} en pie)` : `pierdes (le quedan ${pr.restantes} al rival)`}</p>` : ''}
-      ${a.sinTipos ? '<p class="text-[10px] font-semibold" style="color:#8A93A6">Buscando los tipos que faltan…</p>' : ''}
-      ${((pr && !pr.gana) || (!pr && a.nota < -0.8)) && cambiosQuedan() > 0 ? '<p class="text-[11px] font-bold" style="color:#FFB23E">💡 Mala pinta: quizá compense «Cambiar vía».</p>' : ''}`;
+          <p class="shrink-0 text-right text-[10px] font-extrabold" style="color:${d.ganaM ? '#8FD88A' : '#FF6B6B'}">${d.ganaM ? '✔' : '✖'} ${d.ganaM ? d.m.nombre : d.r.nombre}<br><span class="text-[9px]" style="color:#8A93A6">le queda ${pct(d.resto)}</span></p>
+        </div>`;
+    };
+    const calibrado = Object.values(lsGet(LS_CALIB, {})).reduce((n, b) => n + b.mio.length + b.rival.length, 0);
+    caja.innerHTML = `
+      <div class="flex items-center justify-between gap-2">
+        <p class="text-xs font-extrabold uppercase tracking-wide" style="color:#E8ECF3">Así irá el combate</p>
+        <span class="font-mono text-xs font-bold" style="color:${veredicto.color}">${veredicto.txt}</span>
+      </div>
+      <div class="flex flex-wrap items-center gap-1 text-[9px] font-bold" style="color:#8A93A6">Rival: ${c.rivales.map(r => `<span>${r.nombre}</span> ${r.tipos.map(chip).join('')}`).join(' <span>→</span> ')}</div>
+      ${pr ? pr.duelos.map(filaDuelo).join('') : '<p class="text-[10px] font-semibold" style="color:#8A93A6">Buscando estadísticas…</p>'}
+      <p class="text-[9px] font-semibold" style="color:#8A93A6">En orden, de arriba a abajo. Estimación ${calibrado >= 6 ? `ajustada con ${calibrado} golpes reales vistos` : 'con datos de partida (se ajusta sola con cada combate que veas)'}.</p>
+      ${pr && !pr.gana && cambiosQuedan() > 0 ? '<p class="text-[11px] font-bold" style="color:#FFB23E">💡 Mala pinta: quizá compense «Cambiar vía».</p>' : ''}`;
   }
 
   /* ------------------------------------------------------------------ *
@@ -235,47 +241,81 @@
     finally { pidiendoPoke.delete(num); }
   }
 
-  // Luchador listo para el modelo: tipos (los de la web si los enseña), estadísticas al nivel dado
-  function luchador(p, nivelForzado, baseDirecta) {
+  // Luchador listo para el modelo: tipos (los de la web si los enseña), estadísticas al nivel dado.
+  // `lado`: 'mio' o 'rival' (el daño real de cada lado se calibra por separado con los combates vistos)
+  function luchador(p, nivelForzado, baseDirecta, lado = 'mio') {
     const d = baseDirecta ? { s: baseDirecta, t: p.tipos } : pokeGuardados[p.num];
     if (!d) return null;
     const L = nivelForzado || p.nivel || 50, b = d.s;
     const st = i => Math.floor(2 * b[i] * L / 100) + 5;
-    return { nombre: p.nombre, num: p.num, nivel: L, tipos: (p.tipos && p.tipos.length) ? p.tipos : d.t, hp: Math.floor(2 * b[0] * L / 100) + L + 10, atk: st(1), def: st(2), spa: st(3), spd: st(4), spe: st(5), bst: b.reduce((x, y) => x + y, 0) };
+    return { nombre: p.nombre, num: p.num, lado, nivel: L, tipos: (p.tipos && p.tipos.length) ? p.tipos : d.t, hp: Math.floor(2 * b[0] * L / 100) + L + 10, atk: st(1), def: st(2), spa: st(3), spd: st(4), spe: st(5), bst: b.reduce((x, y) => x + y, 0) };
+  }
+  // El juego ataca con su tipo más eficaz (si empatan, el primero) y, con Ataque = At. Esp., en especial
+  function tipoDeAtaque(a, b) {
+    let mejor = null;
+    for (const t of a.tipos) { const e = eficacia(t, b.tipos); if (!mejor || e > mejor.e) mejor = { t, e }; }
+    return mejor || { t: null, e: 1 };
   }
   function dano(a, b) {
-    let mejor = 0;
-    for (const t of a.tipos) {
-      const fis = a.atk >= a.spa, A = fis ? a.atk : a.spa, D = fis ? b.def : b.spd;
-      const base = ((2 * a.nivel / 5 + 2) * 80 * A / D) / 50 + 2;
-      mejor = Math.max(mejor, base * 1.5 * eficacia(t, b.tipos));
+    const { e } = tipoDeAtaque(a, b);
+    const fis = a.atk > a.spa, A = fis ? a.atk : a.spa, D = fis ? b.def : b.spd;
+    return (((2 * a.nivel / 5 + 2) * 80 * A / D) / 50 + 2) * 1.5 * e;
+  }
+
+  /* ---- Calibración: cuánto quita de verdad cada golpe comparado con el modelo (se aprende de los logs) ----
+   * Datos de partida sacados de un combate real: tus golpes quitan ~0,30 de lo que dice la fórmula y los del
+   * rival ~0,165 (tu equipo está más entrenado). Con 6 golpes o más vistos, manda lo aprendido. */
+  const LS_CALIB = 'axm-calibra';
+  const PRIOR = { mio: 0.30, rival: 0.165 };
+  const mediana = a => { const x = [...a].sort((p, q) => p - q); return x[Math.floor(x.length / 2)]; };
+  let FACT = { ...PRIOR };
+  function calcularFactores() {
+    const todos = Object.values(lsGet(LS_CALIB, {})), l = lineaActual();
+    const f = {};
+    for (const lado of ['mio', 'rival']) {
+      const deLinea = todos.filter(b => b.linea === l).flatMap(b => b[lado] || []);
+      const global = todos.flatMap(b => b[lado] || []);
+      f[lado] = deLinea.length >= 6 ? mediana(deLinea) : global.length >= 6 ? mediana(global) : PRIOR[lado];
     }
-    return mejor;
+    FACT = f;
+    return f;
   }
-  // Un duelo: devuelve quién gana y con cuánta vida
-  function duelo(a, hpA, b, hpB) {
-    const dA = dano(a, b), dB = dano(b, a);
-    const tA = dA > 0 ? Math.ceil(hpB / dA) : Infinity, tB = dB > 0 ? Math.ceil(hpA / dB) : Infinity;
-    if (tA === Infinity && tB === Infinity) return hpA / a.hp >= hpB / b.hp ? { ganaA: true, hpA, hpB: 0 } : { ganaA: false, hpA: 0, hpB };
-    const primeroA = a.spe > b.spe || (a.spe === b.spe && hpA >= hpB);
-    if (primeroA) return tA <= tB ? { ganaA: true, hpA: hpA - (tA - 1) * dB, hpB: 0 } : { ganaA: false, hpA: 0, hpB: hpB - tB * dA };
-    return tB <= tA ? { ganaA: false, hpA: 0, hpB: hpB - (tB - 1) * dA } : { ganaA: true, hpA: hpA - tA * dB, hpB: 0 };
+  // Parte de la vida del rival que quita cada golpe (Forcejeo: 1/16 si no le afecta ninguno de sus tipos)
+  function golpe(a, b) {
+    if (tipoDeAtaque(a, b).e === 0) return 1 / 16;
+    return dano(a, b) / b.hp * (FACT[a.lado] || 0.25);
   }
-  // Combate completo en orden; `vidaA` opcional (fracciones 0..1, para la Línea Negra)
-  function combate(mios, rivales, vidaA) {
-    let i = 0, j = 0, hpA = mios[0] ? mios[0].hp * (vidaA ? vidaA[0] : 1) : 0, hpB = rivales[0] ? rivales[0].hp : 0;
+  // Un duelo con la vida en fracciones (1 = entera): quién gana y con cuánta vida
+  function duelo(a, fa, b, fb) {
+    const dA = golpe(a, b), dB = golpe(b, a);
+    const tA = Math.ceil(fb / dA - 1e-9), tB = Math.ceil(fa / dB - 1e-9);
+    const primeroA = a.spe > b.spe || (a.spe === b.spe && fa >= fb);
+    if (primeroA) return tA <= tB ? { ganaA: true, fa: fa - (tA - 1) * dB, fb: 0 } : { ganaA: false, fa: 0, fb: fb - tB * dA };
+    return tB <= tA ? { ganaA: false, fa: 0, fb: fb - (tB - 1) * dA } : { ganaA: true, fa: fa - tA * dB, fb: 0 };
+  }
+  // Combate completo EN ORDEN (arriba → abajo): el que gana sigue con la vida que le quede.
+  // `vidaA`: fracciones de vida de salida (Línea Negra). Con `detalle` devuelve también cada duelo.
+  function combate(mios, rivales, vidaA, detalle) {
+    let i = 0, j = 0, fa = mios.length ? (vidaA ? vidaA[0] : 1) : 0, fb = 1;
+    const duelos = [];
     while (i < mios.length && j < rivales.length) {
-      if (hpA <= 0) { i++; if (i < mios.length) hpA = mios[i].hp * (vidaA ? vidaA[i] : 1); continue; }
-      const r = duelo(mios[i], hpA, rivales[j], hpB);
-      if (r.ganaA) { hpA = r.hpA; j++; if (j < rivales.length) hpB = rivales[j].hp; }
-      else { hpB = r.hpB; i++; if (i < mios.length) hpA = mios[i].hp * (vidaA ? vidaA[i] : 1); }
+      if (fa <= 0) { i++; fa = i < mios.length ? (vidaA ? vidaA[i] : 1) : 0; continue; }
+      const r = duelo(mios[i], fa, rivales[j], fb);
+      if (detalle) duelos.push({ m: mios[i], r: rivales[j], ganaM: r.ganaA, resto: r.ganaA ? r.fa : r.fb });
+      if (r.ganaA) { fa = r.fa; j++; fb = 1; }
+      else { fb = r.fb; i++; fa = i < mios.length ? (vidaA ? vidaA[i] : 1) : 0; }
     }
-    return { gana: j >= rivales.length, vivos: mios.length - i, restantes: rivales.length - j };
+    return { gana: j >= rivales.length, vivos: mios.length - i, restantes: rivales.length - j, duelos };
   }
 
   /* ---- Rivales vistos por línea (para comparar con rivales de verdad) ---- */
   const LS_RIVALES = 'axm-rivales';
-  const lineaActual = () => { const h = $$('main h1').find(x => /l[ií]nea/i.test(x.textContent || '')); return h ? norm(h.textContent).replace(/^linea\s+/, '') : 'metro'; };
+  let lineaVista = lsGet('axm-linea', 'metro');
+  const lineaActual = () => {
+    const h = $$('main h1').find(x => /^\s*l[ií]nea\s/i.test(x.textContent || ''));
+    if (h) { const l = norm(h.textContent).replace(/^linea\s+/, ''); if (l !== lineaVista) { lineaVista = l; lsPut('axm-linea', l); } }
+    return lineaVista;
+  };
   function apuntarRivales(c) {
     const todos = lsGet(LS_RIVALES, {}), l = lineaActual(), lista = todos[l] || [];
     const clave = c.rivales.map(r => r.num + '@' + r.nivel).join(',');
@@ -292,7 +332,7 @@
     const equipos = [];
     for (const e of vistos) {
       for (const p of e.equipo) if (!pokeGuardados[p.num]) datosDe(p.num);
-      const eq = e.equipo.map(p => luchador({ ...p, tipos: null }, lineaActual() === 'verde' ? 50 : p.nivel)).filter(Boolean);
+      const eq = e.equipo.map(p => luchador({ ...p, tipos: null }, lineaActual() === 'verde' ? 50 : p.nivel, null, 'rival')).filter(Boolean);
       if (eq.length === e.equipo.length && eq.length) equipos.push(eq);
     }
     if (equipos.length >= 8) return { equipos, origen: `${equipos.length} equipos rivales que ya te han salido en esta línea` };
@@ -303,7 +343,7 @@
     const banco = [];
     for (const t of GENERICOS) PERFILES.forEach((pf, i) => {
       const b6 = pf.map(d => Math.max(30, base + d + Math.round((azar() - 0.5) * 10)));
-      banco.push(luchador({ nombre: t + ' · ' + i, num: 'g', tipos: t.split('/'), nivel }, nivel, b6));
+      banco.push(luchador({ nombre: t + ' · ' + i, num: 'g', tipos: t.split('/'), nivel }, nivel, b6, 'rival'));
     });
     for (let k = 0; k < 300; k++) { const a = [...banco].sort(() => azar() - 0.5).slice(0, 3); equipos.push(a); }
     return { equipos, origen: vistos.length ? `rivales genéricos (solo llevas ${vistos.length} equipos vistos en esta línea)` : 'rivales genéricos de todos los tipos (aún no has visto rivales en esta línea)' };
@@ -345,7 +385,8 @@
   }
   function analizarEquipo(b) {
     const verde = lineaActual() === 'verde';
-    const mios = b.cands.map(c => ({ c, l: luchador(c, verde ? 50 : c.nivel) }));
+    calcularFactores();
+    const mios = b.cands.map(c => ({ c, l: luchador(c, verde ? 50 : c.nivel, null, 'mio') }));
     const faltan = mios.filter(m => !m.l);
     if (faltan.length) return { faltan: faltan.length };
     const nivelMedio = Math.round(mios.reduce((s, m) => s + m.l.nivel, 0) / mios.length);
@@ -354,7 +395,7 @@
     // cada uno por separado: qué parte de los rivales tumba de uno en uno
     const rivalesSueltos = [...new Map(equipos.flat().map(r => [r.nombre + r.nivel, r])).values()];
     const fichas = mios.map(m => {
-      const gana = rivalesSueltos.filter(r => duelo(m.l, m.l.hp, r, r.hp).ganaA).length / rivalesSueltos.length;
+      const gana = rivalesSueltos.filter(r => duelo(m.l, 1, r, 1).ganaA).length / rivalesSueltos.length;
       const d = defensa(m.l.tipos);
       const ojo = [];
       if (d.x4) ojo.push('una debilidad ×4');
@@ -430,14 +471,96 @@
     });
   }
 
-  // Predicción del combate de la parada con el orden actual (tuyos en el orden en que salen)
+  // Predicción del combate de la parada con el orden actual (tuyos de arriba a abajo, igual que el rival)
   function prediccion(c) {
     if (!c) return null;
+    calcularFactores();
     const verde = lineaActual() === 'verde';
-    const mios = c.mios.map(p => luchador(p, verde ? 50 : p.nivel)), rivales = c.rivales.map(p => luchador({ ...p, tipos: null }, verde ? 50 : p.nivel));
+    const mios = c.mios.map(p => luchador(p, verde ? 50 : p.nivel, null, 'mio'));
+    const rivales = c.rivales.map(p => luchador({ ...p, tipos: null }, verde ? 50 : p.nivel, null, 'rival'));
     if (mios.some(x => !x) || rivales.some(x => !x)) return null;
     const vida = lineaActual() === 'negra' ? c.mios.map(p => (p.vida == null ? 1 : p.vida / 100)) : null;
-    return combate(mios, rivales, vida);
+    return combate(mios, rivales, vida, true);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  APRENDER DEL LOG DEL COMBATE
+   *  Mientras se ve el combate se leen los golpes («Dialga · … −52 PS», «¡crítico!», «Forcejeo») y los relevos
+   *  («sale al paso de», «El rival saca a», «Relevas con»). La vida máxima de cada uno sale de su tarjeta
+   *  («310/383 PS») o, si cae, de todo el daño que recibió. Cada golpe normal da una muestra: daño real / modelo.
+   * ------------------------------------------------------------------ */
+  function guardarParada(c) {
+    const quitar = x => ({ nombre: x.nombre, num: x.num, nivel: x.nivel, tipos: x.tipos });
+    lsPut('axm-ultima-parada', { linea: lineaActual(), parada: c.parada, mios: c.mios.map(quitar), rivales: c.rivales.map(quitar) });
+  }
+  function leerLog() {
+    const caja = $$('main div.overflow-y-auto').find(d => !ajeno(d) && d.querySelector(':scope > .animate-slide-up'));
+    if (!caja) return null;
+    const ev = [];
+    for (const el of caja.children) {
+      const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (el.tagName === 'P') { ev.push({ msg: t }); continue; }
+      const linea = $$('span.block', el).map(x => x.textContent.trim()).find(x => / · /.test(x)) || '';
+      const m = t.match(/[−-]\s*(\d+)\s*PS/);
+      ev.push({ atacante: linea.split(' · ')[0], dano: m ? parseInt(m[1], 10) : null, critico: /cr[ií]tico/i.test(t), forcejeo: /forcejeo|[uú]ltimo recurso/i.test(t) });
+    }
+    return ev;
+  }
+  const hpTarjeta = {};
+  function aprenderDelCombate() {
+    const P = lsGet('axm-ultima-parada', null), ev = leerLog();
+    if (!P || !ev || !ev.length) return;
+    const primero = ev.find(e => e.msg);
+    if (!primero) return;
+    const id = P.linea + '|' + P.parada + '|' + primero.msg;
+    const lado = n => (P.mios.some(x => x.nombre === n) ? 'm' : P.rivales.some(x => x.nombre === n) ? 'r' : null);
+    // vida máxima vista en las tarjetas del combate
+    for (const h of $$('main h3')) {
+      const caja = h.closest('div.rounded-card') || h.parentElement.parentElement;
+      const m = (caja && caja.textContent || '').match(/(\d+)\s*\/\s*(\d+)\s*PS/);
+      const nombre = h.textContent.trim(), l = lado(nombre);
+      if (m && l) hpTarjeta[id + '|' + l + ':' + nombre] = parseInt(m[2], 10);
+    }
+    let mio = null, riv = null;
+    const recibido = {}, maxHP = {}, golpes = [];
+    for (const e of ev) {
+      if (e.msg) {
+        let m;
+        if ((m = e.msg.match(/^(.+?) \(Nv\.\d+\) sale al paso de (.+?) \(Nv\.\d+\)/))) { mio = m[1]; riv = m[2]; }
+        else if ((m = e.msg.match(/^El rival saca a (.+?) \(Nv/))) riv = m[1];
+        else if ((m = e.msg.match(/^Relevas con (.+?) \(Nv/))) mio = m[1];
+        else if ((m = e.msg.match(/^(.+?) (?:se queda sin fuerzas|no puede continuar)/))) {
+          const k = (m[1] === riv ? 'r:' : 'm:') + m[1];
+          if (recibido[k]) maxHP[k] = recibido[k];
+        }
+        continue;
+      }
+      if (!e.dano || !mio || !riv) continue;
+      const deMio = e.atacante === mio;
+      if (!deMio && e.atacante !== riv) continue;
+      const kdef = deMio ? 'r:' + riv : 'm:' + mio;
+      recibido[kdef] = (recibido[kdef] || 0) + e.dano;
+      if (!e.critico && !e.forcejeo) golpes.push({ lado: deMio ? 'mio' : 'rival', atk: e.atacante, def: deMio ? riv : mio, kdef, dano: e.dano });
+    }
+    const verde = P.linea === 'verde';
+    const buscar = (n, l) => { const x = (l === 'mio' ? P.mios : P.rivales).find(q => q.nombre === n); return x && luchador(l === 'mio' ? x : { ...x, tipos: null }, verde ? 50 : x.nivel, null, l); };
+    const muestras = { mio: [], rival: [] };
+    for (const g of golpes) {
+      const vida = hpTarjeta[id + '|' + g.kdef] || maxHP[g.kdef];
+      if (!vida) continue;
+      const A = buscar(g.atk, g.lado), D = buscar(g.def, g.lado === 'mio' ? 'rival' : 'mio');
+      if (!A || !D || tipoDeAtaque(A, D).e === 0) continue;
+      const modelo = dano(A, D) / D.hp;
+      if (modelo > 0) muestras[g.lado].push((g.dano / vida) / modelo);
+    }
+    if (!muestras.mio.length && !muestras.rival.length) return;
+    const todos = lsGet(LS_CALIB, {});
+    const prev = todos[id];
+    if (prev && prev.mio.length === muestras.mio.length && prev.rival.length === muestras.rival.length) return;
+    todos[id] = { linea: P.linea, t: Date.now(), ...muestras };
+    const ids = Object.keys(todos).sort((x, y) => todos[y].t - todos[x].t);
+    for (const k of ids.slice(40)) delete todos[k];
+    lsPut(LS_CALIB, todos);
   }
 
   /* ------------------------------------------------------------------ *
@@ -552,6 +675,7 @@
   function montar() {
     let panel = document.getElementById(PANEL_ID);
     if (!enMetro()) { enMarcha = false; if (panel) panel.remove(); pintarEquipo(); return; }
+    try { aprenderDelCombate(); } catch (e) { console.warn('[axm] log', e); }
     const pel = botonPelear();
     if (!pel && !seccionParada()) pintarEquipo();
     const ancla = pel || (seccionParada() && seccionParada().parentElement.lastElementChild);
