@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.4.0
+// @version      2.5.0
 // @description  Auto-explora y captura; ante shiny/legendario vibra, notifica y PARA la macro para captura manual. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -52,7 +52,7 @@
     PARTNER_KEY: 'adx_macro_partner',      // Pokémon 2 de la crianza (se mantiene la clave antigua)
     PARENT1_KEY: 'adx_macro_parent1',      // Pokémon 1 de la crianza (por defecto Ditto)
     MODE_KEY: 'adx_macro_nursery_mode',    // off | pair | mystery
-    ENERGY_KEY: 'adx_macro_energy_limit',  // energía máxima a gastar por sesión (vacío/0 = sin límite)
+    ENERGY_KEY: 'adx_macro_energy_limit',  // energía máxima a gastar por sesión (vacío = sin límite; 0 = solo lo gratis de la manada)
     DEFAULT_PARENT1: 'Ditto',
 
     // Retardos "humanos" (ms) → [mínimo, máximo]
@@ -190,9 +190,12 @@
     if (m === 'off' || m === 'pair' || m === 'mystery') return m;
     return getPartner() ? 'pair' : 'off';
   };
+  // null = sin límite; 0 = no gastar energía (solo las exploraciones gratis de ¡MANADA!); n = tope de energía
   const getEnergyLimit = () => {
-    const n = parseInt(lsGet(CONFIG.ENERGY_KEY), 10);
-    return Number.isFinite(n) && n > 0 ? n : 0;
+    const raw = String(lsGet(CONFIG.ENERGY_KEY) ?? '').trim();
+    if (raw === '') return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : null;
   };
   const nurseryOn = () => getMode() === 'mystery' || (getMode() === 'pair' && !!getPartner());
 
@@ -546,10 +549,10 @@
             <button type="button" class="boton-suave" data-e="1" aria-label="Más energía">+</button>
           </div>
           <div class="adx-chips">
-            <button type="button" class="boton-suave" data-q="3">3</button>
-            <button type="button" class="boton-suave" data-q="10">10</button>
-            <button type="button" class="boton-suave" data-q="40">40</button>
-            <button type="button" class="boton-suave" data-q="0">Toda</button>
+            <button type="button" class="boton-suave" data-q="0">0</button>
+            <button type="button" class="boton-suave" data-q="7">7</button>
+            <button type="button" class="boton-suave" data-q="20">20</button>
+            <button type="button" class="boton-suave" data-q="">Toda</button>
           </div>
         </div>
 
@@ -613,18 +616,19 @@
     const inEnergy = $('.adx-in-energy', card);
     const inP1 = $('.adx-in-p1', card);
     const inP2 = $('.adx-in-p2', card);
-    inEnergy.value = getEnergyLimit() || '';
+    inEnergy.value = getEnergyLimit() ?? '';
     inP1.value = getParent1();
     inP2.value = getPartner();
 
     const setEnergy = v => {
-      const n = Math.max(0, parseInt(v, 10) || 0);
-      inEnergy.value = n || '';
-      lsSet(CONFIG.ENERGY_KEY, n ? String(n) : '');
+      const vacio = v === '' || v === null || v === undefined;
+      const n = vacio ? null : Math.max(0, parseInt(v, 10) || 0);
+      inEnergy.value = n ?? '';
+      lsSet(CONFIG.ENERGY_KEY, n === null ? '' : String(n));
       renderUI();
     };
     inEnergy.addEventListener('input', () => { lsSet(CONFIG.ENERGY_KEY, inEnergy.value.trim()); renderUI(); });
-    for (const b of $$('[data-e]', card)) b.addEventListener('click', () => setEnergy((getEnergyLimit() || 0) + +b.dataset.e));
+    for (const b of $$('[data-e]', card)) b.addEventListener('click', () => setEnergy(Math.max(0, (getEnergyLimit() ?? 0) + +b.dataset.e)));
     for (const b of $$('[data-q]', card)) b.addEventListener('click', () => setEnergy(b.dataset.q));
     for (const b of $$('[data-mode]', card)) b.addEventListener('click', () => { lsSet(CONFIG.MODE_KEY, b.dataset.mode); renderUI(); });
 
@@ -730,7 +734,7 @@
     setText($('.adx-badge-t', card), S.phase === 'on' ? 'ACTIVO' : S.phase === 'nursery' ? 'GUARDERÍA' : 'DETENIDO');
     const nurseryTxt = mode === 'mystery' ? '🎁 Huevo Misterioso'
       : mode === 'pair' ? `💞 ${getParent1()} + ${getPartner() || '¿?'}` : 'sin Guardería';
-    setText($('.adx-sub', card), `${lim ? '⚡ ' + lim : '⚡ toda la energía'} · ${nurseryTxt}`);
+    setText($('.adx-sub', card), `${lim === null ? '⚡ toda la energía' : lim === 0 ? '⚡ 0 · solo gratis' : '⚡ ' + lim} · ${nurseryTxt}`);
 
     // Ajustes: se ocultan con la macro en marcha (el resumen queda en la cabecera)
     const settings = $('.adx-settings', card);
@@ -738,7 +742,7 @@
     const en = readEnergy();
     setText($('.adx-have', card), en ? `tienes ⚡ ${en.normal}${en.vet ? ' · 🌿 ' + en.vet : ''}` : '');
     for (const b of $$('[data-q]', card)) {
-      const on = (+b.dataset.q || 0) === lim;
+      const on = b.dataset.q === '' ? lim === null : lim === +b.dataset.q;
       b.style.boxShadow = on ? 'inset 0 0 0 2px currentColor' : '';
     }
     for (const b of $$('[data-mode]', card)) {
@@ -766,7 +770,7 @@
     setText(btn, S.running ? '■ Detener macro' : '▶ Iniciar macro');
 
     // Barras de progreso
-    setText($('.adx-en-t', card), lim ? `${S.spent} / ${lim}` : `${S.spent} · sin límite`);
+    setText($('.adx-en-t', card), lim === null ? `${S.spent} · sin límite` : `${S.spent} / ${lim}`);
     const enBar = $('.adx-en-bar', card);
     if (enBar) enBar.style.width = (lim ? Math.min(100, (S.spent / lim) * 100) : 0) + '%';
 
@@ -925,7 +929,7 @@
     const nurseryTxt = mode === 'mystery' ? 'Guardería: Huevo Misterioso'
       : mode === 'pair' ? `Guardería: ${getParent1()} + ${getPartner()}`
       : 'sin Guardería';
-    setMsg(`Macro en marcha · ${lim ? 'hasta ' + lim + ' de energía' : 'sin límite de energía'} · ${nurseryTxt}.`);
+    setMsg(`Macro en marcha · ${lim === null ? 'sin límite de energía' : lim === 0 ? 'sin gastar energía (solo exploraciones gratis)' : 'hasta ' + lim + ' de energía'} · ${nurseryTxt}.`);
     log('Iniciada.');
     loop(run);
   }
@@ -1175,8 +1179,8 @@
     const lim = getEnergyLimit();
     const cost = exploreCost(ex2);           // null en ¡MANADA! (gratis)
     const n = cost ? cost.n : 0;
-    if (lim && n > 0 && S.spent + n > lim) {
-      stop(`Límite de energía alcanzado: gastadas ${S.spent} de ${lim}.`, { alert: true });
+    if (lim !== null && n > 0 && S.spent + n > lim) {
+      stop(lim === 0 ? `Hecho: ${S.explores} exploraciones gratis, sin gastar energía.` : `Límite de energía alcanzado: gastadas ${S.spent} de ${lim}.`, { alert: true });
       return true;
     }
     ex2.click();
