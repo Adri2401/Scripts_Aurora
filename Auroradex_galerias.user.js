@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.18.0
+// @version      0.18.1
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -55,6 +55,7 @@
     return b ? b.parentElement : null;
   }
 
+  const entradas = new Set();                    // escaleras de entrada por planta (planta|columna,fila)
   function leerTablero() {
     const raiz = raizTablero();
     if (!raiz) return null;
@@ -111,6 +112,10 @@
       }
       entidades.push({ c: pos.c, f: pos.f, tipo, nombre });
     }
+    // La escalera sobre la que apareces es la de entrada (subida), no la de bajada: no cuenta como objetivo
+    const pk = plantaActual(), cj = jugador && celdas.get(jugador.c + ',' + jugador.f);
+    if (cj && cj.tipo === 'escalera') entradas.add(pk + '|' + cj.c + ',' + cj.f);
+    for (const cel of celdas.values()) if (cel.tipo === 'escalera' && entradas.has(pk + '|' + cel.c + ',' + cel.f)) { cel.tipo = 'suelo'; cel.entrada = true; }
     // Las arenas movedizas se pisan como suelo normal (el botón puede no marcarse como pisable)
     for (const e of entidades) if (e.tipo === 'movediza') { const c = celdas.get(e.c + ',' + e.f); if (c) { c.pisable = true; c.tipo = 'escalera'; c.movediza = true; } }   // lleva a otro piso: cuenta como escalera
     const ocupadas = new Set(entidades.filter(e => e.tipo !== 'objeto' && e.tipo !== 'movediza').map(e => e.c + ',' + e.f));
