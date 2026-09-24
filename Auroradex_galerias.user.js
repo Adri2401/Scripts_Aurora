@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.7.0
-// @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo, combate a los entrenadores (SEGUIR), captura con Poké Ball y usa Master Ball con variocolor y legendarios (una vibración), y despide al mercader.
+// @version      0.8.0
+// @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_galerias.user.js
@@ -39,6 +39,7 @@
   const PANEL_ID = 'axg-panel';
   const OVERLAY_ID = 'axg-overlay';
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const pausa = (a, b) => sleep(a + Math.random() * (b - a));   // pausa con algo de azar (más natural y menos frenética)
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   // Tipos de casilla según la imagen de fondo (/mapa/castillo/pared.png, suelo.png, suelo2.png…)
@@ -105,7 +106,7 @@
       let tipo, pos;
       if (/personajes\//.test(bg)) { tipo = /ricach|mercader|vendedor|nomada/i.test(nombre) ? 'mercader' : 'personaje'; pos = spritePos(el); }
       else {
-        tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : 'objeto';
+        tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : /lapida|tumba|sepultura/i.test(nombre) ? 'lapida' : 'objeto';
         pos = { c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w) };
       }
       entidades.push({ c: pos.c, f: pos.f, tipo, nombre });
@@ -175,6 +176,7 @@
       entrenador: 'box-shadow:inset 0 0 0 2px #ff9800;background:rgba(255,152,0,.25)',
       remolino: 'box-shadow:inset 0 0 0 2px #b388ff;background:rgba(179,136,255,.28)',
       mercader: 'box-shadow:inset 0 0 0 2px #ffd54f;background:rgba(255,213,79,.28)',
+      lapida: 'box-shadow:inset 0 0 0 2px #90a4ae;background:rgba(144,164,174,.3)',
       personaje: 'box-shadow:inset 0 0 0 2px #ff9800;background:rgba(255,152,0,.22)',
       objeto: 'box-shadow:inset 0 0 0 2px #4fc3f7;background:rgba(79,195,247,.22)',
     };
@@ -271,6 +273,7 @@
   }
 
   function pintar() {
+    actualizarBarra();
     if (!panel) return;
     const a = analizar();
     const estado = panel.querySelector('.axg-est');
@@ -283,6 +286,7 @@
     if (cuenta('mercader')) partes.push(`🛒 mercader`);
     if (cuenta('personaje')) partes.push(`🧍 ${cuenta('personaje')} personaje(s)`);
     if (cuenta('remolino')) partes.push(`🌀 ${cuenta('remolino')} remolino(s)`);
+    if (cuenta('lapida')) partes.push(`🪦 ${cuenta('lapida')} lápida(s)`);
     if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} objeto(s)`);
     estado.textContent = partes.join(' · ');
     panel.querySelector('.axg-msg').textContent = msg;
@@ -291,7 +295,7 @@
 
   const norm = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const visible = el => !!(el.offsetParent || el.getClientRects().length);
-  const ajeno = el => el.closest('#' + PANEL_ID) || el.closest('#axg-pill');
+  const ajeno = el => el.closest('#' + PANEL_ID) || el.closest('#axg-barra');
   const botonesVisibles = () => $$('button').filter(b => !ajeno(b) && visible(b));
 
   // Aviso discreto: una vibración corta y un mensaje breve (sin notificaciones ni sonido)
@@ -345,21 +349,27 @@
     if (!v) { ultimaCaptura = { clave: '', n: 0 }; return false; }
     const r = leerRareza(v.hoja);
     const rara = r.shiny || r.legendario;
-    const quiero = rara ? 'master' : 'poke';
-    const b = v.bolas.find(x => tipoBola(norm(x.textContent)) === quiero && !x.disabled) || (rara ? v.bolas.find(x => tipoBola(norm(x.textContent)) === 'ultra' && !x.disabled) : null);
-    if (!b) { msg = `No tengo ${quiero === 'master' ? 'Master Ball' : 'Poké Ball'} disponible para ${r.nombre}.`; pintar(); return false; }
-    const clave = r.nombre + '|' + (rara ? 'r' : 'n');
+    // Variocolor o legendario: la macro se PARA del todo, avisa (mensaje + una vibración) y deja la ventana abierta
+    // para que la captura la hagas tú a mano (con Master Ball). Luego se vuelve a activar la macro.
+    if (rara) {
+      const texto = `${r.shiny ? '✨ ¡VARIOCOLOR!' : '👑 ¡LEGENDARIO!'} ${r.nombre}: captúralo tú. Macro parada.`;
+      explorando = false;
+      msg = texto;
+      vibrar();
+      toast(texto, 6000);
+      pintar();
+      return true;                                           // se para: el bucle acaba en esta vuelta
+    }
+    const b = v.bolas.find(x => tipoBola(norm(x.textContent)) === 'poke' && !x.disabled);
+    if (!b) { msg = `No tengo Poké Ball disponible para ${r.nombre}.`; pintar(); return false; }
+    const clave = r.nombre + '|n';
     if (ultimaCaptura.clave === clave) ultimaCaptura.n++; else ultimaCaptura = { clave, n: 1 };
     if (ultimaCaptura.n > 12) { explorando = false; msg = `No consigo capturar a ${r.nombre}. Parado.`; return false; }
-    if (rara && ultimaCaptura.n === 1) {
-      vibrar();
-      toast(`${r.shiny ? '✨ VARIOCOLOR' : '👑 LEGENDARIO'}: ${r.nombre} → Master Ball`);
-    }
-    msg = `${rara ? '⭐ ' : ''}${r.nombre}: ${rara ? 'Master Ball' : 'Poké Ball'}`;
+    msg = `${r.nombre}: Poké Ball`;
     pintar();
-    await sleep(250);
+    await pausa(350, 650);
     b.click();
-    await sleep(700);
+    await pausa(900, 1400);
     return true;
   }
 
@@ -369,9 +379,9 @@
     if (!b) return false;
     msg = '⚔️ Combate: sigo…';
     pintar();
-    await sleep(200);
+    await pausa(500, 900);
     b.click();
-    await sleep(450);
+    await pausa(700, 1100);
     return true;
   }
 
@@ -436,6 +446,15 @@
    *  MOVIMIENTO Y EXPLORACIÓN AUTOMÁTICA
    * ------------------------------------------------------------------ */
   const plantaActual = () => ((document.querySelector('h1') || {}).textContent || '').replace(/\s+/g, ' ').trim();
+  // Un paso con las flechas del juego («Andar hacia arriba/abajo/izquierda/derecha»)
+  async function andar(dc, df) {
+    const dir = dc > 0 ? 'derecha' : dc < 0 ? 'izquierda' : df > 0 ? 'abajo' : 'arriba';
+    const b = $$('button').find(x => (x.getAttribute('aria-label') || '') === 'Andar hacia ' + dir);
+    if (!b || b.disabled) return false;
+    b.click();
+    return true;
+  }
+
   const combatidos = new Set();
   const MAX_REMOLINOS = 5;                       // por planta, por si un remolino no desapareciera tras usarlo
   let remolinosPlanta = { planta: '', n: 0 };
@@ -483,17 +502,25 @@
           const esEntrenador = e.tipo === 'entrenador' && !combatidos.has(planta + '|' + e.nombre);
           const esRemolino = e.tipo === 'remolino' && remolinosPlanta.n < MAX_REMOLINOS;
           if (!esEntrenador && !esRemolino) continue;
-          const cel = t.celdas.get(e.c + ',' + e.f);
-          if (!cel || !cel.pisable) continue;
-          const r = rutaA(t, c => c === cel);
-          if (r && (!mejor || r.length < mejor.r.length)) mejor = { e, cel, r, esEntrenador };
+          const yo = t.jugador;
+          const dist = yo ? Math.abs(e.c - yo.c) + Math.abs(e.f - yo.f) : 99;
+          const ady = c => c.pisable && !t.ocupadas.has(c.c + ',' + c.f) && Math.abs(c.c - e.c) + Math.abs(c.f - e.f) === 1;
+          const r = dist === 1 ? [null] : rutaA(t, ady);          // ya al lado, o ruta hasta una casilla contigua
+          if (r && (!mejor || r.length < mejor.r.length)) mejor = { e, r, ady, dist, esEntrenador };
         }
         if (mejor) {
-          if (mejor.esEntrenador) combatidos.add(planta + '|' + mejor.e.nombre); else remolinosPlanta.n++;
-          msg = mejor.esEntrenador ? '⚔️ Voy a por un entrenador…' : '🌀 Voy al remolino (encuentro salvaje)…'; pintar();
-          await clicCelda(mejor.cel, t);
-          await sleep(300);
-          continue;
+          const { e, r, ady, dist, esEntrenador } = mejor;
+          if (dist === 1) {
+            // Al lado: se choca con la flecha (pulsar la casilla solo lleva hasta el borde)
+            if (esEntrenador) combatidos.add(planta + '|' + e.nombre); else remolinosPlanta.n++;
+            msg = esEntrenador ? '⚔️ Reto a un entrenador…' : '🌀 Piso el remolino (encuentro salvaje)…'; pintar();
+            if (await andar(e.c - t.jugador.c, e.f - t.jugador.f)) { await pausa(900, 1300); continue; }
+          } else if (r.length > 1) {
+            msg = esEntrenador ? '⚔️ Me acerco a un entrenador…' : '🌀 Me acerco a un remolino…'; pintar();
+            await clicCelda(r[r.length - 1], t);
+            await pausa(700, 1100);
+            continue;
+          }
         }
       }
 
@@ -513,26 +540,38 @@
       msg = `Explorando… (${pasos(meta)} pasos al siguiente hueco)`; pintar();
       const destino = meta[meta.length - 1];
       if (!(await clicCelda(destino, t))) { if (++sinCambio > 3) { msg = 'El juego no responde a los clics. Parado.'; break; } } else sinCambio = 0;
-      await sleep(150);
+      await pausa(600, 1000);
     }
     explorando = false;
     mostrarPildora(false);
     pintar();
   }
 
-  // Botón flotante para parar aunque el panel no se vea (durante los combates el tablero desaparece)
+  // Barra integrada en la página (con las tarjetas del propio juego): estado de la macro y botón de parar.
+  // Va arriba del contenido y sigue visible durante los combates, cuando el tablero desaparece.
   function mostrarPildora(si) {
-    let p = document.getElementById('axg-pill');
-    if (!si) { if (p) p.remove(); return; }
-    if (p) return;
-    p = document.createElement('button');
-    p.id = 'axg-pill';
-    p.type = 'button';
-    p.textContent = '■ Parar galerías';
-    p.style.cssText = 'position:fixed;left:12px;bottom:calc(var(--nav-alto,4rem) + 4.2rem);z-index:2147483000;padding:6px 12px;border-radius:999px;' +
-      'font:800 12px system-ui,sans-serif;color:#fff;background:rgba(200,60,40,.85);border:2px solid rgba(255,255,255,.5)';
-    p.addEventListener('click', () => { explorando = false; msg = 'Exploración parada.'; });
-    document.body.appendChild(p);
+    let b = document.getElementById('axg-barra');
+    if (!si) { if (b) b.remove(); return; }
+    if (b) return;
+    b = document.createElement('div');
+    b.id = 'axg-barra';
+    b.className = 'tarjeta flex items-center gap-2 p-2';
+    b.setAttribute('data-ax-ignore', '1');
+    b.innerHTML = '<span aria-hidden="true">🧭</span><span class="axg-b-msg min-w-0 flex-1 truncate text-[11px] font-bold text-tinta-500"></span>' +
+      '<button type="button" class="boton-secundario shrink-0 !px-3 !py-1.5 text-[11px]">■ Parar</button>';
+    b.querySelector('button').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); explorando = false; msg = 'Exploración parada.'; actualizarBarra(); });
+    const contenedor = document.querySelector('main main') || document.querySelector('main');
+    if (contenedor) contenedor.insertBefore(b, contenedor.firstChild); else document.body.prepend(b);
+    actualizarBarra();
+  }
+  function actualizarBarra() {
+    const b = document.getElementById('axg-barra');
+    if (!b) return;
+    const t = b.querySelector('.axg-b-msg');
+    if (t && t.textContent !== msg) t.textContent = msg || 'Explorando…';
+    // si el contenedor cambió (otra pantalla), se vuelve a colgar arriba
+    const contenedor = document.querySelector('main main') || document.querySelector('main');
+    if (contenedor && b.parentElement !== contenedor) contenedor.insertBefore(b, contenedor.firstChild);
   }
 
   function construirPanel() {
@@ -550,7 +589,7 @@
       <label class="flex items-center justify-between gap-2 text-[11px] font-extrabold text-tinta-500">🪔 Aceite (o cuerda si no queda) con ≤
         <input type="number" min="0" class="axg-luz w-20 rounded-card border-2 border-crema-200 bg-crema-50 px-2 py-1 text-sm font-semibold text-tinta-600 outline-none"> pasos</label>
       <button type="button" class="boton-principal w-full !py-2 text-[11px]" data-a="auto"></button>
-      <p class="text-[10px] font-semibold text-tinta-400">Al explorar: combate a todos los entrenadores (pulsa SEGUIR), pisa los remolinos (encuentro salvaje), captura con Poké Ball a todos los Pokémon y usa Master Ball con los variocolor y legendarios (vibra una vez).</p>
+      <p class="text-[10px] font-semibold text-tinta-400">Al explorar: combate a todos los entrenadores (pulsa SEGUIR), pisa los remolinos (encuentro salvaje), captura con Poké Ball a todos los Pokémon. Si sale un variocolor o legendario, se para del todo, avisa (vibra una vez) y la Master Ball la tiras tú.</p>
       <button type="button" class="boton-suave w-full !py-2 text-[11px]" data-a="diag">📋 Copiar diagnóstico del juego</button>
       <p class="axg-msg text-[11px] font-semibold text-tinta-400"></p>`;
     const on = (sel, fn) => sec.querySelector(sel).addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); fn(); });
@@ -579,7 +618,7 @@
   }
 
   // Para probar sin la web
-  window.__axGalerias = { explorar, leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, gestionarLuz, leerLuz, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas };
+  window.__axGalerias = { andar, mostrarPildora, explorar, leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, gestionarLuz, leerLuz, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas };
 
   esperarHidratacion().then(() => {
     asegurarPanel();
