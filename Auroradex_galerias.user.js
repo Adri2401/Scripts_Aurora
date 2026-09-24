@@ -592,6 +592,7 @@
   const puertaVisitas = {};                      // planta|puerta → nº de tumbas leídas la última vez que se probó
   const MAX_LAPIDAS = 4;                         // por planta
 
+  const tumbasVistas = new Set();                // cada tumba se chequea una sola vez (planta|columna,fila)
   let tumbasLeidas = 0;                         // el propio juego apunta las líneas leídas («Lo que has leído esta semana»)
   let contadoresPlanta = { planta: '', remolino: 0, jarron: 0, lapida: 0, puerta: 0, arqueologo: 0 };
 
@@ -641,7 +642,7 @@
             (combatir && e.tipo === 'entrenador' && !combatidos.has(planta + '|' + e.nombre)) ||
             (combatir && e.tipo === 'remolino' && contadoresPlanta.remolino < MAX_REMOLINOS) ||
             (recoger && e.tipo === 'jarron' && contadoresPlanta.jarron < MAX_JARRONES) ||
-            (recoger && e.tipo === 'lapida' && contadoresPlanta.lapida < MAX_LAPIDAS) ||
+            (recoger && e.tipo === 'lapida' && contadoresPlanta.lapida < MAX_LAPIDAS && !tumbasVistas.has(planta + '|' + e.c + ',' + e.f)) ||
             (recoger && e.tipo === 'arqueologo' && contadoresPlanta.arqueologo < 2) ||
             (recoger && e.tipo === 'puerta' && contadoresPlanta.puerta < 3 && !puertaFin[planta] && puertaVisitas[planta + '|' + e.nombre] !== tumbasLeidas);
           if (!ok) continue;
@@ -670,7 +671,7 @@
             if (e.tipo === 'puerta') ultimaPuerta = Date.now();
             if (e.tipo === 'puerta') puertaVisitas[planta + '|' + e.nombre] = tumbasLeidas;
             if (await andar(e.c - t.jugador.c, e.f - t.jugador.f)) {
-              if (e.tipo === 'lapida') { tumbasLeidas++; await pausa(500, 800); const c = botonesVisibles().find(x => x.getAttribute('aria-label') === 'Cerrar' || /^\s*(cerrar|entendido|ok|vale)\s*$/i.test(x.textContent || '')); if (c) c.click(); }
+              if (e.tipo === 'lapida') { tumbasVistas.add(planta + '|' + e.c + ',' + e.f); tumbasLeidas++; await pausa(500, 800); const c = botonesVisibles().find(x => x.getAttribute('aria-label') === 'Cerrar' || /^\s*(cerrar|entendido|ok|vale)\s*$/i.test(x.textContent || '')); if (c) c.click(); }
               await pausa(900, 1300); continue;
             }
           } else if (r.length > 1) {
