@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.6.0
+// @version      0.7.0
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo, combate a los entrenadores (SEGUIR), captura con Poké Ball y usa Master Ball con variocolor y legendarios (una vibración), y despide al mercader.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -437,6 +437,8 @@
    * ------------------------------------------------------------------ */
   const plantaActual = () => ((document.querySelector('h1') || {}).textContent || '').replace(/\s+/g, ' ').trim();
   const combatidos = new Set();
+  const MAX_REMOLINOS = 5;                       // por planta, por si un remolino no desapareciera tras usarlo
+  let remolinosPlanta = { planta: '', n: 0 };
 
   async function clicCelda(cel, t) {
     const antes = t.jugador ? `${t.jugador.c},${t.jugador.f}` : '';
@@ -472,14 +474,24 @@
       if (await gestionarLuz()) continue;
 
       // Todos los combates posibles: primero los entrenadores que se vean
+      // (los remolinos también cuentan: pisarlos lanza un encuentro salvaje que se captura)
       if (combatir) {
         const planta = plantaActual();
-        const e = t.entidades.find(x => x.tipo === 'entrenador' && !combatidos.has(planta + '|' + x.nombre));
-        const cel = e && t.celdas.get(e.c + ',' + e.f);
-        if (cel && cel.pisable && rutaA(t, c => c === cel)) {
-          combatidos.add(planta + '|' + e.nombre);
-          msg = '⚔️ Voy a por un entrenador…'; pintar();
-          await clicCelda(cel, t);
+        if (remolinosPlanta.planta !== planta) remolinosPlanta = { planta, n: 0 };
+        let mejor = null;
+        for (const e of t.entidades) {
+          const esEntrenador = e.tipo === 'entrenador' && !combatidos.has(planta + '|' + e.nombre);
+          const esRemolino = e.tipo === 'remolino' && remolinosPlanta.n < MAX_REMOLINOS;
+          if (!esEntrenador && !esRemolino) continue;
+          const cel = t.celdas.get(e.c + ',' + e.f);
+          if (!cel || !cel.pisable) continue;
+          const r = rutaA(t, c => c === cel);
+          if (r && (!mejor || r.length < mejor.r.length)) mejor = { e, cel, r, esEntrenador };
+        }
+        if (mejor) {
+          if (mejor.esEntrenador) combatidos.add(planta + '|' + mejor.e.nombre); else remolinosPlanta.n++;
+          msg = mejor.esEntrenador ? '⚔️ Voy a por un entrenador…' : '🌀 Voy al remolino (encuentro salvaje)…'; pintar();
+          await clicCelda(mejor.cel, t);
           await sleep(300);
           continue;
         }
@@ -538,7 +550,7 @@
       <label class="flex items-center justify-between gap-2 text-[11px] font-extrabold text-tinta-500">🪔 Aceite (o cuerda si no queda) con ≤
         <input type="number" min="0" class="axg-luz w-20 rounded-card border-2 border-crema-200 bg-crema-50 px-2 py-1 text-sm font-semibold text-tinta-600 outline-none"> pasos</label>
       <button type="button" class="boton-principal w-full !py-2 text-[11px]" data-a="auto"></button>
-      <p class="text-[10px] font-semibold text-tinta-400">Al explorar: combate a todos los entrenadores (pulsa SEGUIR), captura con Poké Ball a todos los Pokémon y usa Master Ball con los variocolor y legendarios (vibra una vez).</p>
+      <p class="text-[10px] font-semibold text-tinta-400">Al explorar: combate a todos los entrenadores (pulsa SEGUIR), pisa los remolinos (encuentro salvaje), captura con Poké Ball a todos los Pokémon y usa Master Ball con los variocolor y legendarios (vibra una vez).</p>
       <button type="button" class="boton-suave w-full !py-2 text-[11px]" data-a="diag">📋 Copiar diagnóstico del juego</button>
       <p class="axg-msg text-[11px] font-semibold text-tinta-400"></p>`;
     const on = (sel, fn) => sec.querySelector(sel).addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); fn(); });
@@ -567,7 +579,7 @@
   }
 
   // Para probar sin la web
-  window.__axGalerias = { leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, gestionarLuz, leerLuz, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas };
+  window.__axGalerias = { explorar, leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, gestionarLuz, leerLuz, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas };
 
   esperarHidratacion().then(() => {
     asegurarPanel();
