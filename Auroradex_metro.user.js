@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Metro Batalla (pelear en bucle y ventaja de tipos)
 // @namespace    auroradex-metro
-// @version      1.2.0
+// @version      1.2.1
 // @description  Solo en /metro. Al elegir equipo analiza tus seis (debilidades, estadísticas, flojos) y marca el mejor orden; en cada parada predice el combate. Pulsa «Pelear» en bucle con tope de paradas o de racha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -274,8 +274,10 @@
     const f = {};
     for (const lado of ['mio', 'rival']) {
       const deLinea = todos.filter(b => b.linea === l).flatMap(b => b[lado] || []);
-      const global = todos.flatMap(b => b[lado] || []);
-      f[lado] = deLinea.length >= 6 ? mediana(deLinea) : global.length >= 6 ? mediana(global) : PRIOR[lado];
+      const global = todos.filter(b => lado === 'rival' || (b.linea === 'azul') === (l === 'azul')).flatMap(b => b[lado] || []);
+      // En la Azul el equipo es prestado (sin entrenar): mientras no haya datos de esa línea, pega como un rival
+      const sinDatos = l === 'azul' && lado === 'mio' ? PRIOR.rival : global.length >= 6 ? mediana(global) : PRIOR[lado];
+      f[lado] = deLinea.length >= 6 ? mediana(deLinea) : sinDatos;
     }
     FACT = f;
     return f;
