@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.4.1
+// @version      1.5.0
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -506,6 +506,55 @@
     finally { golfPidiendo = false; }
   }
 
+  /* ─── Solar de los Sueños: ¿hay alguien durmiendo, ya despierto o está libre? ───
+   * «Despertarlo» / «Ya se ha despertado» → despierto · «soñando…» → durmiendo (si pone cuánto falta, se apunta la hora)
+   * · nada de eso → libre. Se lee en /solar y, fuera, pidiendo la página en segundo plano. */
+  const SOLAR_KEY = 'adx-accesos-solar';
+  let solarPidiendo = false, solarIntento = 0;
+  function leerSolar(raiz) {
+    const main = raiz.querySelector('main');
+    if (!main) return null;
+    const txt = main.textContent.replace(/\s+/g, ' ');
+    if (!/solar de los sue[ñn]os/i.test(txt)) return null;                // no es la página del Solar (otra región, error…)
+    const botonDespertar = [...main.querySelectorAll('button')].some(b => /^\s*despertarlo\s*$/i.test(b.textContent || ''));
+    if (botonDespertar || /ya se ha despertado/i.test(txt)) return { estado: 'despierto' };
+    // La tarjeta del Pokémon que duerme («Nv.79 · soñando…»); el tiempo que falte se busca solo dentro de ella
+    const linea = [...main.querySelectorAll('p')].find(q => /so[ñn]ando|durmiendo/i.test(q.textContent || ''));
+    if (linea) {
+      const tarjeta = (linea.closest('.tarjeta-sueno') || linea.parentElement).textContent.replace(/\s+/g, ' ');
+      const m = tarjeta.match(/(\d+)\s*h(?:oras?)?\b(?:\s*(?:y\s*)?(\d+)\s*min)?|(\d+)\s*min/i);
+      const min = m ? (m[1] ? parseInt(m[1], 10) * 60 + parseInt(m[2] || '0', 10) : parseInt(m[3], 10)) : 0;
+      return { estado: 'durmiendo', despiertaAt: min ? Date.now() + min * 60000 : null };
+    }
+    return { estado: 'libre' };
+  }
+  function guardarSolar(e) {
+    if (!e) return;
+    const g = lsJSON(SOLAR_KEY, null);
+    lsPut(SOLAR_KEY, { ...e, t: Date.now() });
+    if (!g || g.estado !== e.estado) repintarPanel();
+  }
+  function pillSolar() {
+    const g = lsJSON(SOLAR_KEY, null);
+    if (!g) return null;
+    if (g.estado === 'despierto' || (g.estado === 'durmiendo' && g.despiertaAt && Date.now() >= g.despiertaAt)) return 'Despierto';
+    if (g.estado === 'durmiendo') return g.despiertaAt ? `durmiendo · ${textoRestante(g.despiertaAt - Date.now())}` : 'durmiendo';
+    return 'libre';
+  }
+  async function refrescarSolar(forzar = false) {
+    if (/^\/solar\/?$/.test(location.pathname)) { guardarSolar(leerSolar(document)); return; }
+    if (solarPidiendo || (!forzar && !document.getElementById(PANEL_ID))) return;
+    const g = lsJSON(SOLAR_KEY, null);
+    if (!forzar && (Date.now() - solarIntento < 60000 || (g && Date.now() - g.t < MENU_REFRESCO))) return;
+    solarIntento = Date.now();
+    solarPidiendo = true;
+    try {
+      const r = await fetch('/solar', { credentials: 'same-origin' });
+      if (r.ok) guardarSolar(leerSolar(new DOMParser().parseFromString(await r.text(), 'text/html')));
+    } catch { /* sin red: se queda lo guardado */ }
+    finally { solarPidiendo = false; }
+  }
+
   function repintarPanel() {
     const panel = document.getElementById(PANEL_ID);
     if (panel) panel.replaceWith(crearPanel());
@@ -515,6 +564,7 @@
   function esHecho(it, pill) {
     if (!pill) return false;
     const p = normalizarTexto(pill);
+    if (/^durmiendo/.test(p)) return true;
     if (/hecho|parado|complet|terminad|agotad|conseguid|cobrad|recogid|reclamad|manana|sin (intentos|energia|tiradas|vidas|usos|turnos)|no quedan|ya has/.test(p)) return true;
     const m = p.match(/^(\d+)\s*(?:de|\/)\s*(\d+)/);
     if (!m) return false;
@@ -532,6 +582,7 @@
   }
   const pillDe = (it, est) => {
     if (it.href === '/salon') return pillSalon();
+    if (it.href === '/solar') { const sp = pillSolar(); if (sp) return sp; }
     if (it.href === '/golf') { const g = lsJSON(GOLF_KEY, null); if (g && g.n > 0) return `${g.n} reto${g.n > 1 ? 's' : ''}`; }
     const leida = (est && est.estado[claveEstado(it)]) || '';
     if (!it.porRegion) return leida;
@@ -769,7 +820,7 @@
       if (ev.button !== 0 || ev.metaKey || ev.ctrlKey) return;
       ev.preventDefault();
       enlace.textContent = 'actualizando…';
-      Promise.all([refrescarMenu(true), refrescarGolf(true)]).then(() => repintarPanel());
+      Promise.all([refrescarMenu(true), refrescarGolf(true), refrescarSolar(true)]).then(() => repintarPanel());
     });
     return wrapper;
   }
@@ -805,6 +856,7 @@
       refrescarMenu();
       refrescarGolf();
       leerRetosGolfEnPantalla();
+      refrescarSolar();
     }, 150);
   });
 
@@ -817,8 +869,9 @@
     montar();
     refrescarMenu();
     refrescarGolf();
+    refrescarSolar();
     // Cada minuto: se pide el Menú si toca y se repinta (para que «hace N min» y las ✓ estén al día)
-    setInterval(() => { refrescarMenu(); refrescarGolf(); if (document.visibilityState === 'visible') repintarPanel(); }, 60000);
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refrescarMenu(); refrescarGolf(); } });
+    setInterval(() => { refrescarMenu(); refrescarGolf(); refrescarSolar(); if (document.visibilityState === 'visible') repintarPanel(); }, 60000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refrescarMenu(); refrescarGolf(); refrescarSolar(); } });
   });
 })();
