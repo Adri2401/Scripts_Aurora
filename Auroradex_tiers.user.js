@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.2.0
+// @version      1.3.0
 // @description  Solo en /equipo. Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -108,11 +108,41 @@
   const HOLGAZAN = 289;
   const turnos = (x, t) => (x.num === HOLGAZAN ? 2 * t - 1 : t);
   function duelo(a, b) {
-    const tA = turnos(a, Math.ceil(1 / golpe(a, b) - 1e-9)), tB = turnos(b, Math.ceil(1 / golpe(b, a) - 1e-9));
+    const tA = turnos(a, Math.ceil(1 / golpe(a, b) - 1e-9) + (b.aguanta ? 1 : 0)), tB = turnos(b, Math.ceil(1 / golpe(b, a) - 1e-9) + (a.aguanta ? 1 : 0));
     if (a.spe > b.spe) return tA <= tB ? 1 : 0;
     if (a.spe < b.spe) return tB <= tA ? 0 : 1;
     return tA < tB ? 1 : tA > tB ? 0 : 0.5;
   }
+  /* ---- Objetos de combate (del catálogo del juego; el id es el nombre del icono /items/<id>.png) ----
+   * hp/atk/def/esp/spe en %; «aguanta»: la primera vez que iba a caer, aguanta con 1 PS */
+  const OBJETOS = {
+    'hard-stone': { n: 'Roca Firme', hp: 30 }, 'silver-pendant': { n: 'Colgante Plateado', hp: 18 }, 'focus-band': { n: 'Banda Focus', hp: 15 },
+    'balsamo-gremio': { n: 'Bálsamo del Gremio', hp: 15 }, 'mascara-funeraria': { n: 'Máscara Funeraria', hp: 8 },
+    'corona-guerra': { n: 'Corona de Guerra', atk: 20, spe: 10 }, 'talisman-trono': { n: 'Talismán del Trono', def: 18, hp: 12 },
+    'prisma-blanquinegro': { n: 'Prisma Blanquinegro', hp: 12, atk: 12, def: 12, esp: 12, spe: 12 },
+    'muscle-band': { n: 'Cinta Fuerza', atk: 12 }, 'wise-glasses': { n: 'Gafas Sabias', esp: 12 }, 'quick-claw': { n: 'Garra Rápida', spe: 15 },
+    'expert-belt': { n: 'Cinta Experta', atk: 8, esp: 8 }, 'scope-lens': { n: 'Lupa Certera', atk: 14, spe: 14, hp: -10 },
+    'leftovers': { n: 'Restos', def: 10, hp: 10 }, 'life-orb': { n: 'Vidaesfera', esp: 14, spe: 14, hp: -10 },
+    'assault-vest': { n: 'Chaleco Asalto', def: 16, spe: 12, atk: -10 }, 'as-manga': { n: 'As en la Manga', aguanta: true },
+    'red-sphere': { n: 'Esfera Roja', atk: 10 }, 'blue-sphere': { n: 'Esfera Azul', def: 10 }, 'type-plate': { n: 'Placa Elemental', esp: 15 },
+    'patin-escarcha': { n: 'Patín de Escarcha', spe: 12, esp: 8 }, 'bufanda-glaciar': { n: 'Bufanda Glaciar', def: 12, hp: 12 },
+    'carambano-afilado': { n: 'Carámbano Afilado', atk: 16, spe: 8 }, 'cristal-polar': { n: 'Cristal Polar', esp: 12, def: 10, hp: 10 },
+    'corona-boreal': { n: 'Corona Boreal', atk: 10, def: 10, esp: 10, spe: 10 }, 'brazalete-roto': { n: 'Brazalete Roto', esp: 15 },
+    'herradura': { n: 'Herradura', spe: 8 }, 'herradura-2': { n: 'Herradura Veloz', spe: 12 }, 'placa-reforzada': { n: 'Placa Reforzada', def: 12, hp: 6 },
+    'placa-reforzada-2': { n: 'Placa Blindada', def: 18, hp: 10 }, 'brazal-firme': { n: 'Brazal Firme (+Ataque)', atk: 10 },
+    'estandarte-gremio': { n: 'Estandarte del Gremio', atk: 15, def: 10 }, 'yunque-cinco-tierras': { n: 'Yunque de las Cinco Tierras', spe: 12, esp: 12 },
+    'perla-cinco-mareas': { n: 'Perla de las Cinco Mareas', def: 12, spe: 12 }, 'raiz-cinco-regiones': { n: 'Raíz de las Cinco Regiones', hp: 12, esp: 12 },
+    'brasa-santuario': { n: 'Brasa del Santuario', atk: 14, esp: 14, spe: 8 },
+  };
+  const idObjeto = img => { const m = (img && img.getAttribute('src') || '').match(/\/items\/([a-z0-9_-]+)\.(?:png|webp|gif)/i); return m ? m[1] : null; };
+  // El «Especial» del juego es una sola estadística: sube el ataque especial y la defensa especial a la vez
+  function conObjeto(st, id) {
+    const o = OBJETOS[id];
+    if (!o) return st;
+    const f = x => 1 + (x || 0) / 100;
+    return { ...st, hp: Math.floor(st.hp * f(o.hp)), atk: Math.floor(st.atk * f(o.atk)), def: Math.floor(st.def * f(o.def)), esp: Math.floor(st.esp * f(o.esp)), spa: Math.floor(st.spa * f(o.esp)), spd: Math.floor(st.spd * f(o.esp)), spe: Math.floor(st.spe * f(o.spe)), aguanta: !!o.aguanta };
+  }
+
   // Banco de rivales de referencia: 34 tipos (simples y dobles) × 4 perfiles de estadísticas, todos a Nv.50
   const GEN = ['normal', 'fuego', 'agua', 'planta', 'electrico', 'hielo', 'lucha', 'veneno', 'tierra', 'volador', 'psiquico', 'bicho', 'roca', 'fantasma', 'dragon', 'siniestro', 'acero', 'hada',
     'agua/tierra', 'fuego/volador', 'planta/veneno', 'dragon/volador', 'acero/psiquico', 'agua/volador', 'roca/tierra', 'bicho/volador', 'normal/volador', 'siniestro/fantasma', 'electrico/acero', 'hielo/agua', 'lucha/acero', 'dragon/tierra', 'psiquico/hada', 'veneno/siniestro'];
@@ -120,6 +150,30 @@
   const BANCO = GEN.flatMap(t => PERFILES.map(p => ({ ...stats(p, 50), L: 50, tipos: t.split('/') })));
   const TIERS = [['S', 0.88, '#FFB23E'], ['A', 0.76, '#E0473A'], ['B', 0.62, '#A855F7'], ['C', 0.48, '#3B82F6'], ['D', 0.34, '#10B981'], ['E', 0.20, '#84CC16'], ['F', 0.08, '#94A3B8'], ['G', -1, '#64748B']];
   const cacheTier = {};
+  // Medida continua para comparar mejoras (un +10% casi nunca cambia un duelo entero, pero sí el margen):
+  // golpes que necesita cada uno (sin redondear), medio turno de ventaja al más rápido → probabilidad de ganar
+  function ventaja(a, b) {
+    let hA = 1 / golpe(a, b) + (b.aguanta ? 1 : 0), hB = 1 / golpe(b, a) + (a.aguanta ? 1 : 0);
+    if (a.num === HOLGAZAN) hA = 2 * hA - 1;
+    if (b.num === HOLGAZAN) hB = 2 * hB - 1;
+    const vel = a.spe > b.spe ? 0.5 : a.spe < b.spe ? -0.5 : 0;
+    return 1 / (1 + Math.exp(-2.2 * (hB - hA + vel)));
+  }
+  const pctCon = yo => BANCO.reduce((x, r) => x + ventaja(yo, r), 0) / BANCO.length;
+  // Cuánto sube su % de duelos ganados con cada objeto y con +10 % en cada estadística
+  function mejoras(num, tipos, ids) {
+    const d = datos[num];
+    if (!d) return null;
+    const base = { ...stats(d.s, 50), L: 50, tipos, num };
+    const p0 = pctCon(base);
+    const objetos = (ids || Object.keys(OBJETOS)).filter(id => OBJETOS[id]).map(id => ({ id, n: OBJETOS[id].n, gana: pctCon(conObjeto(base, id)) - p0 }))
+      .sort((a, b) => b.gana - a.gana);
+    const esp = Math.round((d.s[3] + d.s[4]) / 2), fisico = d.s[1] > esp;
+    const prueba = [['PS', { hp: 10 }], [fisico ? 'Ataque' : 'Especial', fisico ? { atk: 10 } : { esp: 10 }], ['Defensa', { def: 10 }], ['Velocidad', { spe: 10 }]];
+    if (fisico) prueba.push(['Especial', { esp: 10 }]);
+    const stats10 = prueba.map(([n, o]) => { OBJETOS.__p = { n, ...o }; const g = pctCon(conObjeto(base, '__p')) - p0; delete OBJETOS.__p; return { n, gana: g }; }).sort((a, b) => b.gana - a.gana);
+    return { p0, objetos, stats10 };
+  }
   function analizar(num, tiposVistos) {
     const base = datos[num];
     if (!base) return null;
@@ -216,11 +270,12 @@
       if (!num) continue;
       let caja = bloque.nextElementSibling && bloque.nextElementSibling.classList.contains('axt-ficha') ? bloque.nextElementSibling : null;
       const tipos = tiposEn(li.querySelector('button') || li);
-      if (caja && caja.dataset.num === num + '|' + tipos.join('/')) continue;
+      const firmaF = num + '|' + tipos.join('/') + '|' + JSON.stringify(objetosDeFicha(li));
+      if (caja && caja.dataset.num === firmaF) continue;
       const t = analizar(num, tipos);
       if (!t) { pedir(num); continue; }
       if (!caja) { caja = document.createElement('div'); caja.className = 'axt-ficha space-y-1.5'; caja.setAttribute('data-ax-ignore', '1'); bloque.insertAdjacentElement('afterend', caja); }
-      caja.dataset.num = num + '|' + tipos.join('/');
+      caja.dataset.num = firmaF;
       const base = t.d.s, total = base.reduce((x, y) => x + y, 0);
       caja.innerHTML = `
         <p class="titulo-seccion">Análisis</p>
@@ -232,7 +287,9 @@
         ${fila('Inmune a', t.inm)}
         ${fila('Pega ×2 a', t.fuerte)}
         ${fila('No le hace nada', t.nulo, '<span class="text-[10px] font-bold text-tinta-400">(usaría Forcejeo si no tiene otro tipo)</span>')}
-        ${fila('Sufre contra', t.peores)}`;
+        ${fila('Sufre contra', t.peores)}
+        <div class="axt-objetos space-y-1"></div>`;
+      pintarObjetos(caja.querySelector('.axt-objetos'), li, num, t);
       const cab = caja.children[1];
       cab.appendChild(insignia(t, true));
       const txt = document.createElement('span');
@@ -240,6 +297,31 @@
       txt.textContent = `Tier ${t.letra}`;
       cab.appendChild(txt);
     }
+  }
+
+  // Sección «Objeto» de la ficha: el que lleva (con «Quitar») o la lista de los que tienes para ponerle
+  function objetosDeFicha(li) {
+    const tit = $$('p.titulo-seccion', li).find(p => /^\s*objeto/i.test(p.textContent || ''));
+    const sec = tit && tit.parentElement;
+    if (!sec) return { lleva: null, tienes: [] };
+    const ids = $$('img[src*="/items/"]', sec).map(idObjeto).filter(Boolean);
+    const lleva = $$('button', sec).some(b => /^\s*quitar\s*$/i.test(b.textContent || '')) ? ids[0] : null;
+    return { lleva, tienes: lleva ? [] : [...new Set(ids)] };
+  }
+  const mas = x => (x >= 0 ? '+' : '−') + Math.abs(Math.round(x * 100));
+  function pintarObjetos(caja, li, num, t) {
+    const { lleva, tienes } = objetosDeFicha(li);
+    const m = mejoras(num, t.d.t);
+    if (!m) return;
+    const conLleva = lleva && OBJETOS[lleva] ? m.objetos.find(o => o.id === lleva) : null;
+    const propios = m.objetos.filter(o => tienes.includes(o.id) && o.gana > 0.002).slice(0, 5);
+    const mejor = m.objetos[0];
+    caja.innerHTML = `
+      <p class="titulo-seccion">Objetos</p>
+      <p class="text-[11px] font-semibold text-tinta-500">Qué estadística le sirve más (un +10% en cada una): <b>${m.stats10.map(x => `${x.n} ${mas(x.gana)}`).join(' › ')}</b> (puntos de % de victorias).</p>
+      ${lleva ? `<p class="text-[11px] font-semibold text-tinta-500">Lleva <b>${OBJETOS[lleva] ? OBJETOS[lleva].n : lleva}</b>${conLleva ? `: le sube ${mas(conLleva.gana)} puntos de % de victorias${OBJETOS[lleva] && m.objetos[0] && m.objetos[0].id !== lleva && m.objetos[0].gana - conLleva.gana > 0.01 ? '' : ' (buena elección)'}.` : ' (no ayuda en combate: mejor uno de los de abajo si lo usas para pelear).'}</p>` : ''}
+      ${propios.length ? `<p class="text-[11px] font-semibold text-tinta-500">De los que tienes, por orden: ${propios.map((o, i) => `<b>${i + 1}. ${o.n}</b> (${mas(o.gana)})`).join(' · ')}</p>` : ''}
+      ${mejor && mejor.gana > 0.002 && mejor.gana - (conLleva ? conLleva.gana : 0) > 0.01 ? `<p class="text-[11px] font-semibold text-tinta-500">El mejor del juego para él: <b>${mejor.n}</b> (${mas(mejor.gana)})${m.objetos[1] && m.objetos[1].gana > 0.002 ? `, luego ${m.objetos.slice(1, 4).filter(o => o.gana > 0.002).map(o => `${o.n} (${mas(o.gana)})`).join(', ')}` : ''}.</p>` : ''}`;
   }
 
   /* ------------------------------------------------------------------ *
@@ -292,15 +374,17 @@
   function dueloF(a, fa, b, fb) {
     const dA = golpe(a, b), dB = golpe(b, a);
     const gA = k => (a.num === HOLGAZAN ? Math.ceil(k / 2) : k), gB = k => (b.num === HOLGAZAN ? Math.ceil(k / 2) : k);
-    const tA = turnos(a, Math.ceil(fb / dA - 1e-9)), tB = turnos(b, Math.ceil(fa / dB - 1e-9));
+    const tA = turnos(a, Math.ceil(fb / dA - 1e-9) + (b.aguanta ? 1 : 0)), tB = turnos(b, Math.ceil(fa / dB - 1e-9) + (a.aguanta ? 1 : 0));
     const primeroA = a.spe > b.spe || (a.spe === b.spe && fa >= fb);
     if (primeroA) return tA <= tB ? { ganaA: true, fa: fa - gB(tA - 1) * dB, fb: 0 } : { ganaA: false, fa: 0, fb: fb - gA(tB) * dA };
     return tB <= tA ? { ganaA: false, fa: 0, fb: fb - gA(tB - 1) * dA } : { ganaA: true, fa: fa - gB(tA) * dB, fb: 0 };
   }
   function combate(mios, rivales) {
     let i = 0, j = 0, fa = 1, fb = 1;
+    mios = [...mios];
     while (i < mios.length && j < rivales.length) {
       const r = dueloF(mios[i], fa, rivales[j], fb);
+      if (mios[i].aguanta) mios[i] = { ...mios[i], aguanta: false };
       if (r.ganaA) { fa = r.fa; j++; fb = 1; } else { fb = r.fb; i++; fa = 1; }
     }
     return { gana: j >= rivales.length, vivos: mios.length - i };
@@ -322,31 +406,36 @@
       const num = img && numDe(img);
       const nombre = ((li.querySelector('span.truncate') || {}).textContent || img && img.alt || '?').trim();
       const nivel = parseInt((li.textContent.match(/Nv\.\s*(\d+)/) || [])[1], 10) || 50;
-      return { num, nombre, nivel, tipos: tiposEn(li.querySelector('button') || li) };
+      const obj = idObjeto($$('img[src*="/items/"]', li)[0]);
+      return { num, nombre, nivel, obj, tipos: tiposEn(li.querySelector('button') || li) };
     }).filter(m => m.num);
     if (miembros.length < 2) { if (caja) caja.remove(); return; }
     for (const m of miembros) if (!datos[m.num]) pedir(m.num);
     if (miembros.some(m => !datos[m.num])) return;
     const entrada = JSON.stringify(miembros);
     if (!memoEquipo || memoEquipo.entrada !== entrada) {
-      const luch = miembros.map(m => ({ ...stats(datos[m.num].s, m.nivel), L: m.nivel, tipos: m.tipos.length ? m.tipos : datos[m.num].t, num: m.num, nombre: m.nombre }));
-      const nivel = Math.round(miembros.reduce((x, m) => x + m.nivel, 0) / miembros.length);
-      // rivales con la misma fuerza media que tu equipo (si no, con legendarios todo sale al 100% y no se distingue el orden)
       const baseMedia = miembros.reduce((x, m) => x + datos[m.num].s.reduce((p, q) => p + q, 0), 0) / miembros.length / 6;
-      const banco = GEN.flatMap(t => PERFILES.map(pf => ({ ...stats(pf.map(v => Math.max(30, Math.round(v + baseMedia - 80))), nivel), L: nivel, tipos: t.split('/'), num: 0 })));
       let semilla = 11; const azar = () => (semilla = (semilla * 16807) % 2147483647) / 2147483647;
-      const trios = [];
-      for (let k = 0; k < 300; k++) trios.push([...banco].sort(() => azar() - 0.5).slice(0, 3));
-      const nota = orden => { let g = 0, v = 0; for (const tr of trios) { const r = combate(orden, tr); if (r.gana) { g++; v += r.vivos; } } return { g: g / trios.length, v: v / trios.length }; };
-      let mejor = null;
-      for (const orden of permutaciones(luch, Math.min(3, luch.length))) {
-        const n = nota(orden);
-        if (!mejor || n.g + n.v / 100 > mejor.n.g + mejor.n.v / 100) mejor = { orden, n };
-      }
-      const actual = nota(luch.slice(0, 3));
-      memoEquipo = { entrada, mejor, actual, nivel };
+      const orden3 = Array.from({ length: 300 }, () => GEN.length * PERFILES.length).map(n => [0, 0, 0].map(() => Math.floor(azar() * n)));
+      // mismo sorteo de rivales para las dos cuentas; `nivelFijo`: todos (tuyos y rivales) a ese nivel
+      const calcular = nivelFijo => {
+        const nivel = nivelFijo || Math.round(miembros.reduce((x, m) => x + m.nivel, 0) / miembros.length);
+        const banco = GEN.flatMap(t => PERFILES.map(pf => ({ ...stats(pf.map(v => Math.max(30, Math.round(v + baseMedia - 80))), nivel), L: nivel, tipos: t.split('/'), num: 0 })));
+        const trios = orden3.map(ix => ix.map(i => banco[i]));
+        const luch = miembros.map(m => { const L = nivelFijo || m.nivel; return { ...conObjeto(stats(datos[m.num].s, L), m.obj), L, tipos: m.tipos.length ? m.tipos : datos[m.num].t, num: m.num, nombre: m.nombre }; });
+        const nota = orden => { let g = 0, v = 0; for (const tr of trios) { const r = combate(orden, tr); if (r.gana) { g++; v += r.vivos; } } return { g: g / trios.length, v: v / trios.length }; };
+        let mejor = null;
+        for (const orden of permutaciones(luch, Math.min(3, luch.length))) {
+          const n = nota(orden);
+          if (!mejor || n.g + n.v / 100 > mejor.n.g + mejor.n.v / 100) mejor = { orden, n };
+        }
+        return { mejor, actual: nota(luch.slice(0, 3)), nivel };
+      };
+      const conNiveles = calcular(null);
+      const sinNiveles = calcular(Math.max(...miembros.map(m => m.nivel)));
+      memoEquipo = { entrada, ...conNiveles, sinNiveles };
     }
-    const { mejor, actual, nivel } = memoEquipo;
+    const { mejor, actual, nivel, sinNiveles } = memoEquipo;
     const yaEsta = mejor.orden.every((x, i) => miembros[i] && miembros[i].num === x.num && miembros[i].nombre === x.nombre);
     if (!caja) {
       caja = document.createElement('section');
@@ -362,7 +451,8 @@
         <span class="text-[11px] font-extrabold ${yaEsta ? 'text-hoja-600' : 'text-ambar-600'}">${yaEsta ? '✔ Ya lo tienes así' : `gana ${pct(mejor.n.g)} (ahora ${pct(actual.g)})`}</span>
       </div>
       <p class="text-sm font-extrabold">${mejor.orden.map((x, i) => `${i + 1}. ${x.nombre}`).join(' · ')}</p>
-      <p class="text-[10px] font-semibold text-tinta-400">${yaEsta ? 'Tus 3 primeros ya son los que más combates ganan en ese orden.' : 'Arrastra por el asa ⠿ para ponerlos así.'} Contra rivales de todos los tipos, tan fuertes de media como tu equipo, a Nv.${nivel}; los tuyos a su nivel real y en orden (el que gana sigue con la vida que le queda). Los objetos no se cuentan.</p>`;
+      <p class="text-[11px] font-bold text-tinta-500">Si todos estuvieran al mismo nivel (Nv.${sinNiveles.nivel}): ${sinNiveles.mejor.orden.map((x, i) => `${i + 1}. ${x.nombre}`).join(' · ')} <span class="text-tinta-400">(gana ${pct(sinNiveles.mejor.n.g)})</span></p>
+      <p class="text-[10px] font-semibold text-tinta-400">${yaEsta ? 'Tus 3 primeros ya son los que más combates ganan en ese orden.' : 'Arrastra por el asa ⠿ para ponerlos así.'} Arriba, contando el nivel real de cada uno; abajo, lo que rendirían si subieras a todos (sirve para saber a quién merece la pena entrenar). Contra rivales de todos los tipos, tan fuertes de media como tu equipo (Nv.${nivel}), en orden (el que gana sigue con la vida que le queda) y con los objetos que llevan puestos.</p>`;
     if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; }
   }
 
