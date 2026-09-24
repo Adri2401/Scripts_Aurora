@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.5.0
+// @version      0.6.0
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo, combate a los entrenadores (SEGUIR), captura con Poké Ball y usa Master Ball con variocolor y legendarios (una vibración), y despide al mercader.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -390,6 +390,49 @@
   const atenderPantallas = async () => (await atenderCaptura()) || (await despedirse()) || (await atenderCombate());
 
   /* ------------------------------------------------------------------ *
+   *  ANTORCHA: cuando quedan pocos pasos, Frasco de aceite; sin aceite, Cuerda. El agua no se usa.
+   * ------------------------------------------------------------------ */
+  const LS_LUZ = 'axg_luz_min';
+  const umbralLuz = () => { const n = parseInt((() => { try { return localStorage.getItem(LS_LUZ); } catch { return ''; } })(), 10); return Number.isFinite(n) && n >= 0 ? n : 15; };
+
+  // «154 pasos» junto a la llama de la cabecera
+  function leerLuz() {
+    const el = $$('span').find(s => !ajeno(s) && !s.children.length && /^\s*\d+\s*pasos\s*$/i.test(s.textContent || ''));
+    return el ? parseInt(el.textContent, 10) : null;
+  }
+  const botonObjeto = re => botonesVisibles().find(b => re.test(norm(b.textContent)) && b.closest('main'));
+
+  let usoLuz = { antes: null, n: 0 }, cuerdaUsada = '';
+  async function gestionarLuz() {
+    const luz = leerLuz();
+    if (luz == null || luz > umbralLuz()) { usoLuz = { antes: null, n: 0 }; return false; }
+    const aceite = botonObjeto(/aceite/);
+    if (aceite && !aceite.disabled) {
+      if (usoLuz.antes !== null && luz <= usoLuz.antes) usoLuz.n++; else usoLuz.n = 0;   // ¿funcionó el último?
+      if (usoLuz.n < 3) {
+        usoLuz.antes = luz;
+        msg = `🪔 Quedan ${luz} pasos: uso un Frasco de aceite.`; pintar();
+        aceite.click();
+        await sleep(600);
+        return true;
+      }
+    }
+    const cuerda = botonObjeto(/cuerda/);
+    const sinAceite = !aceite || aceite.disabled || usoLuz.n >= 3;
+    const clave = plantaActual();
+    if (sinAceite && cuerda && !cuerda.disabled && cuerdaUsada !== clave) {
+      cuerdaUsada = clave;
+      vibrar();
+      toast(`Sin aceite y ${luz} pasos: uso la cuerda`);
+      msg = `🪢 Sin aceite y quedan ${luz} pasos: uso la Cuerda.`; pintar();
+      cuerda.click();
+      await sleep(800);
+      return true;
+    }
+    return false;
+  }
+
+  /* ------------------------------------------------------------------ *
    *  MOVIMIENTO Y EXPLORACIÓN AUTOMÁTICA
    * ------------------------------------------------------------------ */
   const plantaActual = () => ((document.querySelector('h1') || {}).textContent || '').replace(/\s+/g, ' ').trim();
@@ -426,6 +469,7 @@
         continue;
       }
       sinPantalla = 0;
+      if (await gestionarLuz()) continue;
 
       // Todos los combates posibles: primero los entrenadores que se vean
       if (combatir) {
@@ -491,6 +535,8 @@
         <button type="button" class="boton-suave !py-2 text-[11px]" data-a="ver">👁 Camino: sí</button>
         <button type="button" class="boton-suave !py-2 text-[11px]" data-a="combatir">⚔️ Combatir: sí</button>
       </div>
+      <label class="flex items-center justify-between gap-2 text-[11px] font-extrabold text-tinta-500">🪔 Aceite (o cuerda si no queda) con ≤
+        <input type="number" min="0" class="axg-luz w-20 rounded-card border-2 border-crema-200 bg-crema-50 px-2 py-1 text-sm font-semibold text-tinta-600 outline-none"> pasos</label>
       <button type="button" class="boton-principal w-full !py-2 text-[11px]" data-a="auto"></button>
       <p class="text-[10px] font-semibold text-tinta-400">Al explorar: combate a todos los entrenadores (pulsa SEGUIR), captura con Poké Ball a todos los Pokémon y usa Master Ball con los variocolor y legendarios (vibra una vez).</p>
       <button type="button" class="boton-suave w-full !py-2 text-[11px]" data-a="diag">📋 Copiar diagnóstico del juego</button>
@@ -498,6 +544,9 @@
     const on = (sel, fn) => sec.querySelector(sel).addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); fn(); });
     on('[data-a="ver"]', () => { mostrar = !mostrar; sec.querySelector('[data-a="ver"]').textContent = mostrar ? '👁 Camino: sí' : '👁 Camino: no'; pintar(); });
     on('[data-a="combatir"]', () => { combatir = !combatir; sec.querySelector('[data-a="combatir"]').textContent = combatir ? '⚔️ Combatir: sí' : '⚔️ Combatir: no'; });
+    const campoLuz = sec.querySelector('.axg-luz');
+    campoLuz.value = String(umbralLuz());
+    campoLuz.addEventListener('input', () => { try { localStorage.setItem(LS_LUZ, campoLuz.value.trim()); } catch { /* sin storage */ } });
     on('[data-a="auto"]', explorar);
     on('[data-a="diag"]', async () => {
       const txt = diagnostico();
@@ -518,7 +567,7 @@
   }
 
   // Para probar sin la web
-  window.__axGalerias = { leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas };
+  window.__axGalerias = { leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, gestionarLuz, leerLuz, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas };
 
   esperarHidratacion().then(() => {
     asegurarPanel();
