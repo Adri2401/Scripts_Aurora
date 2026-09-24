@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.4.0
-// @description  Minijuego de bajar plantas: resalta la escalera y los objetos que se vean, dibuja el camino más corto, explora solo hasta encontrar la escalera y permite copiar un diagnóstico del estado interno del juego.
+// @version      0.5.0
+// @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo, combate a los entrenadores (SEGUIR), captura con Poké Ball y usa Master Ball con variocolor y legendarios (una vibración), y despide al mercader.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_galerias.user.js
@@ -256,7 +256,7 @@
   /* ------------------------------------------------------------------ *
    *  PANEL Y ACCIONES
    * ------------------------------------------------------------------ */
-  let mostrar = true, explorando = false, msg = '';
+  let mostrar = true, explorando = false, combatir = true, msg = '';
   let panel = null;
 
   function pasos(ruta) { return ruta ? ruta.length - 1 : null; }
@@ -289,26 +289,95 @@
     panel.querySelector('[data-a="auto"]').textContent = explorando ? '■ Parar exploración' : '🧭 Explorar hasta la escalera';
   }
 
-  async function clicCelda(cel, t) {
-    const antes = t.jugador ? `${t.jugador.c},${t.jugador.f}` : '';
-    cel.btn.click();
-    const t0 = Date.now();
-    while (Date.now() - t0 < 4000 && explorando) {
-      await sleep(120);
-      const n = leerTablero();
-      if (!n) return false;
-      if ($$('button').some(x => !x.closest('#' + PANEL_ID) && /^\s*Despedirse\s*$/i.test(x.textContent || ''))) return true;   // se abrió el mercader
-      // el tablero se desplaza con la cámara: se considera hecho cuando cambia lo que se ve
-      const firma = [...n.celdas.values()].map(c => c.tipo[0]).join('');
-      const firmaAntes = [...t.celdas.values()].map(c => c.tipo[0]).join('');
-      if (firma !== firmaAntes || (n.jugador && `${n.jugador.c},${n.jugador.f}` !== antes)) return true;
-    }
-    return false;
+  const norm = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const visible = el => !!(el.offsetParent || el.getClientRects().length);
+  const ajeno = el => el.closest('#' + PANEL_ID) || el.closest('#axg-pill');
+  const botonesVisibles = () => $$('button').filter(b => !ajeno(b) && visible(b));
+
+  // Aviso discreto: una vibración corta y un mensaje breve (sin notificaciones ni sonido)
+  function vibrar() { try { if (navigator.vibrate) navigator.vibrate(220); } catch { /* sin vibración */ } }
+  function toast(texto, ms = 2500) {
+    const viejo = document.getElementById('axg-toast');
+    if (viejo) viejo.remove();
+    const t = document.createElement('div');
+    t.id = 'axg-toast';
+    t.textContent = texto;
+    t.style.cssText = 'position:fixed;left:50%;bottom:calc(var(--nav-alto,4rem) + 1.25rem);transform:translateX(-50%);z-index:2147483000;' +
+      'max-width:88vw;padding:4px 12px;border-radius:999px;text-align:center;pointer-events:none;font:700 13px/1.3 system-ui,sans-serif;' +
+      'color:rgba(255,255,255,.85);background:rgba(0,0,0,.28);opacity:0;transition:opacity .25s ease';
+    document.body.appendChild(t);
+    requestAnimationFrame(() => { t.style.opacity = '1'; });
+    setTimeout(() => { t.style.opacity = '0'; }, Math.max(0, ms - 300));
+    setTimeout(() => t.remove(), ms);
   }
 
-  // Si se ha abierto la ventana del mercader nómada (o cualquier otra con «Despedirse»), se cierra y se sigue
+  /* ------------------------------------------------------------------ *
+   *  PANTALLAS QUE NO SON EL TABLERO: mercader, combate y captura
+   * ------------------------------------------------------------------ */
+  const RE_BOLA = /poke ?ball|super ?ball|ultra ?ball|master ?ball/;
+  const tipoBola = txt => /master/.test(txt) ? 'master' : /ultra/.test(txt) ? 'ultra' : /super/.test(txt) ? 'super' : 'poke';
+  const RE_SHINY = /shiny|shinny|variocolor|cromatic|brillante|✨/;
+  const RE_LEGENDARIO = /legendari|legendary/;
+
+  // Ventana de captura: botones de Poké/Super/Ultra/Master Ball juntos
+  function ventanaCaptura() {
+    const bolas = botonesVisibles().filter(b => RE_BOLA.test(norm(b.textContent)));
+    if (bolas.length < 2) return null;
+    const hoja = bolas[0].closest('div.overflow-y-auto') || bolas[0].closest('div.fixed') || bolas[0].parentElement.parentElement;
+    return { bolas, hoja };
+  }
+
+  // Lee si el Pokémon de la ventana es variocolor o legendario (mismas señales que la macro de captura)
+  function leerRareza(hoja) {
+    const imgs = $$('img[src*="/sprites/"]', hoja);
+    const sprite = imgs.sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+    const pastillas = $$('.pastilla,[class*="rounded-pill"]', hoja).map(e => norm(e.textContent)).filter(t => t && t.length <= 40);
+    const h3 = hoja.querySelector('h3');
+    const textos = [...pastillas, h3 ? norm(h3.textContent) : '', sprite ? norm(sprite.alt) : ''];
+    const shiny = (!!sprite && /\/sprites\/shiny\//.test(sprite.getAttribute('src') || '')) || textos.some(t => RE_SHINY.test(t));
+    const legendario = textos.some(t => RE_LEGENDARIO.test(t));
+    return { shiny, legendario, nombre: sprite ? sprite.alt : '?' };
+  }
+
+  let ultimaCaptura = { clave: '', n: 0 };
+  async function atenderCaptura() {
+    const v = ventanaCaptura();
+    if (!v) { ultimaCaptura = { clave: '', n: 0 }; return false; }
+    const r = leerRareza(v.hoja);
+    const rara = r.shiny || r.legendario;
+    const quiero = rara ? 'master' : 'poke';
+    const b = v.bolas.find(x => tipoBola(norm(x.textContent)) === quiero && !x.disabled) || (rara ? v.bolas.find(x => tipoBola(norm(x.textContent)) === 'ultra' && !x.disabled) : null);
+    if (!b) { msg = `No tengo ${quiero === 'master' ? 'Master Ball' : 'Poké Ball'} disponible para ${r.nombre}.`; pintar(); return false; }
+    const clave = r.nombre + '|' + (rara ? 'r' : 'n');
+    if (ultimaCaptura.clave === clave) ultimaCaptura.n++; else ultimaCaptura = { clave, n: 1 };
+    if (ultimaCaptura.n > 12) { explorando = false; msg = `No consigo capturar a ${r.nombre}. Parado.`; return false; }
+    if (rara && ultimaCaptura.n === 1) {
+      vibrar();
+      toast(`${r.shiny ? '✨ VARIOCOLOR' : '👑 LEGENDARIO'}: ${r.nombre} → Master Ball`);
+    }
+    msg = `${rara ? '⭐ ' : ''}${r.nombre}: ${rara ? 'Master Ball' : 'Poké Ball'}`;
+    pintar();
+    await sleep(250);
+    b.click();
+    await sleep(700);
+    return true;
+  }
+
+  // Pantalla de combate: «SEGUIR» hasta acabar (y «Continuar/Aceptar» de los cierres)
+  async function atenderCombate() {
+    const b = botonesVisibles().find(x => !x.disabled && /^\s*(seguir|continuar|aceptar)\s*$/i.test(x.textContent || ''));
+    if (!b) return false;
+    msg = '⚔️ Combate: sigo…';
+    pintar();
+    await sleep(200);
+    b.click();
+    await sleep(450);
+    return true;
+  }
+
+  // Si se ha abierto la ventana del mercader nómada, se cierra y se sigue
   async function despedirse() {
-    const b = $$('button').find(x => !x.closest('#' + PANEL_ID) && !x.disabled && /^\s*Despedirse\s*$/i.test(x.textContent || ''));
+    const b = botonesVisibles().find(x => !x.disabled && /^\s*Despedirse\s*$/i.test(x.textContent || ''));
     if (!b) return false;
     const quien = ($$('h3').map(h => h.textContent.trim()).find(t => /mercader|nomada|nómada/i.test(t))) || 'ventana';
     b.click();
@@ -318,14 +387,60 @@
     return true;
   }
 
+  const atenderPantallas = async () => (await atenderCaptura()) || (await despedirse()) || (await atenderCombate());
+
+  /* ------------------------------------------------------------------ *
+   *  MOVIMIENTO Y EXPLORACIÓN AUTOMÁTICA
+   * ------------------------------------------------------------------ */
+  const plantaActual = () => ((document.querySelector('h1') || {}).textContent || '').replace(/\s+/g, ' ').trim();
+  const combatidos = new Set();
+
+  async function clicCelda(cel, t) {
+    const antes = t.jugador ? `${t.jugador.c},${t.jugador.f}` : '';
+    cel.btn.click();
+    const t0 = Date.now();
+    while (Date.now() - t0 < 4000 && explorando) {
+      await sleep(120);
+      const n = leerTablero();
+      if (!n) return true;                                   // otra pantalla (combate, ventana…)
+      if (ventanaCaptura() || botonesVisibles().some(x => /^\s*(despedirse|seguir)\s*$/i.test(x.textContent || ''))) return true;
+      // el tablero se desplaza con la cámara: se considera hecho cuando cambia lo que se ve
+      const firma = [...n.celdas.values()].map(c => c.tipo[0]).join('');
+      const firmaAntes = [...t.celdas.values()].map(c => c.tipo[0]).join('');
+      if (firma !== firmaAntes || (n.jugador && `${n.jugador.c},${n.jugador.f}` !== antes)) return true;
+    }
+    return false;
+  }
+
   async function explorar() {
     if (explorando) { explorando = false; msg = 'Exploración parada.'; pintar(); return; }
     explorando = true;
-    let sinCambio = 0;
+    mostrarPildora(true);
+    let sinCambio = 0, sinPantalla = 0;
     while (explorando) {
-      if (await despedirse()) continue;
+      if (await atenderPantallas()) { sinPantalla = 0; continue; }
       const t = leerTablero();
-      if (!t) { msg = 'Sin tablero: parado.'; break; }
+      if (!t) {                                               // ni tablero ni pantalla conocida: se espera un poco
+        if (++sinPantalla > 60) { msg = 'No reconozco la pantalla. Parado.'; break; }
+        await sleep(200);
+        continue;
+      }
+      sinPantalla = 0;
+
+      // Todos los combates posibles: primero los entrenadores que se vean
+      if (combatir) {
+        const planta = plantaActual();
+        const e = t.entidades.find(x => x.tipo === 'entrenador' && !combatidos.has(planta + '|' + x.nombre));
+        const cel = e && t.celdas.get(e.c + ',' + e.f);
+        if (cel && cel.pisable && rutaA(t, c => c === cel)) {
+          combatidos.add(planta + '|' + e.nombre);
+          msg = '⚔️ Voy a por un entrenador…'; pintar();
+          await clicCelda(cel, t);
+          await sleep(300);
+          continue;
+        }
+      }
+
       const esc = [...t.celdas.values()].find(c => c.tipo === 'escalera');
       if (esc) {
         const r = rutaA(t, c => c.tipo === 'escalera');
@@ -345,7 +460,23 @@
       await sleep(150);
     }
     explorando = false;
+    mostrarPildora(false);
     pintar();
+  }
+
+  // Botón flotante para parar aunque el panel no se vea (durante los combates el tablero desaparece)
+  function mostrarPildora(si) {
+    let p = document.getElementById('axg-pill');
+    if (!si) { if (p) p.remove(); return; }
+    if (p) return;
+    p = document.createElement('button');
+    p.id = 'axg-pill';
+    p.type = 'button';
+    p.textContent = '■ Parar galerías';
+    p.style.cssText = 'position:fixed;left:12px;bottom:calc(var(--nav-alto,4rem) + 4.2rem);z-index:2147483000;padding:6px 12px;border-radius:999px;' +
+      'font:800 12px system-ui,sans-serif;color:#fff;background:rgba(200,60,40,.85);border:2px solid rgba(255,255,255,.5)';
+    p.addEventListener('click', () => { explorando = false; msg = 'Exploración parada.'; });
+    document.body.appendChild(p);
   }
 
   function construirPanel() {
@@ -354,16 +485,19 @@
     sec.className = 'tarjeta space-y-2 p-3';
     sec.setAttribute('data-ax-ignore', '1');
     sec.innerHTML = `
-      <p class="font-display text-sm font-extrabold">🪜 Galerías · escalera y camino</p>
+      <p class="font-display text-sm font-extrabold">🪜 Galerías · escalera, combates y capturas</p>
       <p class="axg-est text-[11px] font-bold text-tinta-500"></p>
-      <div class="flex flex-wrap gap-2">
-        <button type="button" class="boton-suave flex-1 !py-2 text-[11px]" data-a="ver">👁 Camino: sí</button>
-        <button type="button" class="boton-principal flex-1 !py-2 text-[11px]" data-a="auto"></button>
+      <div class="grid grid-cols-2 gap-2">
+        <button type="button" class="boton-suave !py-2 text-[11px]" data-a="ver">👁 Camino: sí</button>
+        <button type="button" class="boton-suave !py-2 text-[11px]" data-a="combatir">⚔️ Combatir: sí</button>
       </div>
+      <button type="button" class="boton-principal w-full !py-2 text-[11px]" data-a="auto"></button>
+      <p class="text-[10px] font-semibold text-tinta-400">Al explorar: combate a todos los entrenadores (pulsa SEGUIR), captura con Poké Ball a todos los Pokémon y usa Master Ball con los variocolor y legendarios (vibra una vez).</p>
       <button type="button" class="boton-suave w-full !py-2 text-[11px]" data-a="diag">📋 Copiar diagnóstico del juego</button>
       <p class="axg-msg text-[11px] font-semibold text-tinta-400"></p>`;
     const on = (sel, fn) => sec.querySelector(sel).addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); fn(); });
     on('[data-a="ver"]', () => { mostrar = !mostrar; sec.querySelector('[data-a="ver"]').textContent = mostrar ? '👁 Camino: sí' : '👁 Camino: no'; pintar(); });
+    on('[data-a="combatir"]', () => { combatir = !combatir; sec.querySelector('[data-a="combatir"]').textContent = combatir ? '⚔️ Combatir: sí' : '⚔️ Combatir: no'; });
     on('[data-a="auto"]', explorar);
     on('[data-a="diag"]', async () => {
       const txt = diagnostico();
@@ -376,7 +510,7 @@
 
   function asegurarPanel() {
     const t = leerTablero();
-    if (!t) { if (panel && panel.parentElement) panel.remove(); quitarDibujo(); explorando = false; return; }
+    if (!t) { if (panel && panel.parentElement) panel.remove(); quitarDibujo(); return; }   // la exploración sigue durante combates
     const caja = t.raiz.parentElement;
     if (!panel) panel = construirPanel();
     if (panel.previousElementSibling !== caja) caja.insertAdjacentElement('afterend', panel);
@@ -384,7 +518,7 @@
   }
 
   // Para probar sin la web
-  window.__axGalerias = { leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse };
+  window.__axGalerias = { leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas };
 
   esperarHidratacion().then(() => {
     asegurarPanel();
