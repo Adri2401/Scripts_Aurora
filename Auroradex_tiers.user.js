@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.0.0
+// @version      1.1.0
 // @description  Solo en /equipo. Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC, y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -104,8 +104,11 @@
     const fis = a.atk > a.esp, A = fis ? a.atk : a.spa, D = fis ? b.def : b.spd;
     return ((((2 * a.L / 5 + 2) * 80 * A / D) / 50 + 2) * 1.5 * e) / b.hp * 0.3;
   }
+  // Única habilidad del juego: Slaking (nº 289) ataca un turno sí y otro no → para dar t golpes necesita 2t − 1 turnos
+  const HOLGAZAN = 289;
+  const turnos = (x, t) => (x.num === HOLGAZAN ? 2 * t - 1 : t);
   function duelo(a, b) {
-    const tA = Math.ceil(1 / golpe(a, b) - 1e-9), tB = Math.ceil(1 / golpe(b, a) - 1e-9);
+    const tA = turnos(a, Math.ceil(1 / golpe(a, b) - 1e-9)), tB = turnos(b, Math.ceil(1 / golpe(b, a) - 1e-9));
     if (a.spe > b.spe) return tA <= tB ? 1 : 0;
     if (a.spe < b.spe) return tB <= tA ? 0 : 1;
     return tA < tB ? 1 : tA > tB ? 0 : 0.5;
@@ -121,7 +124,7 @@
     if (cacheTier[num]) return cacheTier[num];
     const d = datos[num];
     if (!d) return null;
-    const yo = { ...stats(d.s, 50), L: 50, tipos: d.t };
+    const yo = { ...stats(d.s, 50), L: 50, tipos: d.t, num };
     let gana = 0;
     const pierdePorTipo = {};
     for (const r of BANCO) {
@@ -138,7 +141,7 @@
     for (const t of TIPOS) { const e = Math.max(...d.t.map(a => eficacia(a, [t]))); if (e >= 2) fuerte.push(t); else if (e === 0) nulo.push(t); else if (e < 1) flojo.push(t); }
     const peores = Object.entries(pierdePorTipo).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t);
     const esp = Math.round((d.s[3] + d.s[4]) / 2);
-    const r = { letra, color, pct, d, deb4, deb2, res, inm, fuerte, nulo, flojo, peores, esp, ataque: d.s[1] > esp ? 'ATQ (físico)' : 'ESP (especial)' };
+    const r = { holgazan: num === HOLGAZAN, letra, color, pct, d, deb4, deb2, res, inm, fuerte, nulo, flojo, peores, esp, ataque: d.s[1] > esp ? 'ATQ (físico)' : 'ESP (especial)' };
     cacheTier[num] = r;
     return r;
   }
@@ -203,7 +206,7 @@
       caja.innerHTML = `
         <p class="titulo-seccion">Análisis</p>
         <div class="flex items-center gap-2"></div>
-        <p class="text-[11px] font-semibold text-tinta-500">Gana el <b>${Math.round(t.pct * 100)}%</b> de los duelos 1 contra 1 contra rivales de todos los tipos a su mismo nivel. Ataca con <b>${t.ataque}</b>: el juego usa el mayor de los dos. Base: ${total} (PS ${base[0]} · ATQ ${base[1]} · DEF ${base[2]} · ESP ${t.esp} · VEL ${base[5]}).</p>
+        <p class="text-[11px] font-semibold text-tinta-500">Gana el <b>${Math.round(t.pct * 100)}%</b> de los duelos 1 contra 1 contra rivales de todos los tipos a su mismo nivel. Ataca con <b>${t.ataque}</b>: el juego usa el mayor de los dos.${t.holgazan ? ' <b>Ausente:</b> solo ataca un turno sí y otro no (ya contado en el tier).' : ''} Base: ${total} (PS ${base[0]} · ATQ ${base[1]} · DEF ${base[2]} · ESP ${t.esp} · VEL ${base[5]}).</p>
         ${fila('Débil ×4', t.deb4)}
         ${fila('Débil ×2', t.deb2)}
         ${fila('Resiste', t.res)}

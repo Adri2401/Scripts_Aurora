@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Metro Batalla (pelear en bucle y ventaja de tipos)
 // @namespace    auroradex-metro
-// @version      1.2.1
+// @version      1.2.2
 // @description  Solo en /metro. Al elegir equipo analiza tus seis (debilidades, estadísticas, flojos) y marca el mejor orden; en cada parada predice el combate. Pulsa «Pelear» en bucle con tope de paradas o de racha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -288,12 +288,16 @@
     return dano(a, b) / b.hp * (FACT[a.lado] || 0.25);
   }
   // Un duelo con la vida en fracciones (1 = entera): quién gana y con cuánta vida
+  // Única habilidad del juego: Slaking (nº 289) ataca un turno sí y otro no (empieza atacando)
+  const HOLGAZAN = 289;
+  const turnos = (x, t) => (x.num === HOLGAZAN ? 2 * t - 1 : t);          // turnos para dar t golpes
+  const golpesEn = (x, k) => (x.num === HOLGAZAN ? Math.ceil(k / 2) : k);  // golpes dados en k turnos
   function duelo(a, fa, b, fb) {
     const dA = golpe(a, b), dB = golpe(b, a);
-    const tA = Math.ceil(fb / dA - 1e-9), tB = Math.ceil(fa / dB - 1e-9);
+    const tA = turnos(a, Math.ceil(fb / dA - 1e-9)), tB = turnos(b, Math.ceil(fa / dB - 1e-9));
     const primeroA = a.spe > b.spe || (a.spe === b.spe && fa >= fb);
-    if (primeroA) return tA <= tB ? { ganaA: true, fa: fa - (tA - 1) * dB, fb: 0 } : { ganaA: false, fa: 0, fb: fb - tB * dA };
-    return tB <= tA ? { ganaA: false, fa: 0, fb: fb - (tB - 1) * dA } : { ganaA: true, fa: fa - tA * dB, fb: 0 };
+    if (primeroA) return tA <= tB ? { ganaA: true, fa: fa - golpesEn(b, tA - 1) * dB, fb: 0 } : { ganaA: false, fa: 0, fb: fb - golpesEn(a, tB) * dA };
+    return tB <= tA ? { ganaA: false, fa: 0, fb: fb - golpesEn(a, tB - 1) * dA } : { ganaA: true, fa: fa - golpesEn(b, tA) * dB, fb: 0 };
   }
   // Combate completo EN ORDEN (arriba → abajo): el que gana sigue con la vida que le quede.
   // `vidaA`: fracciones de vida de salida (Línea Negra). Con `detalle` devuelve también cada duelo.
