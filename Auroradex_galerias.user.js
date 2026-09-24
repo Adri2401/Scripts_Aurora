@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.15.0
+// @version      0.16.0
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -432,7 +432,7 @@
   const ORDINALES = [[/\bprimer[oa]?\b/, 1], [/\bsegund[oa]\b/, 2], [/\btercer[oa]?\b/, 3], [/\bcuart[oa]\b/, 4]];
   const sinArticulo = s => norm(s).replace(/^(el|la|los|las)\s+/, '');
   // Templo de las Runas: apagar/encender con las cuatro vecinas (Lights Out); se busca la combinación con menos toques
-  async function atenderRunas() {
+  async function atenderRunas(manual = false) {
     const runas = () => botonesVisibles().filter(b => /^Runa \d+, (encendida|apagada)/.test(b.getAttribute('aria-label') || ''));
     const rs = runas();
     const n = rs.length, lado = Math.round(Math.sqrt(n));
@@ -456,6 +456,7 @@
       if (r === falta && (mejor === null || k < mejor.k)) mejor = { mask, k };
     }
     const planta = plantaActual();
+    if (!mejor && manual) { toast('Esta combinación de runas no tiene solución', 3500); return true; }
     if (!mejor) {
       msg = '🚪 Runas: esta combinación no tiene solución; la dejo.'; pintar();
       puertaFin[planta] = true;
@@ -465,7 +466,7 @@
       return true;
     }
     msg = `🚪 Runas: ${mejor.k} toques para encenderlas todas.`; pintar();
-    for (let i = 0; i < n && explorando; i++) {
+    for (let i = 0; i < n && (explorando || manual); i++) {
       if (!(mejor.mask & (1 << i))) continue;
       const b = runas().find(x => new RegExp('^Runa ' + (i + 1) + ',').test(x.getAttribute('aria-label')));
       if (!b) break;
@@ -480,8 +481,8 @@
     return true;
   }
 
-  async function atenderPuerta() {
-    if (await atenderRunas()) return true;
+  async function atenderPuerta(manual = false) {
+    if (await atenderRunas(manual)) return true;
     const huecos = botonesVisibles().filter(b => /^Hueco \d/.test(b.getAttribute('aria-label') || ''));
     if (huecos.length < 2) {
       // Recién chocada una puerta y se abre una ventana que no conozco (runas, suelo pulido…): me paro para que me pases su HTML
@@ -510,6 +511,7 @@
     };
     if (sol.some(x => x === null) || new Set(sol).size !== sol.length) {
       msg = `🚪 Puerta: solo conozco ${sol.filter(Boolean).length} de ${sol.length} símbolos; la dejo para luego.`; pintar();
+      if (manual) { toast(`Solo conozco ${sol.filter(Boolean).length} de ${sol.length} símbolos`, 3500); return true; }
       puertaFin[plantaActual()] = true;          // faltan pistas: no se insiste, se baja
       await cerrarPuerta();
       return true;
@@ -614,6 +616,7 @@
     if (explorando) { explorando = false; msg = 'Exploración parada.'; pintar(); return; }
     explorando = true;
     mostrarPildora(true);
+    { const pl = plantaActual(); delete puertaFin[pl]; delete puertaIntentos[pl]; delete escFallo[pl]; for (const k of Object.keys(puertaVisitas)) if (k.startsWith(pl + '|')) delete puertaVisitas[k]; if (contadoresPlanta.planta === pl) contadoresPlanta.puerta = 0; }
     let sinCambio = 0, sinPantalla = 0;
     while (explorando) {
       if (await atenderPantallas()) { sinPantalla = 0; continue; }
@@ -784,7 +787,32 @@
   // Para probar sin la web
   window.__axGalerias = { andar, mostrarPildora, explorar, leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, gestionarLuz, leerLuz, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas, atenderPuerta };
 
+  // Botón «Resolver solo» dentro de la ventana de la puerta (para usarlo en manual)
+  let resolviendo = false;
+  function botonResolver() {
+    const runas = botonesVisibles().some(b => /^Runa \d+, (encendida|apagada)/.test(b.getAttribute('aria-label') || ''));
+    const huecos = botonesVisibles().some(b => /^Hueco \d/.test(b.getAttribute('aria-label') || ''));
+    const viejo = document.getElementById('axg-resolver');
+    if (!runas && !huecos) { if (viejo) viejo.remove(); return; }
+    if (viejo) return;
+    const dejar = botonesVisibles().find(x => /^\s*dejarlo para luego/i.test(norm(x.textContent)));
+    if (!dejar) return;
+    const b = document.createElement('button');
+    b.id = 'axg-resolver'; b.type = 'button';
+    b.className = 'boton-principal mt-3 w-full text-xs';
+    b.setAttribute('data-ax-ignore', '1');
+    b.textContent = '🧩 Resolver solo';
+    b.addEventListener('click', async e => {
+      e.preventDefault(); e.stopPropagation();
+      if (resolviendo) return;
+      resolviendo = true; b.disabled = true;
+      try { await atenderPuerta(true); } finally { resolviendo = false; b.disabled = false; }
+    });
+    dejar.insertAdjacentElement('beforebegin', b);
+  }
+
   esperarHidratacion().then(() => {
+    setInterval(botonResolver, 600);
     asegurarPanel();
     setInterval(asegurarPanel, 500);
   });
