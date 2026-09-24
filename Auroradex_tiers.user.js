@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.1.0
-// @description  Solo en /equipo. Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC, y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego.
+// @version      1.2.0
+// @description  Solo en /equipo. Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_tiers.user.js
@@ -120,10 +120,13 @@
   const BANCO = GEN.flatMap(t => PERFILES.map(p => ({ ...stats(p, 50), L: 50, tipos: t.split('/') })));
   const TIERS = [['S', 0.88, '#FFB23E'], ['A', 0.76, '#E0473A'], ['B', 0.62, '#A855F7'], ['C', 0.48, '#3B82F6'], ['D', 0.34, '#10B981'], ['E', 0.20, '#84CC16'], ['F', 0.08, '#94A3B8'], ['G', -1, '#64748B']];
   const cacheTier = {};
-  function analizar(num) {
-    if (cacheTier[num]) return cacheTier[num];
-    const d = datos[num];
-    if (!d) return null;
+  function analizar(num, tiposVistos) {
+    const base = datos[num];
+    if (!base) return null;
+    const tipos = tiposVistos && tiposVistos.length ? tiposVistos : base.t;
+    const clave = num + '|' + tipos.join('/');
+    if (cacheTier[clave]) return cacheTier[clave];
+    const d = { ...base, t: tipos };
     const yo = { ...stats(d.s, 50), L: 50, tipos: d.t, num };
     let gana = 0;
     const pierdePorTipo = {};
@@ -142,14 +145,27 @@
     const peores = Object.entries(pierdePorTipo).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t);
     const esp = Math.round((d.s[3] + d.s[4]) / 2);
     const r = { holgazan: num === HOLGAZAN, letra, color, pct, d, deb4, deb2, res, inm, fuerte, nulo, flojo, peores, esp, ataque: d.s[1] > esp ? 'ATQ (físico)' : 'ESP (especial)' };
-    cacheTier[num] = r;
+    cacheTier[clave] = r;
     return r;
   }
 
   /* ------------------------------------------------------------------ *
    *  ICONO DE TIER EN CADA TARJETA
    * ------------------------------------------------------------------ */
-  const numDe = img => { const m = (img.getAttribute('src') || '').match(/\/sprites\/(?:shiny\/)?(\d+)/); return m ? parseInt(m[1], 10) : null; };
+  const numDe = img => { const m = (img.getAttribute('src') || '').match(/\/sprites\/(?:[a-z0-9_-]+\/)*?(?:dorso-)?(\d+)(?:[-_.])/i); return m ? parseInt(m[1], 10) : null; };
+  // Tipos tal como los enseña la web en esa tarjeta («BIC» con title «Bicho», o «AGUA» en el equipo)
+  const ABREV = { nor: 'normal', fue: 'fuego', agu: 'agua', pla: 'planta', ele: 'electrico', hie: 'hielo', luc: 'lucha', ven: 'veneno', tie: 'tierra', vol: 'volador', psi: 'psiquico', bic: 'bicho', roc: 'roca', fan: 'fantasma', dra: 'dragon', sin: 'siniestro', ace: 'acero', had: 'hada' };
+  const normT = x => (x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  function tiposEn(raiz) {
+    const out = [];
+    for (const sp of $$('span', raiz)) {
+      if (sp.children.length || sp.closest('.axt-ficha')) continue;
+      const t = normT(sp.getAttribute('title')) || normT(sp.textContent);
+      const k = TABLA[t] ? t : ABREV[t];
+      if (k && (sp.getAttribute('title') || /pastilla|rounded-pill/.test(sp.className)) && !out.includes(k)) out.push(k);
+    }
+    return out.slice(0, 2);
+  }
   function insignia(t, grande) {
     const s = document.createElement('span');
     s.className = 'axt-tier';
@@ -169,8 +185,10 @@
       const hueco = !boton && img.closest('li[data-id]') ? img.parentElement : null;
       const caja = boton || (hueco && hueco.classList.contains('relative') ? hueco : null);
       if (!caja) continue;
-      if (caja.dataset.axtNum === String(num) && caja.querySelector(':scope > .axt-tier')) continue;
-      const t = analizar(num);
+      const tipos = tiposEn(boton || img.closest('li[data-id]'));
+      const firma = num + '|' + tipos.join('/');
+      if (caja.dataset.axtNum === firma && caja.querySelector(':scope > .axt-tier')) continue;
+      const t = analizar(num, tipos);
       if (!t) { pedir(num); continue; }
       const viejo = caja.querySelector(':scope > .axt-tier');
       if (viejo) viejo.remove();
@@ -179,7 +197,7 @@
       if (boton) { s.style.right = '4px'; s.style.top = '4px'; }
       else { s.style.left = '-6px'; s.style.top = '-6px'; }
       caja.appendChild(s);
-      caja.dataset.axtNum = String(num);
+      caja.dataset.axtNum = firma;
     }
   }
 
@@ -197,11 +215,12 @@
       const num = img && numDe(img);
       if (!num) continue;
       let caja = bloque.nextElementSibling && bloque.nextElementSibling.classList.contains('axt-ficha') ? bloque.nextElementSibling : null;
-      if (caja && caja.dataset.num === String(num)) continue;
-      const t = analizar(num);
+      const tipos = tiposEn(li.querySelector('button') || li);
+      if (caja && caja.dataset.num === num + '|' + tipos.join('/')) continue;
+      const t = analizar(num, tipos);
       if (!t) { pedir(num); continue; }
       if (!caja) { caja = document.createElement('div'); caja.className = 'axt-ficha space-y-1.5'; caja.setAttribute('data-ax-ignore', '1'); bloque.insertAdjacentElement('afterend', caja); }
-      caja.dataset.num = String(num);
+      caja.dataset.num = num + '|' + tipos.join('/');
       const base = t.d.s, total = base.reduce((x, y) => x + y, 0);
       caja.innerHTML = `
         <p class="titulo-seccion">Análisis</p>
@@ -224,6 +243,130 @@
   }
 
   /* ------------------------------------------------------------------ *
+   *  ORDENAR LA CAJA PC POR TIER
+   *  Botón «Tier» junto a Pokédex / Nivel / Rareza. Se ordena con la propiedad CSS «order» de cada tarjeta, sin mover
+   *  los elementos de la web (así React no se lía). Al pulsar otro orden de la web, se quita.
+   * ------------------------------------------------------------------ */
+  const LS_ORDEN = 'axt-orden-tier';
+  let ordenTier = lsGet(LS_ORDEN, false);
+  const CLASES_ON = ['border-rojo-500', 'bg-rojo-500', 'text-white'], CLASES_OFF = ['border-crema-200', 'bg-lienzo', 'text-tinta-500'];
+  function botonOrden() {
+    const fila = $$('main div.flex').find(d => { const t = $$(':scope > button', d).map(b => b.textContent.trim()); return t.includes('Nivel') && t.includes('Rareza'); });
+    if (!fila) return;
+    let b = fila.querySelector(':scope > .axt-orden');
+    if (!b) {
+      b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'axt-orden pastilla flex-1 justify-center border-2 text-[11px] transition';
+      b.setAttribute('data-ax-ignore', '1');
+      b.textContent = 'Tier';
+      b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); ordenTier = !ordenTier; lsPut(LS_ORDEN, ordenTier); pintarBotonOrden(b); ordenar(); });
+      fila.appendChild(b);
+      for (const otro of $$(':scope > button:not(.axt-orden)', fila)) otro.addEventListener('click', () => { if (ordenTier) { ordenTier = false; lsPut(LS_ORDEN, false); pintarBotonOrden(b); ordenar(); } });
+    }
+    pintarBotonOrden(b);
+  }
+  function pintarBotonOrden(b) {
+    b.classList.remove(...(ordenTier ? CLASES_OFF : CLASES_ON));
+    b.classList.add(...(ordenTier ? CLASES_ON : CLASES_OFF));
+    b.title = ordenTier ? 'Ordenado por tier (de S a G). Toca para quitarlo.' : 'Ordenar por tier (de S a G)';
+  }
+  function ordenar() {
+    for (const li of $$('main ul.grid > li')) {
+      const b = li.querySelector(':scope > button');
+      const img = b && b.querySelector('img[src*="/sprites/"]');
+      if (!img) continue;
+      if (!ordenTier) { if (li.dataset.axtOrden) { li.style.order = ''; delete li.dataset.axtOrden; } continue; }
+      const num = numDe(img), t = num && analizar(num, tiposEn(b));
+      const nivel = parseInt((b.textContent.match(/Nv\.\s*(\d+)/) || [])[1], 10) || 0;
+      const o = t ? String(Math.round((1 - t.pct) * 10000) * 1000 + (999 - nivel)) : '99999999';
+      if (li.style.order !== o) { li.style.order = o; li.dataset.axtOrden = '1'; }
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  ORDEN RECOMENDADO DEL EQUIPO («Los 3 primeros combaten»)
+   *  Se prueban todas las formas de poner 3 de tus 6 en orden (a su nivel de verdad) contra 300 tríos de rivales de
+   *  todos los tipos a tu nivel medio. Combates en orden: el que gana sigue con la vida que le queda.
+   * ------------------------------------------------------------------ */
+  function dueloF(a, fa, b, fb) {
+    const dA = golpe(a, b), dB = golpe(b, a);
+    const gA = k => (a.num === HOLGAZAN ? Math.ceil(k / 2) : k), gB = k => (b.num === HOLGAZAN ? Math.ceil(k / 2) : k);
+    const tA = turnos(a, Math.ceil(fb / dA - 1e-9)), tB = turnos(b, Math.ceil(fa / dB - 1e-9));
+    const primeroA = a.spe > b.spe || (a.spe === b.spe && fa >= fb);
+    if (primeroA) return tA <= tB ? { ganaA: true, fa: fa - gB(tA - 1) * dB, fb: 0 } : { ganaA: false, fa: 0, fb: fb - gA(tB) * dA };
+    return tB <= tA ? { ganaA: false, fa: 0, fb: fb - gA(tB - 1) * dA } : { ganaA: true, fa: fa - gB(tA) * dB, fb: 0 };
+  }
+  function combate(mios, rivales) {
+    let i = 0, j = 0, fa = 1, fb = 1;
+    while (i < mios.length && j < rivales.length) {
+      const r = dueloF(mios[i], fa, rivales[j], fb);
+      if (r.ganaA) { fa = r.fa; j++; fb = 1; } else { fb = r.fb; i++; fa = 1; }
+    }
+    return { gana: j >= rivales.length, vivos: mios.length - i };
+  }
+  function permutaciones(arr, k) {
+    const out = [];
+    const rec = (pref, resto) => { if (pref.length === k) { out.push(pref); return; } resto.forEach((x, i) => rec([...pref, x], resto.filter((_, j) => j !== i))); };
+    rec([], arr);
+    return out;
+  }
+  let memoEquipo = null;
+  function ordenEquipo() {
+    const aviso = $$('main p').find(p => /arrastra por el asa/i.test(p.textContent || ''));
+    const lista = aviso && $$('main ul').find(u => u.querySelector(':scope > li[data-id]') && aviso.compareDocumentPosition(u) & Node.DOCUMENT_POSITION_FOLLOWING);
+    let caja = document.getElementById('axt-equipo');
+    if (!lista) { if (caja) caja.remove(); return; }
+    const miembros = $$(':scope > li[data-id]', lista).map(li => {
+      const img = li.querySelector('img[src*="/sprites/"]');
+      const num = img && numDe(img);
+      const nombre = ((li.querySelector('span.truncate') || {}).textContent || img && img.alt || '?').trim();
+      const nivel = parseInt((li.textContent.match(/Nv\.\s*(\d+)/) || [])[1], 10) || 50;
+      return { num, nombre, nivel, tipos: tiposEn(li.querySelector('button') || li) };
+    }).filter(m => m.num);
+    if (miembros.length < 2) { if (caja) caja.remove(); return; }
+    for (const m of miembros) if (!datos[m.num]) pedir(m.num);
+    if (miembros.some(m => !datos[m.num])) return;
+    const entrada = JSON.stringify(miembros);
+    if (!memoEquipo || memoEquipo.entrada !== entrada) {
+      const luch = miembros.map(m => ({ ...stats(datos[m.num].s, m.nivel), L: m.nivel, tipos: m.tipos.length ? m.tipos : datos[m.num].t, num: m.num, nombre: m.nombre }));
+      const nivel = Math.round(miembros.reduce((x, m) => x + m.nivel, 0) / miembros.length);
+      // rivales con la misma fuerza media que tu equipo (si no, con legendarios todo sale al 100% y no se distingue el orden)
+      const baseMedia = miembros.reduce((x, m) => x + datos[m.num].s.reduce((p, q) => p + q, 0), 0) / miembros.length / 6;
+      const banco = GEN.flatMap(t => PERFILES.map(pf => ({ ...stats(pf.map(v => Math.max(30, Math.round(v + baseMedia - 80))), nivel), L: nivel, tipos: t.split('/'), num: 0 })));
+      let semilla = 11; const azar = () => (semilla = (semilla * 16807) % 2147483647) / 2147483647;
+      const trios = [];
+      for (let k = 0; k < 300; k++) trios.push([...banco].sort(() => azar() - 0.5).slice(0, 3));
+      const nota = orden => { let g = 0, v = 0; for (const tr of trios) { const r = combate(orden, tr); if (r.gana) { g++; v += r.vivos; } } return { g: g / trios.length, v: v / trios.length }; };
+      let mejor = null;
+      for (const orden of permutaciones(luch, Math.min(3, luch.length))) {
+        const n = nota(orden);
+        if (!mejor || n.g + n.v / 100 > mejor.n.g + mejor.n.v / 100) mejor = { orden, n };
+      }
+      const actual = nota(luch.slice(0, 3));
+      memoEquipo = { entrada, mejor, actual, nivel };
+    }
+    const { mejor, actual, nivel } = memoEquipo;
+    const yaEsta = mejor.orden.every((x, i) => miembros[i] && miembros[i].num === x.num && miembros[i].nombre === x.nombre);
+    if (!caja) {
+      caja = document.createElement('section');
+      caja.id = 'axt-equipo';
+      caja.className = 'tarjeta space-y-1.5 p-3';
+      caja.setAttribute('data-ax-ignore', '1');
+    }
+    if (caja.nextElementSibling !== lista) lista.insertAdjacentElement('beforebegin', caja);
+    const pct = x => Math.round(x * 100) + '%';
+    const html = `
+      <div class="flex items-center justify-between gap-2">
+        <p class="titulo-seccion !mb-0">⚔️ Orden recomendado</p>
+        <span class="text-[11px] font-extrabold ${yaEsta ? 'text-hoja-600' : 'text-ambar-600'}">${yaEsta ? '✔ Ya lo tienes así' : `gana ${pct(mejor.n.g)} (ahora ${pct(actual.g)})`}</span>
+      </div>
+      <p class="text-sm font-extrabold">${mejor.orden.map((x, i) => `${i + 1}. ${x.nombre}`).join(' · ')}</p>
+      <p class="text-[10px] font-semibold text-tinta-400">${yaEsta ? 'Tus 3 primeros ya son los que más combates ganan en ese orden.' : 'Arrastra por el asa ⠿ para ponerlos así.'} Contra rivales de todos los tipos, tan fuertes de media como tu equipo, a Nv.${nivel}; los tuyos a su nivel real y en orden (el que gana sigue con la vida que le queda). Los objetos no se cuentan.</p>`;
+    if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; }
+  }
+
+  /* ------------------------------------------------------------------ *
    *  ARRANQUE: solo en /equipo; se repasa al cambiar la página (con un pequeño retraso para no cargar)
    * ------------------------------------------------------------------ */
   let prog = null, listo = false;
@@ -231,13 +374,13 @@
     clearTimeout(prog);
     prog = setTimeout(() => {
       if (!listo || !enEquipo()) return;
-      try { decorarTarjetas(); decorarFichas(); } catch (e) { console.warn('[axt]', e); }
+      try { decorarTarjetas(); decorarFichas(); botonOrden(); ordenar(); ordenEquipo(); } catch (e) { console.warn('[axt]', e); }
     }, 250);
   }
   new MutationObserver(muts => {
     if (!enEquipo()) return;
     // se ignoran los cambios que hace este mismo script
-    if (muts.every(m => [...m.addedNodes].every(n => n.nodeType === 1 && (n.classList.contains('axt-tier') || n.classList.contains('axt-ficha'))))) return;
+    if (muts.every(m => [...m.addedNodes].every(n => n.nodeType === 1 && (n.classList.contains('axt-tier') || n.classList.contains('axt-ficha') || n.id === 'axt-equipo' || n.classList.contains('axt-orden'))))) return;
     programar();
   }).observe(document.documentElement, { childList: true, subtree: true });
   // se espera a que la web termine de montarse (tocar el DOM antes provoca errores de hidratación de React)
