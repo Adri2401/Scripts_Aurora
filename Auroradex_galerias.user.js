@@ -497,12 +497,22 @@
     }
     const simbolos = botonesVisibles().filter(b => !b.getAttribute('aria-label') && b.querySelector('span.capitalize') && !ajeno(b));
     const nombres = simbolos.map(b => sinArticulo(b.querySelector('span.capitalize').textContent));
-    const lineas = $$('li').filter(li => visible(li) && !ajeno(li)).map(li => norm(li.textContent));
+    const crudas = $$('li').filter(li => visible(li) && !ajeno(li)).map(li => (li.textContent || '').normalize('NFD').replace(/[̀-ͯ]/g, ''));
     const sol = new Array(huecos.length).fill(null);
-    for (const l of lineas) {
-      const ord = ORDINALES.find(([re]) => re.test(l));
-      const ns = nombres.filter(n => new RegExp('\\b' + n + '\\b').test(l));
-      if (ord && ns.length === 1 && ord[1] <= sol.length) sol[ord[1] - 1] = ns[0];
+    // El símbolo va con mayúscula en la frase («el Cocodrilo»); «el sol se puso» en minúscula es solo decoración
+    const cand = [];
+    for (const l of crudas) {
+      const ord = ORDINALES.find(([re]) => re.test(l.toLowerCase()));
+      if (!ord || ord[1] > sol.length) continue;
+      let ns = nombres.filter(n => new RegExp('\\b' + n[0].toUpperCase() + n.slice(1) + '\\b').test(l));
+      if (!ns.length) ns = nombres.filter(n => new RegExp('\\b' + n + '\\b', 'i').test(l));
+      cand.push({ pos: ord[1] - 1, ns });
+    }
+    for (let vuelta = 0; vuelta < 4; vuelta++) {                // se descartan los símbolos ya asignados a otro puesto
+      for (const c of cand) {
+        const libres = c.ns.filter(n => !sol.some((x, i) => x === n && i !== c.pos));
+        if (libres.length === 1) sol[c.pos] = libres[0];
+      }
     }
     const cerrarPuerta = async () => {
       const b = botonesVisibles().find(x => /^\s*dejarlo para luego/i.test(norm(x.textContent))) || botonesVisibles().find(x => x.getAttribute('aria-label') === 'Cerrar');
