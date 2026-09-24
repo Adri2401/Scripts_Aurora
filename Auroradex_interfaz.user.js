@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      0.9.1
-// @description  Accesos directos bajo el Equipo de exploración: Tiendas, Competir, Para hoy (con lo que ya hiciste hoy), Minijuegos, Tu base y Lo demás; los de otra región viajan solos. Subasta con objeto, puja y tiempo. Bloques plegables.
+// @version      1.0.0
+// @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_interfaz.user.js
@@ -146,9 +146,11 @@
   const U = '#' + PANEL_ID;
   const ESTADO_KEY = 'adx-accesos-estado';      // pastillas leídas del Menú (hecho hoy, 21 de 30…)
   const PLEGADO_KEY = 'adx-accesos-plegado';    // bloques plegados
-  const PLEGADO_INICIAL = ['demas'];            // bloques que empiezan plegados hasta que los abras
+  const PLEGADO_INICIAL = ['extra'];            // bloques que empiezan plegados hasta que los abras
 
   // region: la actividad solo existe en esa región; al pulsarla se viaja allí primero
+  const T = { region: 'teselia', regionLabel: 'Teselia' };
+  const SAFARI = (r, l) => ({ href: '/safari', icon: '🌾', label: 'Safari', region: r, regionLabel: l, porRegion: true });
   const BLOQUES = [
     { id: 'tiendas', titulo: 'Tiendas', icono: '🛍️', items: [
       { href: '/guarderia',   icon: '🥚', label: 'Guardería' },
@@ -160,27 +162,14 @@
       { href: '/oficios',     icon: '⚒️', label: 'Oficios' },
       { href: '/cartas',      icon: '🃏', label: 'Cartas' },
       { href: '/esmalte',     icon: '🏛️', label: 'Vitrina de Esmalte' },
+      { href: '/gachapon',    icon: '🎰', label: 'Máquina de Fichas' },
     ] },
-    { id: 'pvp', titulo: 'Competir', sub: 'Contra los demás', icono: '⚔️', items: [
-      { href: '/torre',    icon: '🗼', label: 'Torre Desafío' },
-      { href: '/metro',    icon: '🚇', label: 'Metro Batalla' },
-      { href: '/entranas', icon: '⛰️', label: 'Monte Plateado' },
-      { href: '/castillo', icon: '🏰', label: 'Castillo Ancestral' },
-      { href: '/tronos',   icon: '👑', label: 'Los Tronos' },
-      { href: '/golf',     icon: '⛳', label: 'Golf' },
-      { href: '/ranking',  icon: '🏆', label: 'Ranking' },
-      { href: '/liga',     icon: '🏅', label: 'Liga' },
-    ] },
-    { id: 'diario', titulo: 'Para hoy', icono: '📅', diario: true, items: [
+    { id: 'pve', titulo: 'PvE', sub: 'Lo de cada día', icono: '📅', diario: true, items: [
       { href: '/manadas',        icon: '📺', label: 'Canal Manadas' },
       { href: '/siluetas',       icon: '❓', label: '¿Quién es?' },
-      { href: '/tren',           icon: '🚂', label: 'Tren de Biscuit', region: 'teselia', regionLabel: 'Teselia' },
+      { href: '/tren',           icon: '🚂', label: 'Tren de Biscuit', ...T },
       { href: '/carreras',       icon: '🐀', label: 'Carreras' },
-      { href: '/safari', icon: '🌾', label: 'Safari', region: 'kanto',   regionLabel: 'Kanto',   porRegion: true },
-      { href: '/safari', icon: '🌾', label: 'Safari', region: 'johto',   regionLabel: 'Johto',   porRegion: true },
-      { href: '/safari', icon: '🌾', label: 'Safari', region: 'hoenn',   regionLabel: 'Hoenn',   porRegion: true },
-      { href: '/safari', icon: '🌾', label: 'Safari', region: 'sinnoh',  regionLabel: 'Sinnoh',  porRegion: true },
-      { href: '/safari', icon: '🌾', label: 'Safari', region: 'teselia', regionLabel: 'Teselia', porRegion: true },
+      SAFARI('kanto', 'Kanto'), SAFARI('johto', 'Johto'), SAFARI('hoenn', 'Hoenn'), SAFARI('sinnoh', 'Sinnoh'), SAFARI('teselia', 'Teselia'),
       { href: '/pokeathlon',     icon: '🏟️', label: 'Pokéathlon' },
       { href: '/pesca',          icon: '🎣', label: 'El Muelle' },
       { href: '/cantera',        icon: '⛏️', label: 'La Cantera' },
@@ -188,25 +177,33 @@
       { href: '/buceo',          icon: '🤿', label: 'Buceo' },
       { href: '/jessie-y-james', icon: '🎈', label: 'Jessie y James' },
       { href: '/huerto',         icon: '🌱', label: 'Huerto', region: 'sinnoh', regionLabel: 'Sinnoh' },
+      { href: '/solar',          icon: '🌙', label: 'Solar', ...T },
+      { href: '/isla',           icon: '🏝️', label: 'Isla Espejismo' },
     ] },
-    { id: 'minijuegos', titulo: 'Minijuegos', icono: '🎲', items: [
-      { href: '/trigal', icon: '🎰', label: 'Voltorb Flip' },
-      { href: '/ruinas', icon: '👁️', label: 'Ruinas Alfa' },
-      { href: '/casa',   icon: '🚪', label: 'Casa Treta' },
-      { href: '/casino', icon: '🎰', label: 'Casino' },
-      { href: '/hielo',  icon: '❄️', label: 'Suelo Helado' },
-      { href: '/salon',  icon: '🎴', label: 'Salón' },
-      { href: '/solar',  icon: '🌙', label: 'Solar', region: 'teselia', regionLabel: 'Teselia' },
-      { href: '/fondo',  icon: '🏮', label: 'Fondo' },
+    { id: 'pvp', titulo: 'PvP', sub: 'Contra los demás', icono: '⚔️', items: [
+      { href: '/torre',    icon: '🗼', label: 'Torre Desafío' },
+      { href: '/metro',    icon: '🚇', label: 'Metro Batalla' },
+      { href: '/entranas', icon: '⛰️', label: 'Monte Plateado' },
+      { href: '/castillo', icon: '🏰', label: 'Castillo Ancestral' },
+      { href: '/tronos',   icon: '👑', label: 'Los Tronos' },
     ] },
-    { id: 'base', titulo: 'Tu base', sub: 'Y lo que aparece por temporadas', icono: '🏠', items: [
-      { href: '/valle', icon: '🌄', label: 'Valle Aurora' },
-      { href: '/base',  icon: '🏠', label: 'Base Secreta' },
-      { href: '/isla',  icon: '🏝️', label: 'Isla Espejismo' },
-    ] },
-    { id: 'demas', titulo: 'Lo demás', icono: '🧰', items: [
+    { id: 'extra', titulo: 'Extra', icono: '🧰', items: [
+      { href: '/golf',       icon: '⛳', label: 'Golf' },
+      { href: '/ranking',    icon: '🏆', label: 'Ranking' },
+      { href: '/liga',       icon: '🏅', label: 'Liga' },
+      { href: '/miel',       icon: '🍯', label: 'Árboles de Miel' },
+      { href: '/concurso',   icon: '🎣', label: 'Concurso de Captura' },
+      { href: '/trigal',     icon: '🎰', label: 'Voltorb Flip' },
+      { href: '/ruinas',     icon: '👁️', label: 'Ruinas Alfa' },
+      { href: '/casa',       icon: '🚪', label: 'Casa Treta' },
+      { href: '/casino',     icon: '🎰', label: 'Casino' },
+      { href: '/hielo',      icon: '❄️', label: 'Suelo Helado' },
+      { href: '/fondo',      icon: '🏮', label: 'Fondo Comunitario' },
+      { href: '/subsuelo',   icon: '⛏️', label: 'Grutas del Subsuelo' },
+      { href: '/salon',      icon: '🎴', label: 'Salón' },
+      { href: '/valle',      icon: '🌄', label: 'Valle Aurora' },
+      { href: '/base',       icon: '🏠', label: 'Base Secreta' },
       { href: '/equipos',    icon: '🌊', label: 'Los equipos' },
-      { href: '/gachapon',   icon: '🎰', label: 'Máquina de Fichas' },
       { href: '/exclusivos', icon: '🎨', label: 'Exclusivos' },
       { href: '/sorteos',    icon: '🎁', label: 'Premios' },
       { href: '/misiones',   icon: '🎯', label: 'Misiones y códigos' },
@@ -217,6 +214,9 @@
       { href: '/guia',       icon: '📜', label: 'Guía' },
     ] },
   ];
+  // Bloques antiguos (guardados por versiones anteriores) → bloques actuales; y accesos que se fuerzan a un bloque
+  const ALIAS_BLOQUE = { diario: 'pve', minijuegos: 'extra', base: 'extra', demas: 'extra' };
+  const FORZAR_BLOQUE = { '/miel': 'extra', '/concurso': 'extra', '/subsuelo': 'extra' };
 
   const lsJSON = (k, def) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } };
   const lsPut = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin storage */ } };
@@ -305,8 +305,8 @@
    * en BLOQUES se guarda con su emoji y nombre, y el panel lo pone en el bloque equivalente. */
   const EXTRAS_KEY = 'adx-accesos-extras';
   const SECCION_A_BLOQUE = {          // título de sección del Menú → id de bloque del panel
-    'competir': 'pvp', 'tu coleccion': 'tiendas', 'para hoy': 'diario', 'tu base': 'base',
-    'la historia': 'demas', 'lo demas': 'demas',
+    'competir': 'pvp', 'tu coleccion': 'tiendas', 'para hoy': 'pve', 'tu base': 'extra',
+    'la historia': 'extra', 'lo demas': 'extra',
   };
   const NO_ACCESO = new Set(['/menu', '/mapa', '/johto', '/personaje', '/pokedex', '/equipo', '/trueques']);
   const hrefsConocidos = () => new Set(BLOQUES.flatMap(b => b.items.map(i => i.href)));
@@ -332,7 +332,7 @@
       if (!h2) continue;                                   // banners y tarjetas sueltas: no son accesos de un bloque
       const datos = leerItemDeMenu(a);
       if (!datos) continue;
-      const nuevo = { ...datos, bloque: bloque || 'demas' };
+      const nuevo = { ...datos, bloque: FORZAR_BLOQUE[href] || bloque || 'extra' };
       if (JSON.stringify(extras[href]) !== JSON.stringify(nuevo)) { extras[href] = nuevo; cambio = true; }
     }
     if (cambio) lsPut(EXTRAS_KEY, extras);
@@ -342,11 +342,13 @@
   function itemsDe(b) {
     const items = [...b.items];
     const ya = new Set(items.map(i => i.href));
+    const conocidos = hrefsConocidos();
     const extras = lsJSON(EXTRAS_KEY, {});
     for (const href of Object.keys(extras)) {
-      if (extras[href].bloque === b.id && !ya.has(href)) items.push({ href, icon: extras[href].icon, label: extras[href].label });
+      const destino = FORZAR_BLOQUE[href] || ALIAS_BLOQUE[extras[href].bloque] || extras[href].bloque;
+      if (destino === b.id && !conocidos.has(href) && !ya.has(href)) items.push({ href, icon: extras[href].icon, label: extras[href].label });
     }
-    if (b.id === 'diario') {
+    if (b.id === 'pve') {
       const conSafari = new Set(items.filter(i => i.href === '/safari').map(i => i.region));
       const menus = lsJSON(MENUS_KEY, {});
       for (const r of Object.keys(menus)) {
@@ -380,7 +382,19 @@
   }
   // Pastilla de un acceso; los de varias regiones (Safari) guardan una por región: «/safari@kanto»
   const claveEstado = it => it.porRegion ? `${it.href}@${it.region}` : it.href;
-  const pillDe = (it, est) => (est && est.estado[claveEstado(it)]) || '';
+  // «Hecho hoy» puesto a mano al pulsar el acceso (Safari): se borra solo al cambiar de día
+  const HECHOS_KEY = 'adx-accesos-hechos';
+  const hechosHoy = () => { const h = lsJSON(HECHOS_KEY, null); return h && h.dia === hoy() ? h.keys : []; };
+  function marcarHecho(it) {
+    const k = claveEstado(it), keys = hechosHoy();
+    if (!keys.includes(k)) { keys.push(k); lsPut(HECHOS_KEY, { dia: hoy(), keys }); }
+  }
+  const pillDe = (it, est) => {
+    const leida = (est && est.estado[claveEstado(it)]) || '';
+    if (!it.porRegion) return leida;
+    if (hechosHoy().includes(claveEstado(it))) return 'hecho hoy';
+    return leida || 'te toca';
+  };
 
   function estadoDeHoy() {
     const e = lsJSON(ESTADO_KEY, null);
@@ -499,6 +513,7 @@
       ${item.href === '/subasta' ? subastaHTML() : ''}
       ${req ? `<span class="text-[9px] font-extrabold uppercase tracking-wide text-cielo-600">${kEsc(req.label)}</span>` : ''}`;
 
+    if (item.porRegion) a.addEventListener('click', (ev) => { if (ev.button === 0) marcarHecho(item); });   // Safari: al pulsarlo cuenta como hecho hoy
     if (req) {
       a.addEventListener('click', (ev) => {
         if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;

@@ -309,7 +309,8 @@
       const t = txt(sec);
       const citas = Array.from(t.matchAll(/«([^«»]{4,})»/g)).map(c => c[1].trim());
       if (citas.length < 2) return null;
-      const mNivel = t.match(/Nv\.?\s*(\d+)\s*[-–—]\s*(\d+)/i);
+      // «Nv.39–41» o, como ahora, «zona de Nv.39 a Nv.41»
+      const mNivel = t.match(/Nv\.?\s*(\d+)\s*(?:[-–—]|\ba\b|\bal\b|\bhasta\b)\s*(?:Nv\.?\s*)?(\d+)/i);
       if (!mNivel) return null;
       const tipoElemental = (t.match(/tipo ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]*(?:\s+y\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ]*)?(?:\s+pur[oa])?)/) || [])[1] || '';
       const pista = citas[citas.length - 1]; // la cita más interna es la del sitio
