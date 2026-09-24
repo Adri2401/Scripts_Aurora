@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.11.0
+// @version      0.12.0
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -104,7 +104,7 @@
       const wd = parseFloat(st.width) || w, ht = parseFloat(st.height) || w;
       const nombre = ((src || bg).match(/\/([^\/"')]+)\.(?:png|webp|gif|jpe?g)/i) || [])[1] || '';
       let tipo, pos;
-      if (/personajes\//.test(bg)) { tipo = /ricach|mercader|vendedor|nomada/i.test(nombre) ? 'mercader' : 'personaje'; pos = spritePos(el); }
+      if (/personajes\//.test(bg)) { tipo = /ricach|mercader|vendedor|nomada/i.test(nombre) ? 'mercader' : /espeleolog|arqueolog/i.test(nombre) ? 'arqueologo' : 'personaje'; pos = spritePos(el); }
       else {
         tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : /lapida|tumba|sepultura/i.test(nombre) ? 'lapida' : /jarron|vasija|urna|tinaja/i.test(nombre) ? 'jarron' : /movediza|arena|cienaga|pantano/i.test(nombre) ? 'movediza' : /puerta/i.test(nombre) ? 'puerta' : 'objeto';
         pos = { c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w) };
@@ -293,6 +293,7 @@
     if (cuenta('remolino')) partes.push(`🌀 ${cuenta('remolino')} remolino(s)`);
     if (cuenta('lapida')) partes.push(`🪦 ${cuenta('lapida')} lápida(s)`);
     if (cuenta('jarron')) partes.push(`🏺 ${cuenta('jarron')} jarrón(es)`);
+    if (cuenta('arqueologo')) partes.push('📜 arqueólogo');
     if (cuenta('puerta')) partes.push(`🚪 ${cuenta('puerta')} puerta(s)`);
     if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} objeto(s)`);
     estado.textContent = partes.join(' · ');
@@ -393,9 +394,20 @@
   }
 
   // Si se ha abierto la ventana del mercader nómada, se cierra y se sigue
+  let traducciones = 0;
   async function despedirse() {
     const b = botonesVisibles().find(x => !x.disabled && /^\s*Despedirse\s*$/i.test(x.textContent || ''));
     if (!b) return false;
+    // El arqueólogo: se le pide traducir todo lo que pueda (el botón se desactiva cuando ya no queda nada) y luego se despide
+    const trad = botonesVisibles().find(x => !x.disabled && /📜|traduc/i.test(x.textContent || '') && !/no le queda/i.test(x.textContent || ''));
+    if (trad && (++traducciones) <= 12) {
+      msg = '📜 El arqueólogo traduce la canción…'; pintar();
+      await pausa(500, 900);
+      trad.click();
+      await pausa(700, 1100);
+      return true;
+    }
+    traducciones = 0;
     const quien = ($$('h3').map(h => h.textContent.trim()).find(t => /mercader|nomada|nómada/i.test(t))) || 'ventana';
     b.click();
     msg = `Despedido de «${quien}»; sigo buscando la escalera.`;
@@ -506,7 +518,7 @@
   const MAX_LAPIDAS = 4;                         // por planta
 
   let tumbasLeidas = 0;                         // el propio juego apunta las líneas leídas («Lo que has leído esta semana»)
-  let contadoresPlanta = { planta: '', remolino: 0, jarron: 0, lapida: 0, puerta: 0 };
+  let contadoresPlanta = { planta: '', remolino: 0, jarron: 0, lapida: 0, puerta: 0, arqueologo: 0 };
 
   async function clicCelda(cel, t) {
     const antes = t.jugador ? `${t.jugador.c},${t.jugador.f}` : '';
@@ -544,7 +556,7 @@
       // Objetivos con los que chocar: entrenadores (combate), remolinos (encuentro salvaje) y jarrones (reliquias)
       if (combatir || recoger) {
         const planta = plantaActual();
-        if (contadoresPlanta.planta !== planta) contadoresPlanta = { planta, remolino: 0, jarron: 0, lapida: 0, puerta: 0 };
+        if (contadoresPlanta.planta !== planta) contadoresPlanta = { planta, remolino: 0, jarron: 0, lapida: 0, puerta: 0, arqueologo: 0 };
         let mejor = null;
         for (const e of t.entidades) {
           const ok =
@@ -552,6 +564,7 @@
             (combatir && e.tipo === 'remolino' && contadoresPlanta.remolino < MAX_REMOLINOS) ||
             (recoger && e.tipo === 'jarron' && contadoresPlanta.jarron < MAX_JARRONES) ||
             (recoger && e.tipo === 'lapida' && contadoresPlanta.lapida < MAX_LAPIDAS) ||
+            (recoger && e.tipo === 'arqueologo' && contadoresPlanta.arqueologo < 2) ||
             (recoger && e.tipo === 'puerta' && contadoresPlanta.puerta < 3 && puertaVisitas[planta + '|' + e.nombre] !== tumbasLeidas);
           if (!ok) continue;
           const yo = t.jugador;
@@ -567,6 +580,7 @@
             remolino: ['🌀 Piso el remolino (encuentro salvaje)…', '🌀 Me acerco a un remolino…'],
             jarron: ['🏺 Rompo un jarrón…', '🏺 Voy a por un jarrón…'],
             lapida: ['🪦 Leo una tumba…', '🪦 Voy a leer una tumba…'],
+            arqueologo: ['📜 Hablo con el arqueólogo…', '📜 Voy a ver al arqueólogo…'],
             puerta: ['🚪 Pruebo la puerta…', '🚪 Voy a la puerta…'],
           }[e.tipo];
           if (dist === 1) {
