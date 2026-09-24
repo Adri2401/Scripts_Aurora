@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.14.0
+// @version      0.15.0
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -431,7 +431,57 @@
   /* ---- Puerta con acertijo: cuatro símbolos en orden según las líneas de las lápidas ---- */
   const ORDINALES = [[/\bprimer[oa]?\b/, 1], [/\bsegund[oa]\b/, 2], [/\btercer[oa]?\b/, 3], [/\bcuart[oa]\b/, 4]];
   const sinArticulo = s => norm(s).replace(/^(el|la|los|las)\s+/, '');
+  // Templo de las Runas: apagar/encender con las cuatro vecinas (Lights Out); se busca la combinación con menos toques
+  async function atenderRunas() {
+    const runas = () => botonesVisibles().filter(b => /^Runa \d+, (encendida|apagada)/.test(b.getAttribute('aria-label') || ''));
+    const rs = runas();
+    const n = rs.length, lado = Math.round(Math.sqrt(n));
+    if (n < 4 || lado * lado !== n) return false;
+    const estado = rs.map(b => /encendida/.test(b.getAttribute('aria-label')));
+    const efecto = i => {                          // máscara de las casillas que cambian al tocar i
+      let m = 1 << i; const c = i % lado, f = Math.floor(i / lado);
+      if (c > 0) m |= 1 << (i - 1);
+      if (c < lado - 1) m |= 1 << (i + 1);
+      if (f > 0) m |= 1 << (i - lado);
+      if (f < lado - 1) m |= 1 << (i + lado);
+      return m;
+    };
+    const efectos = Array.from({ length: n }, (_, i) => efecto(i));
+    let falta = 0;                                 // casillas apagadas que hay que cambiar
+    estado.forEach((on, i) => { if (!on) falta |= 1 << i; });
+    let mejor = null;
+    for (let mask = 0; mask < (1 << n); mask++) {
+      let r = 0, k = 0;
+      for (let i = 0; i < n; i++) if (mask & (1 << i)) { r ^= efectos[i]; k++; }
+      if (r === falta && (mejor === null || k < mejor.k)) mejor = { mask, k };
+    }
+    const planta = plantaActual();
+    if (!mejor) {
+      msg = '🚪 Runas: esta combinación no tiene solución; la dejo.'; pintar();
+      puertaFin[planta] = true;
+      const b = botonesVisibles().find(x => /^\s*dejarlo para luego/i.test(norm(x.textContent))) || botonesVisibles().find(x => x.getAttribute('aria-label') === 'Cerrar');
+      if (b) b.click();
+      await sleep(400);
+      return true;
+    }
+    msg = `🚪 Runas: ${mejor.k} toques para encenderlas todas.`; pintar();
+    for (let i = 0; i < n && explorando; i++) {
+      if (!(mejor.mask & (1 << i))) continue;
+      const b = runas().find(x => new RegExp('^Runa ' + (i + 1) + ',').test(x.getAttribute('aria-label')));
+      if (!b) break;
+      await pausa(250, 450);
+      b.click();
+    }
+    puertaFin[planta] = true;
+    await pausa(900, 1400);
+    // Si tras abrirla sale una ventana de cierre/recompensa, se acepta
+    const fin = botonesVisibles().find(x => !x.disabled && /^\s*(recoger|reclamar|coger|continuar|aceptar|cerrar|genial|vale|ok)\b/i.test(norm(x.textContent)));
+    if (fin && !runas().length) { fin.click(); await sleep(400); }
+    return true;
+  }
+
   async function atenderPuerta() {
+    if (await atenderRunas()) return true;
     const huecos = botonesVisibles().filter(b => /^Hueco \d/.test(b.getAttribute('aria-label') || ''));
     if (huecos.length < 2) {
       // Recién chocada una puerta y se abre una ventana que no conozco (runas, suelo pulido…): me paro para que me pases su HTML
