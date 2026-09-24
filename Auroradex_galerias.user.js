@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.9.0
+// @version      0.9.1
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -106,12 +106,14 @@
       let tipo, pos;
       if (/personajes\//.test(bg)) { tipo = /ricach|mercader|vendedor|nomada/i.test(nombre) ? 'mercader' : 'personaje'; pos = spritePos(el); }
       else {
-        tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : /lapida|tumba|sepultura/i.test(nombre) ? 'lapida' : /jarron|vasija|urna|tinaja/i.test(nombre) ? 'jarron' : 'objeto';
+        tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : /lapida|tumba|sepultura/i.test(nombre) ? 'lapida' : /jarron|vasija|urna|tinaja/i.test(nombre) ? 'jarron' : /movediza|arena|cienaga|pantano/i.test(nombre) ? 'movediza' : 'objeto';
         pos = { c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w) };
       }
       entidades.push({ c: pos.c, f: pos.f, tipo, nombre });
     }
-    const ocupadas = new Set(entidades.filter(e => e.tipo !== 'objeto').map(e => e.c + ',' + e.f));
+    // Las arenas movedizas se pisan como suelo normal (el botón puede no marcarse como pisable)
+    for (const e of entidades) if (e.tipo === 'movediza') { const c = celdas.get(e.c + ',' + e.f); if (c) { c.pisable = true; if (c.tipo === 'otro') c.tipo = 'suelo'; } }
+    const ocupadas = new Set(entidades.filter(e => e.tipo !== 'objeto' && e.tipo !== 'movediza').map(e => e.c + ',' + e.f));
     return { raiz, w, celdas, cols: maxC + 1, filas: maxF + 1, jugador, entidades, ocupadas };
   }
 
@@ -179,6 +181,7 @@
       lapida: 'box-shadow:inset 0 0 0 2px #90a4ae;background:rgba(144,164,174,.3)',
       jarron: 'box-shadow:inset 0 0 0 2px #ffb74d;background:rgba(255,183,77,.3)',
       personaje: 'box-shadow:inset 0 0 0 2px #ff9800;background:rgba(255,152,0,.22)',
+      movediza: 'box-shadow:inset 0 0 0 2px #ffb74d;background:rgba(255,183,77,.3)',
       objeto: 'box-shadow:inset 0 0 0 2px #4fc3f7;background:rgba(79,195,247,.22)',
     };
     for (const o of otros) html += marcar(o, ESTILO[o.tipo] || ESTILO.objeto);
@@ -289,6 +292,7 @@
     if (cuenta('remolino')) partes.push(`🌀 ${cuenta('remolino')} remolino(s)`);
     if (cuenta('lapida')) partes.push(`🪦 ${cuenta('lapida')} lápida(s)`);
     if (cuenta('jarron')) partes.push(`🏺 ${cuenta('jarron')} jarrón(es)`);
+    if (cuenta('movediza')) partes.push(`🕳 ${cuenta('movediza')} movediza(s)`);
     if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} objeto(s)`);
     estado.textContent = partes.join(' · ');
     panel.querySelector('.axg-msg').textContent = msg;
@@ -545,7 +549,7 @@
         msg = '🪜 Ya estás en la escalera o sin camino. Parado.'; break;
       }
       const meta = rutaA(t, esFrontera(t));
-      if (!meta || meta.length < 2) { msg = 'No queda nada por explorar desde aquí. Parado.'; break; }
+      if (!meta || meta.length < 2) { msg = 'No queda nada por explorar desde aquí (sin ruta a zonas nuevas). Parado.'; console.log('[axg] parado: sin frontera', t.jugador, t.entidades); break; }
       msg = `Explorando… (${pasos(meta)} pasos al siguiente hueco)`; pintar();
       const destino = meta[meta.length - 1];
       if (!(await clicCelda(destino, t))) { if (++sinCambio > 3) { msg = 'El juego no responde a los clics. Parado.'; break; } } else sinCambio = 0;
