@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.13.0
+// @version      0.14.0
 // @description  Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -395,7 +395,9 @@
 
   // Si se ha abierto la ventana del mercader nómada, se cierra y se sigue
   // Plantas con «Puerta de la Canción»: hay que abrirla antes de bajar
-  const PLANTAS_PUERTA = new Set([10, 20, 30, 39]);
+  const PLANTAS_PUERTA = new Set([5, 10, 13, 16, 20, 23, 26, 30, 33, 36, 39]);   // todas las cámaras (canción, runas, suelo pulido)
+  const escFallo = {};                           // planta → la escalera no se alcanza con clics: se explora por otro lado
+  let ultimaPuerta = 0;
   const puertaIntentos = {};
   const puertaFin = {};                          // planta → puerta abierta o descartada (faltan pistas / no aparece)
   const numPlanta = () => {
@@ -431,7 +433,17 @@
   const sinArticulo = s => norm(s).replace(/^(el|la|los|las)\s+/, '');
   async function atenderPuerta() {
     const huecos = botonesVisibles().filter(b => /^Hueco \d/.test(b.getAttribute('aria-label') || ''));
-    if (huecos.length < 2) return false;
+    if (huecos.length < 2) {
+      // Recién chocada una puerta y se abre una ventana que no conozco (runas, suelo pulido…): me paro para que me pases su HTML
+      const cerrar = Date.now() - ultimaPuerta < 8000 && botonesVisibles().find(x => x.getAttribute('aria-label') === 'Cerrar');
+      if (!cerrar) return false;
+      puertaFin[plantaActual()] = true; ultimaPuerta = 0;
+      explorando = false; vibrar();
+      const ventana = cerrar.closest('div.overflow-y-auto') || cerrar.parentElement;
+      console.log('[axg] ventana de puerta desconocida:', ventana && ventana.outerHTML);
+      msg = '🚪 Puerta de otro tipo: parado. Copia el HTML de la ventana y pásamelo.'; toast('Puerta de otro tipo: parado', 5000); pintar();
+      return true;
+    }
     const simbolos = botonesVisibles().filter(b => !b.getAttribute('aria-label') && b.querySelector('span.capitalize') && !ajeno(b));
     const nombres = simbolos.map(b => sinArticulo(b.querySelector('span.capitalize').textContent));
     const lineas = $$('li').filter(li => visible(li) && !ajeno(li)).map(li => norm(li.textContent));
@@ -602,6 +614,7 @@
             // Al lado: se choca con la flecha (pulsar la casilla solo lleva hasta el borde)
             if (e.tipo === 'entrenador') combatidos.add(planta + '|' + e.nombre); else contadoresPlanta[e.tipo]++;
             msg = TXT[0]; pintar();
+            if (e.tipo === 'puerta') ultimaPuerta = Date.now();
             if (e.tipo === 'puerta') puertaVisitas[planta + '|' + e.nombre] = tumbasLeidas;
             if (await andar(e.c - t.jugador.c, e.f - t.jugador.f)) {
               if (e.tipo === 'lapida') { tumbasLeidas++; await pausa(500, 800); const c = botonesVisibles().find(x => x.getAttribute('aria-label') === 'Cerrar' || /^\s*(cerrar|entendido|ok|vale)\s*$/i.test(x.textContent || '')); if (c) c.click(); }
@@ -618,15 +631,17 @@
 
       // En las plantas con puerta de canción no se baja hasta abrirla: se sigue explorando (sin escalera) hasta encontrarla
       const esperaPuerta = camaraPendiente();
-      const esc = esperaPuerta ? null : [...t.celdas.values()].find(c => c.tipo === 'escalera');
+      let esc = esperaPuerta || escFallo[plantaActual()] ? null : [...t.celdas.values()].find(c => c.tipo === 'escalera');
+      let r = esc ? rutaA(t, c => c.tipo === 'escalera') : null;
+      // Si el camino a la escalera pasa por un personaje que no se mueve (arqueólogo, mercader, puerta, lápida…), no vale: se busca otra ruta
+      if (r && r.slice(1, -1).some(c => { const en = t.entidades.find(x => x.c === c.c && x.f === c.f); return en && !['entrenador', 'remolino', 'objeto', 'movediza'].includes(en.tipo); })) { esc = null; r = null; }
       if (esc) {
-        const r = rutaA(t, c => c.tipo === 'escalera');
         if (r && r.length > 1) {
           msg = `Escalera a ${pasos(r)} pasos: voy.`; pintar();
           const dc = esc.c - t.jugador.c, df = esc.f - t.jugador.f;
           if (esc.movediza && Math.abs(dc) + Math.abs(df) === 1) { await andar(dc, df); await pausa(900, 1300); continue; }   // al lado: se pisa con la flecha
           if (!(await clicCelda(esc, t))) sinCambio++; else sinCambio = 0;
-          if (sinCambio > 2) { msg = 'No consigo llegar a la escalera.'; break; }
+          if (sinCambio > 2) { escFallo[plantaActual()] = true; sinCambio = 0; msg = 'No llego a la escalera: busco otra ruta.'; }
           continue;
         }
         msg = '🪜 Ya estás en la escalera o sin camino. Parado.'; break;
