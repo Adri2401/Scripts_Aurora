@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Safari Auto
 // @namespace    http://tampermonkey.net/
-// @version      1.2.2
+// @version      1.2.3
 // @description  Panel integrado con dos modos: spam de Balls y estrategia óptima (programación dinámica con Cebo/Roca/Ball/Dejar marchar, aprendiendo de tus resultados y ajustando el precio de las Balls). Se para solo si la visita de hoy ya está hecha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -51,6 +51,7 @@
     maxRock: 3,
     maxBait: 3,
     minFleeForRock: 0.05, // con «Se te escapa» por debajo de esto, nunca Roca
+    minFleeForBait: 0.05, // ni Cebo: con la huida tan baja ya no hace falta bajarla más
     exclusiveWeight: 3,  // un Pokémon exclusivo de la reserva vale como 3 normales
     autoEnter: true,
     letGoEnabled: true,
@@ -364,6 +365,7 @@
     if (prepL > 0) {
       for (const kind of ['rock', 'bait']) {
         if (kind === 'rock' ? rL <= 0 : bL <= 0) continue;
+        if (q < (kind === 'rock' ? CFG.minFleeForRock : CFG.minFleeForBait)) continue;   // con la huida ya tan baja no se gasta más Cebo (ni Roca)
         const m = L[kind];
         const [np, nq] = norm(p * m.pm, q * m.qm);
         const surv = 1 - riskFor(kind, q, nq);
@@ -404,7 +406,7 @@
   function bestPlan(st) {
     const shiny = st.shiny;
     const lam = shiny ? 0 : lambdaNow / weightOf(st.name);
-    const rockOk = !!findBtn(/^Roca/i) && st.q >= CFG.minFleeForRock, baitOk = !!findBtn(/^Cebo/i);
+    const rockOk = !!findBtn(/^Roca/i) && st.q >= CFG.minFleeForRock, baitOk = !!findBtn(/^Cebo/i) && st.q >= CFG.minFleeForBait;
     const rL = rockOk ? Math.max(0, CFG.maxRock - enc.rock) : 0;
     const bL = baitOk ? Math.max(0, CFG.maxBait - enc.bait) : 0;
     const prepL = Math.max(0, CFG.maxPrep - enc.rock - enc.bait);
