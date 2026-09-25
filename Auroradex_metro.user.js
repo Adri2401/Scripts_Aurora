@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Metro Batalla (pelear en bucle y ventaja de tipos)
 // @namespace    auroradex-metro
-// @version      1.3.0
+// @version      1.4.0
 // @description  Solo en /metro. Al elegir equipo analiza tus seis (debilidades, estadísticas, flojos) y recomienda el mejor orden (lo pones tú); en cada parada predice el combate. Pulsa «Pelear» en bucle con tope de paradas o de racha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -38,6 +38,180 @@
   const norm = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const visible = el => !!(el && (el.offsetParent || el.getClientRects().length));
   const ajeno = el => !!el.closest('#' + PANEL_ID);
+  const COLOR_TIPO = { normal: '#A8A77A', fuego: '#EE8130', agua: '#6390F0', planta: '#7AC74C', electrico: '#F7D02C', hielo: '#96D9D6', lucha: '#C22E28', veneno: '#A33EA1', tierra: '#E2BF65', volador: '#A98FF3', psiquico: '#F95587', bicho: '#A6B91A', roca: '#B6A136', fantasma: '#735797', dragon: '#6F35FC', siniestro: '#705746', acero: '#B7B7CE', hada: '#D685AD' };
+  // Paneles con el estilo oscuro de la pantalla del metro
+  function axmEstilo() {
+    if (document.getElementById('axm-css')) return;
+    const st = document.createElement('style');
+    st.id = 'axm-css';
+    st.textContent = `
+      .axm-caja{position:relative;overflow:hidden;background:linear-gradient(180deg,#1C2230,#141821)!important;border:2px solid #2F3644!important;box-shadow:0 4px 0 0 rgba(0,0,0,.25),0 12px 26px -14px rgba(0,0,0,.8),inset 0 1px 0 rgba(255,255,255,.06);color:#E8ECF3}
+      .axm-caja::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#3BA7E0,#8B5CF6,#E0473A);opacity:.9}
+      .axm-tit{display:flex;align-items:center;gap:8px;font-family:var(--font-display),system-ui,sans-serif;font-size:14px;font-weight:800;letter-spacing:.02em;color:#F2F5FA}
+      .axm-tit i{font-style:normal;width:26px;height:26px;border-radius:9px;display:grid;place-items:center;font-size:14px;background:linear-gradient(150deg,#2B3446,#1B2130);box-shadow:inset 0 -2px 0 rgba(0,0,0,.35),0 0 0 1px #343D50}
+      .axm-veredicto{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:900;background:color-mix(in srgb,var(--c) 16%,transparent);color:var(--c);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--c) 45%,transparent)}
+      .axm-fila{background:linear-gradient(90deg,#222938,#1B202C);border-left:3px solid var(--c,#343D50);box-shadow:inset 0 0 0 1px #2A3140;animation:axm-entra .25s ease both}
+      @keyframes axm-entra{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+      .axm-chip{display:inline-block;padding:0 6px;border-radius:999px;font-size:8.5px;font-weight:900;text-transform:uppercase;letter-spacing:.03em;color:#fff;text-shadow:0 1px 1px rgba(0,0,0,.45);line-height:14px}
+      .axm-campo{background:#0D1016!important;border:1.5px solid #2F3644!important;color:#E8ECF3!important;transition:border-color .15s}
+      .axm-campo:focus{border-color:#3BA7E0!important}
+      .axm-boton{background:linear-gradient(180deg,#F4F7FB,#D9E0EA)!important;color:#101319!important;border:0;border-bottom:4px solid #9AA6B8!important;box-shadow:0 10px 18px -12px rgba(0,0,0,.9);font-family:var(--font-display),system-ui,sans-serif;letter-spacing:.03em}
+      .axm-boton.axm-on{background:linear-gradient(180deg,#FF7A6E,#E0473A)!important;color:#fff!important;border-bottom-color:#9E2B22!important}
+      .axm-msg:empty{display:none}
+      .axm-msg{margin:0 auto;width:fit-content;max-width:100%;padding:3px 12px;border-radius:999px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px #2A3140}
+      .axm-sw{accent-color:#3BA7E0;width:16px;height:16px}`;
+    document.head.appendChild(st);
+  }
+  /* ── Kit Aurora 2 · avisos (el mismo aviso con sonido en todos los scripts de Aurora Dex) ── */
+  const kEsc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  /* ── Avisos dentro del juego (tarjeta arriba + sonido de 8 bits) ─────────────────────────────────
+   * kAviso({ tipo, titulo, texto, lineas, sprite, icono, app, sonido, duracion, fijo, sistema })
+   *   tipo: 'exito' · 'fin' · 'info' · 'aviso' · 'error' · 'shiny' · 'legendario'
+   *   'info' va sin sonido; 'shiny', 'legendario' y 'error' no se cierran solos.
+   *   sistema: notificación del móvil/PC, solo si la pestaña no se está viendo (para no repetir el aviso).
+   * El sonido se puede silenciar desde el propio aviso (🔊) y vale para todos los scripts. */
+  const K_AVISO = {
+    exito: { c: '#2FA84F', f: 'linear-gradient(135deg,#1F8A3E,#3CC065)', i: '✅' },
+    fin: { c: '#2FA84F', f: 'linear-gradient(135deg,#1F8A3E,#3CC065)', i: '🏁' },
+    info: { c: '#3BA7E0', f: 'linear-gradient(135deg,#1F7FB8,#48B6EC)', i: 'ℹ️' },
+    aviso: { c: '#E0A21E', f: 'linear-gradient(135deg,#C07A12,#F0B436)', i: '⚡' },
+    error: { c: '#E0473A', f: 'linear-gradient(135deg,#B8322A,#EE5A4B)', i: '⚠️' },
+    shiny: { c: '#FFB23E', f: 'linear-gradient(120deg,#FF8A2F,#FFC94A 40%,#FFE9A6 50%,#FFC94A 60%,#FF8A2F)', i: '✨' },
+    legendario: { c: '#8B5CF6', f: 'linear-gradient(135deg,#5B21B6,#8B5CF6 55%,#D4A72C)', i: '👑' },
+  };
+  function kAvisosCSS() {
+    if (document.getElementById('k-avisos-css-2')) return;
+    const st = document.createElement('style');
+    st.id = 'k-avisos-css-2';
+    st.textContent = `
+      #k-avisos{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 10px);transform:translateX(-50%);z-index:2147483600;width:min(400px,calc(100vw - 20px));display:flex;flex-direction:column;gap:8px;pointer-events:none;font-family:inherit}
+      #k-avisos .k-av{pointer-events:auto;position:relative;overflow:hidden;border-radius:20px;background:rgb(var(--lienzo,255 255 255));color:rgb(var(--tinta-800,33 36 29));border:2px solid color-mix(in srgb,var(--k-c) 55%,rgb(var(--lienzo,255 255 255)));box-shadow:0 4px 0 0 rgba(0,0,0,.08),0 16px 34px -14px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.04);animation:k-av-entra .42s cubic-bezier(.2,1.25,.4,1) both;cursor:default}
+      #k-avisos .k-av.k-sale{animation:k-av-sale .28s ease forwards}
+      @keyframes k-av-entra{from{opacity:0;transform:translateY(-18px) scale(.94)}to{opacity:1;transform:none}}
+      @keyframes k-av-sale{to{opacity:0;transform:translateY(-12px) scale(.96)}}
+      @keyframes k-av-tiempo{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+      @keyframes k-av-brillo{from{background-position:0% 0}to{background-position:200% 0}}
+      @keyframes k-av-chispa{0%,100%{opacity:0;transform:scale(.3) rotate(0)}50%{opacity:1;transform:scale(1) rotate(90deg)}}
+      @keyframes k-av-flota{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+      #k-avisos .k-av-cab{position:relative;display:flex;align-items:center;gap:11px;padding:11px 12px 11px 11px;background:var(--k-f);color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.25)}
+      #k-avisos .k-av[data-t="shiny"] .k-av-cab{background-size:200% 100%;animation:k-av-brillo 3s linear infinite;color:#4A2600;text-shadow:0 1px 0 rgba(255,255,255,.5)}
+      #k-avisos .k-av-ico{position:relative;width:50px;height:50px;flex-shrink:0;border-radius:15px;display:grid;place-items:center;font-size:25px;background:rgba(255,255,255,.24);box-shadow:inset 0 -3px 0 rgba(0,0,0,.12),0 0 0 2px rgba(255,255,255,.35)}
+      #k-avisos .k-av-ico img{width:48px;height:48px;image-rendering:pixelated;object-fit:contain;animation:k-av-flota 2.4s ease-in-out infinite;filter:drop-shadow(0 2px 2px rgba(0,0,0,.3))}
+      #k-avisos .k-av[data-t="shiny"] .k-av-ico,#k-avisos .k-av[data-t="legendario"] .k-av-ico{box-shadow:0 0 18px rgba(255,236,170,.95),0 0 0 2px rgba(255,255,255,.7)}
+      #k-avisos .k-av-chispa{position:absolute;width:10px;height:10px;pointer-events:none;background:radial-gradient(circle,#fff 0 20%,transparent 21%),linear-gradient(0deg,transparent 42%,#fff 42% 58%,transparent 58%),linear-gradient(90deg,transparent 42%,#fff 42% 58%,transparent 58%);animation:k-av-chispa 1.6s ease-in-out infinite}
+      #k-avisos .k-av-txt{min-width:0;flex:1}
+      #k-avisos .k-av-app{margin:0;font-size:10px;font-weight:900;letter-spacing:.09em;text-transform:uppercase;opacity:.85}
+      #k-avisos .k-av-tit{margin:1px 0 0;font-family:var(--font-display),system-ui,sans-serif;font-size:17px;font-weight:800;line-height:1.15}
+      #k-avisos .k-av-bts{display:flex;flex-direction:column;gap:5px;align-self:flex-start}
+      #k-avisos .k-av-bts button{width:28px;height:28px;border:0;border-radius:999px;display:grid;place-items:center;cursor:pointer;font-size:12px;font-weight:900;color:inherit;background:rgba(0,0,0,.16);text-shadow:none;transition:background .15s}
+      #k-avisos .k-av-bts button:hover{background:rgba(0,0,0,.28)}
+      #k-avisos .k-av-cuerpo{padding:9px 14px 12px}
+      #k-avisos .k-av-cuerpo p{margin:0;font-size:12.5px;font-weight:700;line-height:1.4;color:rgb(var(--tinta-600,72 75 66))}
+      #k-avisos .k-av-cuerpo ul{margin:4px 0 0;padding:0;list-style:none;display:grid;gap:3px}
+      #k-avisos .k-av-cuerpo li{font-size:11.5px;font-weight:700;color:rgb(var(--tinta-500,99 102 92));padding-left:12px;position:relative}
+      #k-avisos .k-av-cuerpo li::before{content:"";position:absolute;left:2px;top:.55em;width:5px;height:5px;border-radius:999px;background:var(--k-c)}
+      #k-avisos .k-av-tiempo{position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--k-c);opacity:.75;transform-origin:left;animation:k-av-tiempo var(--k-dur) linear forwards}
+      #k-avisos .k-av:hover .k-av-tiempo{animation-play-state:paused}
+      @media (prefers-reduced-motion:reduce){#k-avisos *{animation:none!important}}`;
+    (document.head || document.documentElement).appendChild(st);
+  }
+  const kSilencio = () => { try { return localStorage.getItem('aurora-kit-silencio') === '1'; } catch { return false; } };
+  let kAudio = null;
+  function kCtx() {
+    try {
+      if (!kAudio) kAudio = new (window.AudioContext || window.webkitAudioContext)();
+      if (kAudio.state === 'suspended') kAudio.resume();
+      return kAudio;
+    } catch { return null; }
+  }
+  // el navegador no deja sonar nada hasta que tocas la página: se prepara el audio con el primer toque
+  try { addEventListener('pointerdown', () => kCtx(), { once: true, capture: true }); } catch { /* nada */ }
+  // Sonidos de 8 bits: [frecuencia, inicio (s), duración (s), onda]
+  const K_SONIDOS = {
+    exito: [[784, 0, .09, 'square'], [988, .09, .09, 'square'], [1175, .18, .09, 'square'], [1568, .27, .22, 'square']],
+    fin: [[523, 0, .12, 'square'], [659, .12, .12, 'square'], [784, .24, .12, 'square'], [1047, .36, .3, 'triangle'], [784, .36, .3, 'square']],
+    info: [[1175, 0, .06, 'triangle'], [1568, .07, .09, 'triangle']],
+    aviso: [[880, 0, .12, 'triangle'], [698, .14, .12, 'triangle'], [880, .3, .12, 'triangle'], [698, .44, .16, 'triangle']],
+    error: [[233, 0, .16, 'square'], [185, .18, .3, 'square']],
+    shiny: [[1319, 0, .07, 'triangle'], [1760, .07, .07, 'triangle'], [2093, .14, .07, 'triangle'], [2637, .21, .12, 'triangle'], [2093, .36, .07, 'triangle'], [2637, .43, .07, 'triangle'], [3136, .5, .1, 'triangle'], [3520, .6, .28, 'sine']],
+    legendario: [[392, 0, .16, 'square'], [523, .16, .16, 'square'], [659, .32, .16, 'square'], [784, .48, .5, 'square'], [523, .48, .5, 'triangle'], [659, .48, .5, 'triangle']],
+  };
+  function kSonido(nombre) {
+    if (kSilencio()) return;
+    const notas = K_SONIDOS[nombre];
+    const ctx = notas && kCtx();
+    if (!ctx) return;
+    try {
+      const t0 = ctx.currentTime + 0.02, vol = ctx.createGain();
+      vol.gain.value = 0.07; vol.connect(ctx.destination);
+      for (const [f, ini, dur, onda] of notas) {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = onda; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t0 + ini);
+        g.gain.exponentialRampToValueAtTime(onda === 'square' ? 0.55 : 1, t0 + ini + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + ini + dur);
+        o.connect(g); g.connect(vol);
+        o.start(t0 + ini); o.stop(t0 + ini + dur + 0.02);
+      }
+    } catch { /* sin audio */ }
+  }
+  const kUltimos = new Map();
+  function kAviso(o) {
+    if (typeof o === 'string') o = { tipo: 'exito', titulo: o };
+    const tipo = K_AVISO[o.tipo] ? o.tipo : 'exito', T = K_AVISO[tipo];
+    const titulo = String(o.titulo || ''), lineas = (o.lineas || []).filter(Boolean);
+    // el mismo aviso dos veces seguidas no se repite
+    const clave = tipo + '|' + titulo + '|' + (o.texto || '');
+    if (Date.now() - (kUltimos.get(clave) || 0) < 2500) return;
+    kUltimos.set(clave, Date.now());
+    const importante = tipo === 'shiny' || tipo === 'legendario' || tipo === 'error';
+    const fijo = o.fijo ?? importante, dur = o.duracion || (lineas.length ? 9000 : 6000);
+    if (o.sonido ?? tipo !== 'info') kSonido(tipo);
+    if (importante) { try { navigator.vibrate && navigator.vibrate(tipo === 'error' ? [200, 100, 200] : [300, 120, 300, 120, 500]); } catch { /* nada */ } }
+    // tarjeta dentro del juego
+    try {
+      kAvisosCSS();
+      let pila = document.getElementById('k-avisos');
+      if (!pila) { pila = document.createElement('div'); pila.id = 'k-avisos'; pila.setAttribute('data-ax-ignore', '1'); pila.setAttribute('aria-live', 'polite'); document.body.appendChild(pila); }
+      while (pila.children.length >= 4) pila.firstElementChild.remove();
+      const d = document.createElement('div');
+      d.className = 'k-av'; d.dataset.t = tipo; d.setAttribute('role', importante ? 'alert' : 'status');
+      d.style.setProperty('--k-c', T.c); d.style.setProperty('--k-f', T.f); d.style.setProperty('--k-dur', dur + 'ms');
+      const chispas = tipo === 'shiny' || tipo === 'legendario' ? [[4, 6, 0], [40, 2, .5], [36, 38, 1], [2, 40, .9]].map(([x, y, r]) => `<span class="k-av-chispa" style="left:${x}px;top:${y}px;animation-delay:${r}s"></span>`).join('') : '';
+      d.innerHTML = `
+        <div class="k-av-cab">
+          <div class="k-av-ico">${o.sprite ? `<img src="${kEsc(o.sprite)}" alt="">` : kEsc(o.icono || T.i)}${chispas}</div>
+          <div class="k-av-txt"><p class="k-av-app">${kEsc(o.app || 'Aurora Dex')}</p><p class="k-av-tit">${kEsc(titulo)}</p></div>
+          <div class="k-av-bts"><button type="button" data-k="x" aria-label="Cerrar">✕</button><button type="button" data-k="son" aria-label="Sonido" title="Sonido de los avisos">${kSilencio() ? '🔇' : '🔊'}</button></div>
+        </div>
+        ${o.texto || lineas.length ? `<div class="k-av-cuerpo">${o.texto ? `<p>${kEsc(o.texto)}</p>` : ''}${lineas.length ? `<ul>${lineas.map(l => `<li>${kEsc(l)}</li>`).join('')}</ul>` : ''}</div>` : ''}
+        ${fijo ? '' : '<div class="k-av-tiempo"></div>'}`;
+      const cerrar = () => { if (!d.isConnected || d.classList.contains('k-sale')) return; d.classList.add('k-sale'); setTimeout(() => d.remove(), 300); };
+      d.querySelector('[data-k="x"]').addEventListener('click', cerrar);
+      d.querySelector('[data-k="son"]').addEventListener('click', e => {
+        const callar = !kSilencio();
+        try { localStorage.setItem('aurora-kit-silencio', callar ? '1' : '0'); } catch { /* nada */ }
+        e.currentTarget.textContent = callar ? '🔇' : '🔊';
+        if (!callar) kSonido('info');
+      });
+      const barra = d.querySelector('.k-av-tiempo');
+      if (barra) barra.addEventListener('animationend', cerrar);
+      pila.appendChild(d);
+    } catch { /* sin DOM */ }
+    // notificación del sistema: solo si no estás mirando la pestaña
+    if ((o.sistema ?? tipo !== 'info') && document.hidden) {
+      try {
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        const icono = new URL(o.sprite || '/icono-app.svg', location.origin).href;
+        const opts = { body: [o.texto, ...lineas].filter(Boolean).join('\n'), icon: icono, badge: icono, tag: 'aurora-' + tipo, renotify: true, requireInteraction: importante, silent: true };
+        try { new Notification(titulo, opts); }
+        catch { if (navigator.serviceWorker) navigator.serviceWorker.getRegistration().then(r => r && r.showNotification(titulo, opts)).catch(() => {}); }
+      } catch { /* sin notificaciones */ }
+    }
+  }
+  // Pide permiso de notificaciones (solo al arrancar algo largo: una macro, un bucle…)
+  function kPedirPermiso() { try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* nada */ } }
+
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
   const lsPut = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin storage */ } };
   const enMetro = () => /^\/metro(\/|$)/.test(location.pathname);
@@ -183,7 +357,7 @@
     if (firma === firmaAnalisis) return;
     firmaAnalisis = firma;
     if (!a) { caja.innerHTML = ''; return; }
-    const chip = t => `<span class="rounded-pill px-1 text-[8px] font-extrabold uppercase" style="border:1px solid #8A93A6;color:#C9CFDB">${bonito(t)}</span>`;
+    const chip = t => `<span class="axm-chip" style="background:${COLOR_TIPO[t] || '#5B6475'}">${bonito(t)}</span>`;
     const pct = x => Math.max(1, Math.round(x * 100)) + '%';
     const veredicto = pr
       ? (pr.gana ? (pr.vivos >= 2 ? { txt: `Ganas · te quedan ${pr.vivos}`, color: '#8FD88A' } : { txt: 'Ganas justo', color: '#E6D36A' }) : { txt: `Pierdes · le quedan ${pr.restantes}`, color: '#FF6B6B' })
@@ -191,7 +365,7 @@
     const filaDuelo = d => {
       const e1 = tipoDeAtaque(d.m, d.r), e2 = tipoDeAtaque(d.r, d.m);
       return `
-        <div class="flex items-center gap-2 rounded-card p-1.5" style="background:#1F2430">
+        <div class="axm-fila flex items-center gap-2 rounded-card p-1.5" style="--c:${d.ganaM ? '#8FD88A' : '#FF6B6B'}">
           <div class="min-w-0 flex-1">
             <p class="truncate text-[11px] font-extrabold" style="color:#E8ECF3">${d.m.nombre} <span style="color:#8A93A6">vs</span> ${d.r.nombre}</p>
             <p class="text-[9px] font-bold" style="color:#8A93A6">le hace ${e1.e === 0 ? 'Forcejeo' : mult(e1.e) + ' (' + bonito(e1.t) + ')'} · recibe ${e2.e === 0 ? 'Forcejeo' : mult(e2.e) + ' (' + bonito(e2.t) + ')'}</p>
@@ -202,8 +376,8 @@
     const calibrado = Object.values(lsGet(LS_CALIB, {})).reduce((n, b) => n + b.mio.length + b.rival.length, 0);
     caja.innerHTML = `
       <div class="flex items-center justify-between gap-2">
-        <p class="text-xs font-extrabold uppercase tracking-wide" style="color:#E8ECF3">Así irá el combate</p>
-        <span class="font-mono text-xs font-bold" style="color:${veredicto.color}">${veredicto.txt}</span>
+        <p class="axm-tit"><i>⚔️</i>Así irá el combate</p>
+        <span class="axm-veredicto" style="--c:${veredicto.color}">${veredicto.txt}</span>
       </div>
       <div class="flex flex-wrap items-center gap-1 text-[9px] font-bold" style="color:#8A93A6">Rival: ${c.rivales.map(r => `<span>${r.nombre}</span> ${r.tipos.map(chip).join('')}`).join(' <span>→</span> ')}</div>
       ${pr ? pr.duelos.map(filaDuelo).join('') : '<p class="text-[10px] font-semibold" style="color:#8A93A6">Buscando estadísticas…</p>'}
@@ -443,8 +617,8 @@
     if (!caja) {
       caja = document.createElement('section');
       caja.id = 'axm-equipo';
-      caja.className = 'space-y-2 rounded-card p-3';
-      caja.style.cssText = 'background:#171B23;border:2px solid #2F3644';
+      caja.className = 'axm-caja space-y-2 rounded-card p-3';
+      axmEstilo();
     }
     if (caja.previousElementSibling !== b.sec) b.sec.insertAdjacentElement('afterend', caja);
     const entrada = JSON.stringify([lineaActual(), b.cands.map(c => [c.num, c.nivel, !!pokeGuardados[c.num]]), (lsGet(LS_RIVALES, {})[lineaActual()] || []).length]);
@@ -454,18 +628,18 @@
     if (firma === firmaEquipo) return;
     firmaEquipo = firma;
     if (a.faltan) { caja.innerHTML = `<p class="text-[11px] font-semibold" style="color:#8A93A6">Buscando estadísticas de ${a.faltan} Pokémon…</p>`; return; }
-    const chip = t => `<span class="rounded-pill px-1 text-[8px] font-extrabold uppercase" style="border:1px solid #8A93A6;color:#C9CFDB">${bonito(t)}</span>`;
+    const chip = t => `<span class="axm-chip" style="background:${COLOR_TIPO[t] || '#5B6475'}">${bonito(t)}</span>`;
     const pct = x => Math.round(x * 100) + '%';
     const color = x => (x >= 0.6 ? '#8FD88A' : x >= 0.4 ? '#E6D36A' : '#FF6B6B');
     caja.innerHTML = `
       <div class="flex items-center justify-between gap-2">
-        <p class="text-xs font-extrabold uppercase tracking-wide" style="color:#E8ECF3">Mejor orden</p>
-        <span class="font-mono text-xs font-bold" style="color:${color(a.mejor.ganadas)}">gana ~${pct(a.mejor.ganadas)}</span>
+        <p class="axm-tit"><i>🚇</i>Mejor orden</p>
+        <span class="axm-veredicto" style="--c:${color(a.mejor.ganadas)}">gana ~${pct(a.mejor.ganadas)}</span>
       </div>
       <p class="text-sm font-extrabold" style="color:#E8ECF3">${a.mejor.orden.map((f, i) => `${i + 1}. ${f.c.nombre}`).join(' · ')}</p>
       <p class="text-[10px] font-semibold" style="color:#8A93A6">Márcalos tú en ese orden. Comparado con ${a.origen}. «Gana» es contra rivales de tu mismo nivel de fuerza. Es una estimación: el juego no enseña su fórmula de combate.</p>
       ${a.fichas.slice().sort((x, y) => y.gana - x.gana).map(f => `
-        <div class="rounded-card p-1.5" style="background:#1F2430">
+        <div class="axm-fila rounded-card p-1.5" style="--c:${f.flojo ? '#FFB23E' : color(f.gana)}">
           <div class="flex items-center justify-between gap-2">
             <p class="truncate text-[11px] font-extrabold" style="color:#E8ECF3">${f.flojo ? '⚠️ ' : ''}${f.c.nombre} <span style="color:#8A93A6">· ${f.l.bst} base</span></p>
             <span class="text-[10px] font-extrabold" style="color:${color(f.gana)}">gana ${pct(f.gana)} de 1 en 1</span>
@@ -584,6 +758,8 @@
   async function bucle() {
     if (enMarcha) { enMarcha = false; decir('Parado.'); pintarBoton(); return; }
     enMarcha = true; hechas = 0; pintarBoton();
+    kPedirPermiso();
+    const r00 = racha();
     const max = parseInt(opc.maxParadas, 10) || Infinity, objetivo = parseInt(opc.pararRacha, 10) || Infinity;
     let sinNada = 0;
     try {
@@ -641,6 +817,17 @@
       decir('Error: ' + (e && e.message || e));
     } finally {
       if (enMarcha && !/parado/i.test(msg)) decir(`Hecho: ${hechas} parada(s).`);
+      // se ha parado sola (si lo paras tú, enMarcha ya es false): aviso con el motivo
+      if (enMarcha) {
+        const objetivo = /^🎯/.test(msg), perdida = /^💥/.test(msg), energia = /energía/i.test(msg), hecho = /^Hech[ao]/.test(msg);
+        const rf = racha();
+        kAviso({
+          tipo: objetivo || hecho ? 'exito' : perdida || energia ? 'aviso' : 'error', app: 'Metro Batalla', icono: '🚇',
+          titulo: objetivo ? '¡Objetivo de racha cumplido!' : perdida ? 'Se ha perdido la racha' : energia ? 'Sin energía' : hecho ? 'Paradas hechas' : 'El bucle se ha parado',
+          texto: objetivo || hecho ? null : msg,
+          lineas: [`🥊 ${hechas} combate${hechas === 1 ? '' : 's'}${r00 != null && rf != null ? ` · racha ${r00} → ${rf}` : ''}`],
+        });
+      }
       enMarcha = false; pintarBoton();
     }
   }
@@ -650,24 +837,24 @@
    * ------------------------------------------------------------------ */
   function pintarBoton() {
     const b = document.querySelector('#' + PANEL_ID + ' [data-a="bucle"]');
-    if (b) b.textContent = enMarcha ? '■ Parar' : '🔁 Pelear en bucle';
+    if (b) { b.textContent = enMarcha ? '■ Parar' : '🔁 Pelear en bucle'; b.classList.toggle('axm-on', enMarcha); }
   }
   function construir() {
     const p = document.createElement('section');
     p.id = PANEL_ID;
-    p.className = 'space-y-2 rounded-card p-3';
-    p.style.cssText = 'background:#171B23;border:2px solid #2F3644';
-    const campo = 'w-16 rounded-card px-2 py-1 text-xs font-bold outline-none';
-    const estilo = 'background:#0A0B0E;border:1.5px solid #2F3644;color:#E8ECF3';
+    axmEstilo();
+    p.className = 'axm-caja space-y-2 rounded-card p-3';
+    const campo = 'axm-campo w-16 rounded-card px-2 py-1 text-xs font-bold outline-none';
+    const estilo = '';
     p.innerHTML = `
       <div class="axm-analisis space-y-1.5"></div>
       <div class="grid grid-cols-2 gap-2 text-[10px] font-extrabold uppercase tracking-wide" style="color:#8A93A6">
         <label class="flex items-center justify-between gap-1">Máx. paradas <input type="number" min="1" data-o="maxParadas" class="${campo}" style="${estilo}" placeholder="∞"></label>
         <label class="flex items-center justify-between gap-1">Parar en racha <input type="number" min="1" data-o="pararRacha" class="${campo}" style="${estilo}" placeholder="—"></label>
       </div>
-      <label class="flex items-center gap-2 text-[11px] font-bold" style="color:#C9CFDB"><input type="checkbox" data-o="cambiarVia"> Usar «Cambiar vía» solo si hay desventaja clara</label>
-      <button type="button" data-a="bucle" class="w-full rounded-card py-2.5 text-sm font-extrabold transition active:scale-[0.98]" style="background:#E8ECF3;color:#101319"></button>
-      <p class="axm-msg text-center text-[11px] font-semibold" style="color:#8A93A6"></p>`;
+      <label class="flex items-center gap-2 text-[11px] font-bold" style="color:#C9CFDB"><input type="checkbox" class="axm-sw" data-o="cambiarVia"> Usar «Cambiar vía» solo si hay desventaja clara</label>
+      <button type="button" data-a="bucle" class="axm-boton w-full rounded-pill py-2.5 text-sm font-extrabold uppercase transition active:scale-[0.98]"></button>
+      <p class="axm-msg text-center text-[11px] font-semibold" style="color:#AEB6C6"></p>`;
     for (const i of $$('input[data-o]', p)) {
       const k = i.dataset.o;
       if (i.type === 'checkbox') i.checked = !!opc[k]; else i.value = opc[k] || '';

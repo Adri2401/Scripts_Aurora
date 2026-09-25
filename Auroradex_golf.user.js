@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Golf (hoyo en el mínimo de golpes)
 // @namespace    auroradex-golf
-// @version      1.1.1
+// @version      1.2.0
 // @description  Solo en /golf. Calcula con la física del propio juego el tiro (ángulo y fuerza) que mete la bola en el mínimo de golpes y lo tira solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -234,7 +234,7 @@
   const enHoyo = p => { const t = p.filas[Math.floor(p.bola.y)]?.[Math.floor(p.bola.x)]; return t === 'H'; };
 
   let jugando = false, estado = '';
-  function decir(t) { estado = t; const el = document.querySelector('#' + PANEL_ID + ' .axgolf-msg'); if (el) el.textContent = t; }
+  function decir(t) { estado = t; const el = document.querySelector('#' + PANEL_ID + ' .axgolf-msg'); if (el) { el.textContent = t; el.hidden = !t; } }
 
   async function jugarHoyo() {
     if (jugando) { jugando = false; decir('Parado.'); pintarBoton(); return; }
@@ -299,9 +299,9 @@
     panel.id = PANEL_ID;
     panel.setAttribute('data-ax-ignore', '1');
     panel.className = 'space-y-1';
-    panel.innerHTML = `<button type="button" class="w-full rounded-card py-2 text-xs font-extrabold transition active:scale-[0.98]"
-        style="background:#FBF8EE;color:#1F2A1E;border:1.5px solid #FBF8EE"></button>
-      <p class="axgolf-msg text-center text-[11px] font-semibold" style="color:#8FD17A"></p>`;
+    panel.innerHTML = `<button type="button" class="w-full rounded-pill py-2.5 text-xs font-extrabold uppercase tracking-wide transition active:scale-[0.98]"
+        style="background:linear-gradient(180deg,#FFFDF4,#EFE8D2);color:#1F2A1E;border:0;border-bottom:4px solid #BFB38C;box-shadow:0 10px 18px -12px rgba(0,0,0,.75),inset 0 1px 0 #fff;font-family:var(--font-display),system-ui,sans-serif;letter-spacing:.04em"></button>
+      <p class="axgolf-msg mx-auto w-fit rounded-pill px-3 py-1 text-center text-[11px] font-bold" style="color:#D8F5CC;background:rgba(10,30,12,.35);box-shadow:inset 0 0 0 1px rgba(143,209,122,.35)"></p>`;
     panel.querySelector('button').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); jugarHoyo(); });
     ancla.insertAdjacentElement('afterend', panel);
     pintarBoton();
