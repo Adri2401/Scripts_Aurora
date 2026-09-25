@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Metro Batalla (pelear en bucle y ventaja de tipos)
 // @namespace    auroradex-metro
-// @version      1.2.2
-// @description  Solo en /metro. Al elegir equipo analiza tus seis (debilidades, estadísticas, flojos) y marca el mejor orden; en cada parada predice el combate. Pulsa «Pelear» en bucle con tope de paradas o de racha.
+// @version      1.2.3
+// @description  Solo en /metro. Al elegir equipo analiza tus seis (debilidades, estadísticas, flojos) y recomienda el mejor orden (lo pones tú); en cada parada predice el combate. Pulsa «Pelear» en bucle con tope de paradas o de racha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_metro.user.js
@@ -452,8 +452,7 @@
         <span class="font-mono text-xs font-bold" style="color:${color(a.mejor.ganadas)}">gana ~${pct(a.mejor.ganadas)}</span>
       </div>
       <p class="text-sm font-extrabold" style="color:#E8ECF3">${a.mejor.orden.map((f, i) => `${i + 1}. ${f.c.nombre}`).join(' · ')}</p>
-      <button type="button" data-a="elegir" class="w-full rounded-card py-2 text-xs font-extrabold transition active:scale-[0.98]" style="background:#E8ECF3;color:#101319">✔ Marcar este orden</button>
-      <p class="text-[10px] font-semibold" style="color:#8A93A6">Comparado con ${a.origen}. «Gana» es contra rivales de tu mismo nivel de fuerza. Es una estimación: el juego no enseña su fórmula de combate.</p>
+      <p class="text-[10px] font-semibold" style="color:#8A93A6">Márcalos tú en ese orden. Comparado con ${a.origen}. «Gana» es contra rivales de tu mismo nivel de fuerza. Es una estimación: el juego no enseña su fórmula de combate.</p>
       ${a.fichas.slice().sort((x, y) => y.gana - x.gana).map(f => `
         <div class="rounded-card p-1.5" style="background:#1F2430">
           <div class="flex items-center justify-between gap-2">
@@ -464,17 +463,6 @@
           <p class="text-[9px] font-bold" style="color:#8A93A6">Débil a: ${f.d.deb.join(', ') || 'nada'}${f.d.inm.length ? ' · inmune a: ' + f.d.inm.join(', ') : ''}</p>
           ${f.flojo ? `<p class="text-[9px] font-bold" style="color:#FFB23E">Flojo: mejor no llevarlo${f.ojo.length ? ' (' + f.ojo.join(', ') + ')' : ''}.</p>` : f.ojo.length ? `<p class="text-[9px] font-bold" style="color:#8A93A6">Ojo: ${f.ojo.join(', ')}.</p>` : ''}
         </div>`).join('')}`;
-    caja.querySelector('[data-a="elegir"]').addEventListener('click', async e => {
-      e.preventDefault(); e.stopPropagation();
-      // se desmarcan los que haya (del último al primero) y se marcan en el orden recomendado
-      let bb = leerBanquillo();
-      for (const c of bb.cands.filter(x => x.orden).sort((x, y) => y.orden - x.orden)) { c.boton.click(); await sleep(250); }
-      for (const f of a.mejor.orden) {
-        bb = leerBanquillo();
-        const c = bb.cands.find(x => x.num === f.c.num && x.nombre === f.c.nombre && !x.orden);
-        if (c) { c.boton.click(); await sleep(300); }
-      }
-    });
   }
 
   // Predicción del combate de la parada con el orden actual (tuyos de arriba a abajo, igual que el rival)

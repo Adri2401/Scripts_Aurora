@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.4.0
-// @description  En /equipo y en la Torre (/torre). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (y cómo repartir los objetos) y la probabilidad de ganar a cada rival.
+// @version      1.5.0
+// @description  En /equipo y en la Torre (/torre). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú) y cómo repartir los objetos, y la probabilidad de ganar a cada rival. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_tiers.user.js
@@ -545,11 +545,41 @@
     }
     return { gana: j >= rivs.length, caidos: j };
   }
-  // Combates de prueba: equipos rivales sacados del banco (con su peso) y un orden de salida sorteado para los tuyos
+  // Azar «con nombre»: cada número sale de mezclar (semilla, combate, hueco, clave del rival), no de una secuencia.
+  // Así el sorteo no depende del orden del banco, y un rival nuevo solo cambia los pocos combates en los que le toca salir
+  // (con una secuencia normal, añadir uno cambiaba todos los combates y la recomendación bailaba en cada recarga).
+  const fmix = h => { h = Math.imul(h ^ (h >>> 16), 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); return (h ^ (h >>> 16)) >>> 0; };
+  const hash32 = str => { let h = 2166136261; for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619); return fmix(h); };
+  // Combates de prueba: equipos rivales de 6 sin repetir, sacados del banco según su peso, y un orden de salida sorteado para los dos
   function simulaciones(pool, n, semilla, fijos) {
-    const azar = rng(semilla), total = pool.reduce((x, p) => x + p.w, 0);
-    const saca = () => { let x = azar() * total; for (const p of pool) { x -= p.w; if (x <= 0) return p.l; } return pool[pool.length - 1].l; };
-    return Array.from({ length: n }, () => ({ rivs: barajar([...(fijos || []), ...Array.from({ length: 6 - (fijos || []).length }, saca)], azar), perm: barajar([0, 1, 2, 3, 4, 5], azar) }));
+    fijos = fijos || [];
+    const hs = pool.map(p => hash32(p.k)), inv = pool.map(p => 1 / p.w);
+    // primero se sortea si el hueco es de un rival visto o del banco genérico (así, cuando cambia lo que pesa cada parte,
+    // solo cambian los huecos que estaban en el límite) y luego cuál de esa parte
+    const gen = pool.map(p => p.k[0] === 'S');
+    const pesoG = pool.reduce((x, p, i) => x + (gen[i] ? p.w : 0), 0), parteG = pesoG / pool.reduce((x, p) => x + p.w, 0);
+    return Array.from({ length: n }, (_, s) => {
+      const rivs = [...fijos], usados = new Set();
+      for (let k = rivs.length; k < 6 && usados.size < pool.length; k++) {
+        const hk = fmix(Math.imul(semilla, 0x27d4eb2d) ^ Math.imul(s * 8 + k + 1, 0x165667b1));
+        const quiereG = fmix(hk ^ 0x5bd1e995) / 4294967296 < parteG;
+        // carrera exponencial: gana el de menor −ln(u)/peso (sale con probabilidad proporcional a su peso)
+        let mejor = -1;
+        for (const deUnaParte of [parteG > 0 && parteG < 1, false]) {
+          let min = Infinity;
+          for (let i = 0; i < pool.length; i++) {
+            if (usados.has(i) || (deUnaParte && gen[i] !== quiereG)) continue;
+            const v = -Math.log((fmix(hs[i] ^ hk) + 0.5) / 4294967296) * inv[i];
+            if (v < min) { min = v; mejor = i; }
+          }
+          if (mejor >= 0) break;
+        }
+        usados.add(mejor);
+        rivs.push(pool[mejor].l);
+      }
+      const azar = rng(1 + (fmix(Math.imul(semilla, 7919) ^ (s + 1)) % 2147483645));
+      return { rivs: barajar(rivs, azar), perm: barajar([0, 1, 2, 3, 4, 5], azar) };
+    });
   }
   function notaEquipo(equipo, sims) {
     let g = 0, k = 0;
@@ -562,16 +592,22 @@
   }
   const valorN = n => n.g + n.k * 0.15;
 
-  // Rivales vistos en «Retar» (tres de seis a la vista, con sus estadísticas y objeto). Se guardan por liga.
+  // Rivales vistos en «Retar» (tres de seis a la vista, con sus estadísticas y objeto). Se guardan por liga y por
+  // jugador (lo último que se le vio): ver al mismo rival muchas veces no hace que cuente más.
   const LS_RIV = 'axt-torre-rivales';
   function registroRivales(est) {
     const g = lsGet(LS_RIV, {});
     const m = g[est.modo] || (g[est.modo] = { rivales: {}, pokes: {} });
     let cambio = false;
-    const dia = new Date().toISOString().slice(0, 10);
+    // antes se guardaban por jugador y día: se queda lo más reciente de cada jugador
+    for (const [clave, v] of Object.entries(m.rivales)) {
+      if (!clave.includes('|')) continue;
+      const u = clave.split('|')[0];
+      if (!m.rivales[u] || m.rivales[u].t < v.t) m.rivales[u] = v;
+      delete m.rivales[clave];
+      cambio = true;
+    }
     for (const r of est.rivales || []) {
-      const clave = r.userId + '|' + dia;
-      if (m.rivales[clave]) continue;
       const claves = [];
       for (const p of r.equipo || []) {
         if (p.oculto || !p.stats || !p.tipo1) continue;
@@ -579,7 +615,12 @@
         m.pokes[k] = { sprite: p.sprite, nombre: p.nombre, tipo1: p.tipo1, tipo2: p.tipo2 || null, stats: p.stats, itemId: p.itemId || null };
         claves.push(k);
       }
-      if (claves.length) { m.rivales[clave] = { t: Date.now(), claves }; cambio = true; }
+      if (!claves.length) continue;
+      claves.sort();
+      const antes = m.rivales[String(r.userId)];
+      if (antes && antes.claves.join() === claves.join()) continue;
+      m.rivales[String(r.userId)] = { t: Date.now(), claves };
+      cambio = true;
     }
     if (cambio) {
       const ents = Object.entries(m.rivales).sort((a, b) => b[1].t - a[1].t).slice(0, 200);
@@ -590,7 +631,7 @@
     }
     const peso = {};
     for (const r of Object.values(m.rivales)) for (const k of r.claves) peso[k] = (peso[k] || 0) + 1;
-    return { equipos: Object.keys(m.rivales).length, lista: Object.entries(peso).filter(([k]) => m.pokes[k]).map(([k, w]) => ({ p: m.pokes[k], w })) };
+    return { equipos: Object.keys(m.rivales).length, lista: Object.entries(peso).filter(([k]) => m.pokes[k]).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, w]) => ({ k, p: m.pokes[k], w })) };
   }
   // Base media (por estadística) de tus mejores candidatos: así el banco genérico es tan fuerte como la liga
   function baseMediaDe(cands) {
@@ -600,13 +641,14 @@
   }
   function poolTorre(est, cands) {
     const reg = registroRivales(est);
-    const vistos = reg.lista.map(x => ({ l: luchadorT(x.p), w: x.w }));
+    const vistos = reg.lista.map(x => ({ k: 'V|' + x.k, l: luchadorT(x.p), w: x.w }));
     const pesoVistos = vistos.reduce((x, v) => x + v.w, 0);
-    const bm = baseMediaDe(cands);
-    const sint = GEN.flatMap(t => PERFILES.map(pf => ({ l: { ...stats(pf.map(v => Math.max(20, Math.round(v + bm - 80))), 50), L: 50, tipos: t.split('/'), num: 0 }, w: 1 })));
-    // cuantos más rivales reales se han visto, menos pesa el banco genérico
-    const parte = vistos.length >= 18 ? 0.35 : vistos.length >= 6 ? 0.7 : 1;
-    const pesoSint = pesoVistos ? pesoVistos * parte / (1 - Math.min(parte, 0.99)) / sint.length : 1;
+    // la fuerza del banco genérico se redondea para que no cambie por cualquier Pokémon nuevo
+    const bm = Math.round(baseMediaDe(cands) / 5) * 5;
+    const sint = GEN.flatMap(t => PERFILES.map((pf, i) => ({ k: 'S|' + t + '|' + i, l: { ...stats(pf.map(v => Math.max(20, Math.round(v + bm - 80))), 50), L: 50, tipos: t.split('/'), num: 0 }, w: 1 })));
+    // cuantos más jugadores distintos se han visto, menos pesa el banco genérico (poco a poco: 100% sin ninguno, 50% con 10, 30% como mínimo)
+    const parte = Math.max(0.3, 1 / (1 + reg.equipos / 10));
+    const pesoSint = pesoVistos ? pesoVistos * parte / (1 - parte) / sint.length : 1;
     for (const s of sint) s.w = pesoSint;
     return { pool: [...vistos, ...sint], vistos: vistos.length, equipos: reg.equipos, bm };
   }
@@ -619,7 +661,7 @@
       const k = c.especie || c.nombre;
       if (!porEspecie[k] || c.stats.total > porEspecie[k].stats.total) porEspecie[k] = c;
     }
-    return Object.values(porEspecie);
+    return Object.values(porEspecie).sort((a, b) => b.stats.total - a.stats.total || (String(a.id) < String(b.id) ? -1 : 1));
   }
   const cacheTierT = new Map();
   function tierTorre(c) {
@@ -633,41 +675,60 @@
     return t;
   }
 
-  // Mejor equipo: se preseleccionan los 28 mejores sueltos, se monta uno a uno y luego se prueban cambios de uno en uno
-  function mejorEquipo(unicos, sims, simsSueltos) {
-    const sueltos = unicos.map(c => {
+  // Mejor equipo: se preseleccionan los 28 mejores sueltos (contra todo el banco, sin sorteo), se monta uno a uno y luego
+  // se prueban cambios de uno en uno. `previo`: lo que se recomendó la última vez; se sigue recomendando salvo que lo
+  // nuevo gane claramente más (así no cambia por diferencias que están dentro del margen de error).
+  const MARGEN_REC = 0.015;
+  function sueltosTorre(unicos, pool) {
+    const pesoT = pool.reduce((x, p) => x + p.w, 0);
+    return unicos.map(c => {
       const l = luchadorT(c, null);
       let v = 0;
-      for (const s of simsSueltos) v += ventaja(l, s);
-      return { c, v: v / simsSueltos.length };
-    }).sort((a, b) => b.v - a.v);
+      for (const p of pool) v += ventaja(l, p.l) * p.w;
+      return { c, v: v / pesoT };
+    }).sort((a, b) => b.v - a.v || b.c.stats.total - a.c.stats.total);
+  }
+  function mejorEquipo(unicos, sims, pool, previo) {
+    const sueltos = sueltosTorre(unicos, pool);
     const pre = sueltos.slice(0, 28).map(x => x.c);
     const nota = eq => valorN(notaEquipo(eq.map(c => luchadorT(c, null)), sims));
+    const mejorar = eq => {
+      let v0 = nota(eq);
+      for (let vuelta = 0; vuelta < 4; vuelta++) {
+        let mejoro = false;
+        for (let i = 0; i < eq.length; i++) {
+          let mejor = null;
+          for (const c of pre) {
+            if (eq.includes(c)) continue;
+            const v = nota(eq.map((x, k) => (k === i ? c : x)));
+            if (v > v0 + 0.002 && (!mejor || v > mejor.v)) mejor = { c, v };
+          }
+          if (mejor) { eq = eq.map((x, k) => (k === i ? mejor.c : x)); v0 = mejor.v; mejoro = true; }
+        }
+        if (!mejoro) break;
+      }
+      return { eq, v: v0 };
+    };
     let eq = [];
     while (eq.length < Math.min(6, pre.length)) {
       let mejor = null;
       for (const c of pre) { if (eq.includes(c)) continue; const v = nota([...eq, c]); if (!mejor || v > mejor.v) mejor = { c, v }; }
       eq.push(mejor.c);
     }
-    let actualV = nota(eq);
-    for (let vuelta = 0; vuelta < 3; vuelta++) {
-      let mejoro = false;
-      for (let i = 0; i < eq.length; i++) {
-        for (const c of pre) {
-          if (eq.includes(c)) continue;
-          const prueba = eq.map((x, k) => (k === i ? c : x));
-          const v = nota(prueba);
-          if (v > actualV + 0.002) { eq = prueba; actualV = v; mejoro = true; }
-        }
-      }
-      if (!mejoro) break;
+    let r = mejorar(eq);
+    const prev = (previo || []).map(id => unicos.find(c => String(c.id) === String(id))).filter(Boolean);
+    let seMantiene = false;
+    if (prev.length === r.eq.length && prev.length === 6) {
+      const vp = nota(prev);
+      if (r.v < vp + MARGEN_REC) { r = { eq: prev, v: vp }; seMantiene = true; }
     }
-    return { eq, sueltos };
+    return { eq: r.eq, sueltos, seMantiene };
   }
   // Reparto de objetos: se van poniendo de uno en uno donde más suben las victorias del equipo
-  function repartirObjetos(eq, todos, sims) {
+  function repartirObjetos(eq, todos, sims, previo) {
     const quedan = {};
     for (const c of todos) if (c.itemId && OBJETOS[c.itemId]) quedan[c.itemId] = (quedan[c.itemId] || 0) + 1;
+    const hay = { ...quedan };
     const asign = eq.map(() => null);
     const nota = a => valorN(notaEquipo(eq.map((c, i) => luchadorT(c, a[i])), sims));
     let base = nota(asign);
@@ -675,7 +736,7 @@
       let mejor = null;
       for (let i = 0; i < eq.length; i++) {
         if (asign[i]) continue;
-        for (const id of Object.keys(quedan)) {
+        for (const id of Object.keys(quedan).sort()) {
           if (!quedan[id]) continue;
           const a = asign.map((x, k) => (k === i ? id : x));
           const v = nota(a);
@@ -684,6 +745,12 @@
       }
       if (!mejor || mejor.v <= base + 0.002) break;
       asign[mejor.i] = mejor.id; quedan[mejor.id]--; base = mejor.v;
+    }
+    // el reparto anterior (si sigue siendo posible) se mantiene salvo que el nuevo sea claramente mejor
+    if (previo && previo.length === eq.length) {
+      const usa = {};
+      for (const id of previo) if (id) usa[id] = (usa[id] || 0) + 1;
+      if (Object.entries(usa).every(([id, n]) => (hay[id] || 0) >= n) && base < nota(previo) + MARGEN_REC) return [...previo];
     }
     return asign;
   }
@@ -698,10 +765,6 @@
       if (f && f.key != null) ids[parseInt(n.textContent, 10) - 1] = String(f.key);
     }
     return ids.filter(Boolean);
-  }
-  function botonCandidato(id) {
-    for (const li of $$('main ul.grid > li')) { const f = fibraDe(li); if (f && String(f.key) === String(id)) return li.querySelector(':scope > button'); }
-    return null;
   }
   // Equipo guardado («Defendiendo ahora») como luchadores, con el objeto que tenía al guardarlo
   function equipoGuardado(est) {
@@ -735,6 +798,8 @@
   }
 
   let memoTorre = null, calculandoTorre = false;
+  // combates de prueba por equipo (siempre los mismos para todos los equipos que se comparan) y última recomendación
+  const N_SIMS = 1000, LS_REC = 'axt-torre-rec';
   const pctT = x => Math.round(x * 100) + '%';
   const nombreObj = id => (OBJETOS[id] ? OBJETOS[id].n : id);
   function panelTorre(est) {
@@ -759,13 +824,27 @@
         setTimeout(() => {
           try {
             const { pool, vistos, equipos, bm } = poolTorre(est, unicos);
-            const sims = simulaciones(pool, 140, 7);
-            const simsSueltos = simulaciones(pool, 30, 3).flatMap(s => s.rivs);
-            const { eq, sueltos } = mejorEquipo(unicos, sims, simsSueltos);
-            const objetos = repartirObjetos(eq, est.candidatos, sims);
+            const sims = simulaciones(pool, N_SIMS, 7);
+            const recs = lsGet(LS_REC, {}), prev = recs[est.modo] || {};
+            // con los mismos datos que la última vez no se repite la búsqueda (sale lo mismo)
+            const datosCalc = hash32(JSON.stringify([unicos.map(c => c.id + '|' + c.stats.total), est.candidatos.map(c => c.itemId || ''), pool.map(p => p.k + ':' + p.w.toFixed(4))]));
+            let eq, sueltos, seMantiene = false, objetos;
+            if (prev.datos === datosCalc && prev.ids && prev.ids.every(id => unicos.some(c => String(c.id) === id))) {
+              eq = prev.ids.map(id => unicos.find(c => String(c.id) === id));
+              sueltos = sueltosTorre(unicos, pool);
+              objetos = prev.objetos;
+              seMantiene = !!prev.seMantiene;
+            } else {
+              ({ eq, sueltos, seMantiene } = mejorEquipo(unicos, sims, pool, prev.ids));
+              const mismos = prev.ids && prev.ids.join() === eq.map(c => String(c.id)).join();
+              objetos = repartirObjetos(eq, est.candidatos, sims, mismos ? prev.objetos : null);
+            }
+            const ids = eq.map(c => String(c.id));
             const sinObj = notaEquipo(eq.map(c => luchadorT(c, null)), sims);
             const conObj = notaEquipo(eq.map((c, i) => luchadorT(c, objetos[i])), sims);
-            memoTorre = { firma, pool, vistos, equipos, bm, sims, eq, sueltos, objetos, sinObj, conObj, porSel: {} };
+            recs[est.modo] = { ids, objetos, datos: datosCalc, seMantiene };
+            lsPut(LS_REC, recs);
+            memoTorre = { firma, pool, vistos, equipos, bm, sims, eq, sueltos, objetos, sinObj, conObj, seMantiene, porSel: {} };
           } catch (e) { console.warn('[axt torre]', e); }
           calculandoTorre = false;
           programar();
@@ -826,27 +905,31 @@
         <p class="text-sm font-extrabold">${M.eq.map(c => chipT(c) + c.nombre).join(' · ')}</p>
         <p class="text-[11px] font-semibold text-tinta-600">Gana ≈ <b>${pctT(M.conObj.g)}</b> con estos objetos (≈ ${pctT(M.sinObj.g)} sin ninguno).</p>
         ${objTxt.length ? `<p class="text-[11px] font-semibold text-tinta-600">Objetos: ${objTxt.join(' · ')}</p>` : ''}
-        <button type="button" class="axt-elegir boton-suave w-full !py-1.5 text-[11px]" ${yaSel ? 'disabled' : ''}>${yaSel ? '✔ Ya los tienes elegidos' : '✔ Elegir estos 6'}</button>
+        <p class="text-[10px] font-bold ${yaSel ? 'text-hoja-600' : 'text-tinta-400'}">${yaSel ? '✔ Son los que tienes elegidos.' : 'Llevan una ⭐ en la lista de abajo; márcalos tú si quieres usarlos.'}</p>
       </div>
       <p class="text-[11px] font-semibold text-tinta-500">Los mejores sueltos para la Torre: ${M.sueltos.slice(0, 10).map((x, i) => `${i + 1}. ${chipT(x.c)}${x.c.nombre}`).join(' · ')}</p>
-      <p class="text-[10px] font-semibold text-tinta-400">El orden no importa: el juego sortea quién sale primero en cada combate. Se simulan combates en fila (el que gana sigue con la vida que le queda) contra equipos de 6 sacados de los rivales vistos en «Retar» y de un banco de todos los tipos tan fuerte como tus mejores Pokémon, todos a Nv.50. Un Pokémon por especie. Los objetos se reparten entre los que ya tienes puestos en tus Pokémon; después de moverlos dale a «Cambiar el equipo».</p>`;
-    if (caja.dataset.html !== html) {
-      caja.innerHTML = html; caja.dataset.html = html;
-      const b = caja.querySelector('.axt-elegir');
-      if (b) b.addEventListener('click', e => { e.preventDefault(); elegirEquipo(idsMejor); });
-    }
+      <p class="text-[10px] font-semibold text-tinta-400">El orden no importa: el juego sortea quién sale primero en cada combate. Se simulan combates en fila (el que gana sigue con la vida que le queda) contra equipos de 6 sacados de los rivales vistos en «Retar» y de un banco de todos los tipos tan fuerte como tus mejores Pokémon, todos a Nv.50. Un Pokémon por especie. La recomendación solo cambia si otra gana claramente más (no por el azar de la simulación). Los objetos se reparten entre los que ya tienes puestos en tus Pokémon; después de moverlos dale a «Cambiar el equipo».</p>`;
+    if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; }
+    estrellasTorre(idsMejor);
   }
-  // Marca los 6 recomendados en la rejilla (primero suelta los que sobran). No guarda: eso lo haces tú.
-  async function elegirEquipo(ids) {
-    const espera = ms => new Promise(r => setTimeout(r, ms));
-    for (const id of seleccionTorre()) if (!ids.includes(id)) { const b = botonCandidato(id); if (b) { b.click(); await espera(120); } }
-    const faltan = [];
-    for (const id of ids) {
-      if (seleccionTorre().includes(id)) continue;
-      const b = botonCandidato(id);
-      if (b) { b.click(); await espera(120); } else faltan.push(id);
+  // Una ⭐ abajo a la derecha en los 6 recomendados (solo se señalan: elegirlos es cosa tuya)
+  function estrellasTorre(ids) {
+    for (const li of $$('main ul.grid > li')) {
+      const b = li.querySelector(':scope > button');
+      const f = b && fibraDe(li);
+      if (!f) continue;
+      const toca = ids.includes(String(f.key));
+      let s = b.querySelector(':scope > .axt-rec');
+      if (!toca) { if (s) s.remove(); continue; }
+      if (s) continue;
+      s = document.createElement('span');
+      s.className = 'axt-rec';
+      s.setAttribute('data-ax-ignore', '1');
+      s.textContent = '⭐';
+      s.title = 'En el mejor equipo recomendado';
+      s.style.cssText = 'position:absolute;right:-5px;bottom:-5px;font-size:13px;line-height:1;pointer-events:none;filter:drop-shadow(0 0 1px #fff)';
+      b.appendChild(s);
     }
-    if (faltan.length) alert('Hay alguno que no se ve en la lista (¿tienes un filtro puesto?). Quita el filtro y vuelve a darle.');
   }
 
   // Retar: probabilidad de ganar a cada rival con tu equipo guardado (3 suyos a la vista + 3 tapados del banco)
@@ -899,7 +982,7 @@
         try {
           const unicos = candidatosUnicos(est);
           const { pool, vistos, equipos, bm } = poolTorre(est, unicos);
-          const sims = simulaciones(pool, 140, 7);
+          const sims = simulaciones(pool, N_SIMS, 7);
           const g = equipoGuardado(est);
           memoTorre = { firma: 'retar', pool, vistos, equipos, bm, sims, porSel: {}, notaGuardado: g.length ? notaEquipo(g, sims) : null, claveGuardado: JSON.stringify((est.miEquipo || []).map(m => m.ownedId + '|' + m.itemId)) };
         } catch (e) { console.warn('[axt torre]', e); }
@@ -927,12 +1010,12 @@
   new MutationObserver(muts => {
     if (!enEquipo() && !enTorre()) return;
     // se ignoran los cambios que hace este mismo script
-    if (muts.every(m => [...m.addedNodes].every(n => n.nodeType === 1 && (n.classList.contains('axt-tier') || n.classList.contains('axt-ficha') || n.id === 'axt-equipo' || n.id === 'axt-torre' || n.classList.contains('axt-orden') || n.classList.contains('axt-predic'))))) return;
+    if (muts.every(m => [...m.addedNodes].every(n => n.nodeType === 1 && (n.classList.contains('axt-tier') || n.classList.contains('axt-ficha') || n.id === 'axt-equipo' || n.id === 'axt-torre' || n.classList.contains('axt-orden') || n.classList.contains('axt-predic') || n.classList.contains('axt-rec'))))) return;
     programar();
   }).observe(document.documentElement, { childList: true, subtree: true });
   // se espera a que la web termine de montarse (tocar el DOM antes provoca errores de hidratación de React)
   const arrancar = () => setTimeout(() => { listo = true; programar(); }, 1500);
   if (document.readyState === 'complete') arrancar(); else window.addEventListener('load', arrancar);
 
-  window.__axTiers = { analizar, stats, datos, mejoras, estadoTorre, luchadorT, notaEquipo, simulaciones, mejorEquipo, tierTorre };
+  window.__axTiers = { analizar, stats, datos, mejoras, estadoTorre, luchadorT, notaEquipo, simulaciones, mejorEquipo, repartirObjetos, poolTorre, candidatosUnicos, tierTorre };
 })();
