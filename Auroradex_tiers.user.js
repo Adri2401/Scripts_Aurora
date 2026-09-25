@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.12.0
+// @version      1.13.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1026,13 +1026,19 @@
               const vR = valorN(notaEquipo(eq.map(c => luchadorT(c)), sims));
               if (vG >= vR - 0.005) { eq = gC.map(x => x.c); items = gC.map(x => x.item); esGuardado = true; }
             }
-            const eqL = eq.map((c, i) => luchadorT(c, items ? items[i] : undefined));
+            let eqL = eq.map((c, i) => luchadorT(c, items ? items[i] : undefined));
+            // el orden: el que más gana si salieran en fila
+            const orden = mejorOrdenT(eqL, sims.slice(0, 250));
+            eq = orden.map(i => eq[i]); eqL = orden.map(i => eqL[i]); if (items) items = orden.map(i => items[i]);
             const ids = eq.map(c => String(c.id));
             const nota = notaEquipo(eqL, sims);
+            // ¿es ya tu equipo guardado, y en este orden?
+            const idsG = (est.miEquipo || []).map(m => String(m.ownedId));
+            const guardadoEnOrden = esGuardado && idsG.join() === ids.join();
             recs[est.modo] = { ids, datos: datosCalc, seMantiene: seMantiene || esGuardado };
             lsPut(LS_REC, recs);
             const comp = composicion(eqL, sims.slice(0, 500), pool);
-            memoTorre = { firma, pool, vistos, equipos, bm, sims, eq, sueltos, nota, seMantiene, esGuardado, comp, porSel: {} };
+            memoTorre = { firma, pool, vistos, equipos, bm, sims, eq, sueltos, nota, seMantiene, esGuardado, guardadoEnOrden, comp, porSel: {} };
           } catch (e) { console.warn('[axt torre]', e); }
           calculandoTorre = false;
           programar();
@@ -1099,14 +1105,14 @@
       ${M.notaGuardado ? `<p class="text-[11px] font-semibold text-tinta-600">Equipo guardado (el que defiende y ataca): ≈ <b>${pctT(M.notaGuardado.g)}</b>.</p>` : ''}
       <div class="rounded-card border-2 border-ambar-300 bg-ambar-50 p-2 space-y-1">
         <p class="text-[11px] font-extrabold text-ambar-700">⭐ El mejor equipo con todo lo que tienes${M.esGuardado ? ' (es el que ya tienes guardado)' : ''}</p>
-        <p class="text-sm font-extrabold">${M.eq.map(c => chipT(c) + c.nombre).join(' · ')}</p>
+        <p class="text-sm font-extrabold">${M.eq.map((c, i) => `${i + 1}. ${chipT(c)}${c.nombre}`).join(' · ')}</p>
         <p class="text-[11px] font-semibold text-tinta-600">Gana ≈ <b>${pctT(M.nota.g)}</b> de los combates.</p>
         ${M.comp ? compHTML(M.comp) : ''}
-        <button type="button" class="axt-poner boton-principal w-full !py-2 text-xs" ${M.esGuardado ? 'disabled' : ''}>${M.esGuardado ? '✔ Ya es tu equipo guardado' : '🤖 Poner este equipo y guardarlo'}</button>
+        <button type="button" class="axt-poner boton-principal w-full !py-2 text-xs" ${M.guardadoEnOrden ? 'disabled' : ''}>${M.guardadoEnOrden ? '✔ Ya es tu equipo guardado, en este orden' : M.esGuardado ? '🤖 Ponerlo en este orden y guardarlo' : '🤖 Poner este equipo en este orden y guardarlo'}</button>
         <p class="axt-poner-msg text-center text-[10px] font-bold ${yaSel ? 'text-hoja-600' : 'text-tinta-400'}">${yaSel ? '✔ Son los que tienes elegidos.' : 'Llevan una ⭐ en la lista de abajo.'}</p>
       </div>
       <p class="text-[11px] font-semibold text-tinta-500">Los mejores sueltos para la Torre: ${M.sueltos.slice(0, 10).map((x, i) => `${i + 1}. ${chipT(x.c)}${x.c.nombre}`).join(' · ')}</p>
-      <p class="text-[10px] font-semibold text-tinta-400">${soloSA(est) ? 'Liga clásica: solo se tienen en cuenta los tier S y A, tuyos y de los rivales (los S pesan el doble), porque es contra lo que vas a pelear. ' : ''}El orden no importa: el juego sortea quién sale primero en cada combate. Se simulan combates en fila (el que gana sigue con la vida que le queda) contra equipos de 6 sacados de los rivales vistos en «Retar» y de un banco de todos los tipos tan fuerte como tus mejores Pokémon, todos a Nv.50. Un Pokémon por especie. La recomendación solo cambia si otra gana claramente más (no por el azar de la simulación). Cada nuevo miembro se elige por lo que suma a los que ya están (tipos, debilidades, papeles), no por lo bueno que es solo; también se prueban especialistas contra lo que más se ve en «Retar». «Sin él»: lo que ganaría el equipo con cinco. Cada uno juega con el objeto que lleva ahora. «Potenciar»: la estadística que más le conviene subir (con un objeto o como sea). ${cal}</p>
+      <p class="text-[10px] font-semibold text-tinta-400">${soloSA(est) ? 'Liga clásica: solo se tienen en cuenta los tier S y A, tuyos y de los rivales (los S pesan el doble), porque es contra lo que vas a pelear. ' : ''}El mismo equipo ataca y defiende, así que se busca el mejor en general. El juego dice que el orden de salida se sortea al empezar cada combate; por si acaso, se guarda en el orden que más gana si salieran en fila. Se simulan combates en fila (el que gana sigue con la vida que le queda) contra equipos de 6 sacados de los rivales vistos en «Retar» y de un banco de todos los tipos tan fuerte como tus mejores Pokémon, todos a Nv.50. Un Pokémon por especie. La recomendación solo cambia si otra gana claramente más (no por el azar de la simulación). Cada nuevo miembro se elige por lo que suma a los que ya están (tipos, debilidades, papeles), no por lo bueno que es solo; también se prueban especialistas contra lo que más se ve en «Retar». «Sin él»: lo que ganaría el equipo con cinco. Cada uno juega con el objeto que lleva ahora. «Potenciar»: la estadística que más le conviene subir (con un objeto o como sea). ${cal}</p>
       ${botonCopiar}`;
     if (caja.dataset.html !== html) {
       caja.innerHTML = html; caja.dataset.html = html;
@@ -1139,6 +1145,19 @@
     for (const li of $$('main ul.grid > li')) { const f = fibraDe(li); if (f && String(f.key) === String(id)) return li.querySelector(':scope > button'); }
     return null;
   }
+  // Mejor orden de salida si pelean en fila: se prueban los 720 órdenes contra los mismos combates de prueba
+  function mejorOrdenT(eqL, sims) {
+    const idx = eqL.map((_, i) => i);
+    if (idx.length < 2) return idx;
+    let mejor = null;
+    for (const perm of permutaciones(idx, idx.length)) {
+      let g = 0, k = 0;
+      for (const s of sims) { const r = combateT(perm.map(i => eqL[i]), s.rivs); if (r.gana) g++; k += r.caidos; }
+      const v = g / sims.length + 0.15 * k / sims.length / 6;
+      if (!mejor || v > mejor.v + 1e-9) mejor = { perm, v };
+    }
+    return mejor.perm;
+  }
   let poniendoTorre = false;
   async function ponerEquipoTorre(ids) {
     if (poniendoTorre) return;
@@ -1146,7 +1165,10 @@
     const espera = ms => new Promise(r => setTimeout(r, ms));
     const msg = t => { const p = document.querySelector('#axt-torre .axt-poner-msg'); if (p) p.textContent = t; };
     try {
-      for (const id of seleccionTorre()) if (!ids.includes(id)) { const b = botonCandidato(id); if (b) { b.click(); await espera(180); } }
+      // si ya están los 6 pero en otro orden, se sueltan todos para marcarlos en el orden bueno
+      const actualSel = seleccionTorre();
+      const mismoOrden = ids.every((id, i) => actualSel[i] === id);
+      for (const id of [...actualSel].reverse()) if (!ids.includes(id) || !mismoOrden) { const b = botonCandidato(id); if (b) { b.click(); await espera(180); } }
       const faltan = [];
       for (const id of ids) {
         if (seleccionTorre().includes(id)) continue;
