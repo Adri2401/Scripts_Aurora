@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Safari Auto
 // @namespace    http://tampermonkey.net/
-// @version      1.2.3
+// @version      1.3.0
 // @description  Panel integrado con dos modos: spam de Balls y estrategia óptima (programación dinámica con Cebo/Roca/Ball/Dejar marchar, aprendiendo de tus resultados y ajustando el precio de las Balls). Se para solo si la visita de hoy ya está hecha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -239,11 +239,14 @@
       st.screen = 'encuentro';
       st.p = pctByLabel('Lo atrapas');
       st.q = pctByLabel('Se te escapa');
-      const nameEl = sec.querySelector('p.font-display');
-      st.name = nameEl ? txt(nameEl) : '?';
       const lvlEl = $$('p', sec).find((x) => /^Nv\./i.test(txt(x)));
       st.level = lvlEl ? txt(lvlEl) : '';
-      const img = sec.querySelector('img');
+      const img = sec.querySelector('img[src*="/sprites/"]') || sec.querySelector('img');
+      // el nombre: el del sprite; si no, el primer texto grande que no sea un cartel («¡Es variocolor!», «✨ Shiny»…)
+      const cartel = (t) => !t || /variocolor|shiny|salvaje|^¡|!$/i.test(t);
+      const grande = $$('p.font-display, h2, h3', sec).map(txt).map((t) => t.replace(/✨/g, '').trim()).find((t) => !cartel(t));
+      const alt = img && (img.getAttribute('alt') || '').replace(/✨/g, '').trim();
+      st.name = alt || grande || '?';
       st.shiny = /✨|variocolor|shiny/i.test(txt(sec)) ||
                  (!!img && /shiny|vario/i.test((img.className || '') + ' ' + (img.src || '')));
       const bm = btnText(findBtn(/^Ball\s/i)).match(/quedan\s+(\d+)/i);
@@ -411,6 +414,19 @@
     const bL = baitOk ? Math.max(0, CFG.maxBait - enc.bait) : 0;
     const prepL = Math.max(0, CFG.maxPrep - enc.rock - enc.bait);
     const s = solve(st.p, st.q, rL, bL, prepL, lam, CFG.letGoEnabled && !shiny);
+    // Si una preparación queda a menos de 0,03 de lo mejor y lleva pocas medidas, 1 de cada 4 veces se prueba:
+    // así Cebo y Roca se siguen midiendo y no se queda para siempre con lo que midió al principio
+    if (!shiny && prepL > 0 && s.a !== 'rock' && s.a !== 'bait') {
+      for (const kind of ['bait', 'rock']) {
+        if ((kind === 'rock' ? rL : bL) <= 0 || L[kind].n >= 60 || Math.random() >= 0.25) continue;
+        const m = L[kind];
+        const [np, nq] = norm(st.p * m.pm, st.q * m.qm);
+        const surv = 1 - riskFor(kind, st.q, nq);
+        const sub = solve(np, nq, kind === 'rock' ? rL - 1 : rL, kind === 'bait' ? bL - 1 : bL, prepL - 1, lam, CFG.letGoEnabled);
+        const c = surv * sub.c, b = surv * sub.b, v = c - lam * b;
+        if (v >= s.v - 0.03) return { action: kind, pCatch: c, eBalls: b, score: v, lambda: lam, prueba: true };
+      }
+    }
     return { action: s.a, pCatch: s.c, eBalls: s.b, score: s.v, lambda: lam };
   }
 
@@ -428,7 +444,10 @@
     ses.enc++;
     if (st.shiny) {
       ses.shiny++;
-      kAviso(`¡${st.name} SHINY en el Safari!`);
+      const quien = `${st.name}${st.level ? ' ' + st.level : ''}`;
+      ses.shinies = [...(ses.shinies || []), quien];
+      kAviso(`✨ ¡${quien} SHINY en el Safari!`);
+      log(`✨ ¡SHINY! ${quien}: lo intento con todo (sin mirar lo que cuestan las Balls).`);
     }
     L.enc.found++;
     if (st.p != null) {
@@ -526,8 +545,8 @@
 
         const info = `${head} · P≈${Math.round(plan.pCatch * 100)}% ~${plan.eBalls.toFixed(1)}b · λ${plan.lambda.toFixed(2)}`;
         if (plan.action === 'go') { log(`${info} · no compensa → marchar`); clickAct('go', st); return; }
-        if (plan.action === 'rock') { log(info + ' → Roca'); enc.rock++; clickAct('rock', st); return; }
-        if (plan.action === 'bait') { log(info + ' → Cebo'); enc.bait++; clickAct('bait', st); return; }
+        if (plan.action === 'rock') { log(info + ' → Roca' + (plan.prueba ? ' (de prueba, para seguir midiéndola)' : '')); enc.rock++; clickAct('rock', st); return; }
+        if (plan.action === 'bait') { log(info + ' → Cebo' + (plan.prueba ? ' (de prueba, para seguir midiéndolo)' : '')); enc.bait++; clickAct('bait', st); return; }
         log(info + ' → Ball');
         clickAct('ball', st);
         return;
@@ -656,7 +675,7 @@
     kSet(panel.querySelector('.ax-t-caught'), ses.t0 ? '+' + caught : st && st.caught != null ? String(st.caught) : '0');
     kSet(panel.querySelector('.ax-t-time'), tiempo);
     kSet(panel.querySelector('.ax-ses'), ses.t0
-      ? `Encuentros ${ses.enc} · Balls ${ses.ball} · Rocas ${ses.rock} · Cebos ${ses.bait} · Dejados ${ses.go}${ses.shiny ? ' · ✨' + ses.shiny : ''}`
+      ? `Encuentros ${ses.enc} · Balls ${ses.ball} · Rocas ${ses.rock} · Cebos ${ses.bait} · Dejados ${ses.go}${ses.shiny ? ' · ✨ ' + (ses.shinies || []).join(', ') : ''}`
       : '');
 
     const box = panel.querySelector('.ax-enc');
