@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.10.0
-// @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan, con quién llenar los huecos y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
+// @version      1.11.0
+// @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_tiers.user.js
@@ -698,8 +698,9 @@
       return { c, v: v / pesoT };
     }).sort((a, b) => b.v - a.v || b.c.stats.total - a.c.stats.total);
   }
-  // `n`: cuántos salen de cada lado; `tam`: cuántos lleva el equipo
-  function mejorEquipo(unicos, sims, pool, previo, n = 6, tam = 6) {
+  // `n`: cuántos salen de cada lado; `tam`: cuántos lleva el equipo. Va por pasos (generador) para poder repartir el
+  // cálculo en trocitos y no congelar la página (ver `correrPasos`); `mejorEquipo` lo hace de una vez.
+  function* mejorEquipoPasos(unicos, sims, pool, previo, n = 6, tam = 6) {
     const sueltos = sueltosTorre(unicos, pool);
     const pre = sueltos.slice(0, 28).map(x => x.c);
     const amenazas = pool.filter(p => p.k[0] === 'V').sort((a, b) => b.w - a.w || (a.k < b.k ? -1 : 1)).slice(0, 12);
@@ -707,10 +708,11 @@
       const frenan = unicos.map(c => ({ c, v: ventaja(luchadorT(c), am.l) })).sort((a, b) => b.v - a.v || b.c.stats.total - a.c.stats.total);
       for (const f of frenan.slice(0, 2)) if (!pre.includes(f.c)) pre.push(f.c);
     }
+    yield;
     const simsB = sims.length > 500 ? sims.slice(0, 500) : sims;
     const notaCon = (eq, ss) => valorN(notaEquipo(eq.map(c => luchadorT(c)), ss, n));
     const nota = eq => notaCon(eq, simsB);
-    const mejorar = eq => {
+    function* mejorar(eq) {
       let v0 = nota(eq);
       for (let vuelta = 0; vuelta < 4; vuelta++) {
         let mejoro = false;
@@ -719,6 +721,7 @@
           for (const c of pre) {
             if (eq.includes(c)) continue;
             const v = nota(eq.map((x, k) => (k === i ? c : x)));
+            yield;
             if (v > v0 + 0.002 && (!mejor || v > mejor.v)) mejor = { c, v };
           }
           if (mejor) { eq = eq.map((x, k) => (k === i ? mejor.c : x)); v0 = mejor.v; mejoro = true; }
@@ -726,24 +729,43 @@
         if (!mejoro) break;
       }
       return { eq, v: v0 };
-    };
+    }
     let eq = [];
     while (eq.length < Math.min(tam, pre.length)) {
       let mejor = null;
-      for (const c of pre) { if (eq.includes(c)) continue; const v = nota([...eq, c]); if (!mejor || v > mejor.v) mejor = { c, v }; }
+      for (const c of pre) { if (eq.includes(c)) continue; const v = nota([...eq, c]); yield; if (!mejor || v > mejor.v) mejor = { c, v }; }
       eq.push(mejor.c);
     }
-    let r = mejorar(eq);
+    let r = yield* mejorar(eq);
     const prev = (previo || []).map(id => unicos.find(c => String(c.id) === String(id))).filter(Boolean);
     let seMantiene = false;
     if (prev.length === tam && r.eq.length === tam) {
       for (const c of prev) if (!pre.includes(c)) pre.push(c);
-      const r2 = mejorar(prev);
+      const r2 = yield* mejorar(prev);
       if (r2.v > r.v) r = r2;
       const vp = notaCon(prev, sims), vr = notaCon(r.eq, sims);
       if (vr < vp + MARGEN_REC) { r = { eq: prev }; seMantiene = true; }
     }
     return { eq: r.eq, sueltos, seMantiene };
+  }
+  function mejorEquipo(...args) {
+    const it = mejorEquipoPasos(...args);
+    let r;
+    while (!(r = it.next()).done);
+    return r.value;
+  }
+  // Ejecuta un generador en trozos de ~20 ms, devolviendo el control a la página entre trozo y trozo (sin lag)
+  function correrPasos(gen) {
+    return new Promise((ok, mal) => {
+      const trozo = () => {
+        const t0 = performance.now();
+        try {
+          while (performance.now() - t0 < 20) { const r = gen.next(); if (r.done) { ok(r.value); return; } }
+        } catch (e) { mal(e); return; }
+        setTimeout(trozo, 0);
+      };
+      setTimeout(trozo, 0);
+    });
   }
   const idObjetoT = (id, nombre) => (id && OBJETOS[id] ? id : (nombre && NOMBRE_OBJ[normT(nombre)]) || null);
   // Qué estadística le conviene subir en la Torre (+10% en cada una contra el banco de rivales)
@@ -1207,6 +1229,8 @@
     const firma = hash32(JSON.stringify(lista));
     const g = lsGet(LS_COLE, null);
     if (!g || g.firma !== firma) lsPut(LS_COLE, { firma, t: Date.now(), lista });
+    else if (Date.now() - (g.t || 0) > 3600e3) lsPut(LS_COLE, { ...g, t: Date.now() });
+    coleMem = null;
   }
   // Tus Pokémon se leen solos de la Torre (modo clásico), pidiendo su página en segundo plano: vienen en los datos de
   // Next.js («self.__next_f.push(...)») dentro de "candidatos". Se repite como mucho una vez por minuto y se renueva si
@@ -1248,17 +1272,26 @@
     finally { clearTimeout(reloj); colePidiendo = false; programar(); }
   }
   // La colección guardada; si no hay o es vieja, se pide (mientras tanto se usa la que haya)
+  let coleMem = null;
   function coleccion() {
-    const g = lsGet(LS_COLE, null);
-    if (!g || Date.now() - (g.t || 0) > 6 * 3600e3) traerColeccion();
-    return g;
+    if (!coleMem) coleMem = lsGet(LS_COLE, null);
+    if (!coleMem || Date.now() - (coleMem.t || 0) > 6 * 3600e3) traerColeccion();
+    return coleMem;
   }
   const avisoCole = () => (coleFallo
     ? 'No he podido leer tus Pokémon de la Torre Desafío. Ábrela una vez (modo clásico) y vuelve.'
     : 'Leyendo tus Pokémon de la Torre Desafío…');
   const tiposDeC = c => [c.tipo1, c.tipo2].map(tipoDe).filter(Boolean);
   // Los Pokémon vistos en «Retar» de la Torre (las dos ligas), con cuántos jugadores los llevaban
+  let vistosMem = null;
   function vistosTorre() {
+    const crudo = (() => { try { return localStorage.getItem(LS_RIV) || ''; } catch { return ''; } })();
+    if (vistosMem && vistosMem.largo === crudo.length) return vistosMem.v;
+    const v = vistosTorreLeer();
+    vistosMem = { largo: crudo.length, v };
+    return v;
+  }
+  function vistosTorreLeer() {
     const g = lsGet(LS_RIV, {}), peso = {}, pokes = {};
     let equipos = 0;
     for (const m of Object.values(g)) {
@@ -1273,7 +1306,7 @@
     return Object.values(porEspecie).sort((a, b) => b.stats.total - a.stats.total || (String(a.id) < String(b.id) ? -1 : 1));
   }
   // Bancos de rivales de un trono y sus combates de prueba (los de quitarlo y los de defenderlo, intercalados: mitad y mitad)
-  function bancosTrono(t, lista, vt) {
+  function* bancosTronoPasos(t, lista, vt) {
     const mios = unicosDe(lista.filter(c => tiposDeC(c).includes(t) && !esLegendario(c)));
     const vistosP = vt.lista.filter(x => tiposDeC(x.p).includes(t) && !esLegendario(x.p));
     const vistos = vistosP.map(x => ({ k: 'V|' + x.k, l: luchadorT(x.p), w: x.w }));
@@ -1285,10 +1318,16 @@
     const poolA = [...vistos, ...sint];
     const pesoA = poolA.reduce((x, p) => x + p.w, 0);
     const fuerza = l => poolA.reduce((x, p) => x + ventaja(l, p.l) * p.w, 0) / pesoA;
-    const porFuerza = arr => arr.map(p => ({ ...p, f: fuerza(p.l) })).sort((a, b) => b.f - a.f || (a.k < b.k ? -1 : 1));
-    const reales = porFuerza([...mios.map(c => ({ k: 'M|' + c.id, l: luchadorT(c) })), ...vistos]).slice(0, 12);
-    const poolD = [...reales, ...(reales.length < 6 ? porFuerza(sint).slice(0, 6 - reales.length) : [])].map(p => ({ k: p.k, l: p.l, w: 1 }));
-    const simsA = simulaciones(poolA, 500, 21), simsD = simulaciones(poolD, 500, 22);
+    yield;
+    const conFuerza = [];
+    for (const p of [...mios.map(c => ({ k: 'M|' + c.id, l: luchadorT(c) })), ...vistos]) { conFuerza.push({ ...p, f: fuerza(p.l) }); yield; }
+    const porFuerza = arr => arr.sort((a, b) => b.f - a.f || (a.k < b.k ? -1 : 1));
+    const reales = porFuerza(conFuerza).slice(0, 12);
+    const poolD = [...reales, ...(reales.length < 6 ? porFuerza(sint.map(p => ({ ...p, f: fuerza(p.l) }))).slice(0, 6 - reales.length) : [])].map(p => ({ k: p.k, l: p.l, w: 1 }));
+    const simsA = simulaciones(poolA, 400, 21);
+    yield;
+    const simsD = simulaciones(poolD, 400, 22);
+    yield;
     const sims = simsA.flatMap((s, i) => [s, simsD[i]]);
     return { t, mios, poolA, poolD, simsA, simsD, sims };
   }
@@ -1300,8 +1339,8 @@
     return w / pesoT;
   }
   const notasTrono = (eqL, B) => ({ gA: notaEquipo(eqL, B.simsA, 3).g, gD: notaEquipo(eqL, B.simsD, 3).g });
-  function calcularTrono(t, lista, vt, prev) {
-    const B = bancosTrono(t, lista, vt);
+  function* calcularTronoPasos(t, lista, vt, prev) {
+    const B = yield* bancosTronoPasos(t, lista, vt);
     const { mios } = B;
     if (!mios.length) return { t, n: 0, B };
     const datosT = hash32(JSON.stringify([mios.map(c => c.id + '|' + c.stats.total + '|' + c.itemId), B.poolA.map(p => p.k + ':' + p.w.toFixed(3)), firmaCal()]));
@@ -1319,8 +1358,9 @@
       let mejor = null;
       for (let k = 3; k <= Math.min(6, mios.length); k++) {
         const ant = prev && prev.eq && prev.eq.length === k ? prev.eq : null;
-        const e = mejorEquipo(mios, B.sims, B.poolA, ant, 3, k).eq;
+        const e = (yield* mejorEquipoPasos(mios, B.sims, B.poolA, ant, 3, k)).eq;
         const v = media(e);
+        yield;
         porTam[k] = v;
         // a igualdad (medio punto), mejor con más: depende menos de que toque justo la peor combinación
         if (!mejor || v > mejor.v + 0.005 || (v > mejor.v - 0.005 && k > mejor.e.length)) mejor = { e, v };
@@ -1334,7 +1374,7 @@
   function tarjetasTronos() {
     return $$('main section.grid > button.tarjeta').map(b => { const t = tipoDe((b.querySelector('p.font-display') || {}).textContent || ''); return t ? { b, t } : null; }).filter(Boolean);
   }
-  let memoTronos = null, tronoActivo = null;
+  let memoTronos = null, tronoActivo = null, automatizando = false;
   const colPct = g => (g >= 0.6 ? '#2FA84F' : g >= 0.4 ? '#D08A00' : '#E0473A');
   // Solo dentro de cada trono («Mi ficha»): calcular todos los tronos a la vez en la lista daba mucho lag
   function tronos() {
@@ -1345,116 +1385,211 @@
     for (const { b, t } of tarjetasTronos()) if (!b.dataset.axtTrono) { b.dataset.axtTrono = t; b.addEventListener('click', () => { tronoActivo = t; }); }
     fichaTrono();
   }
-  // Un trono calculado se guarda mientras no cambien tus Pokémon, lo visto en la Torre ni el modelo
+  // Un trono se calcula en segundo plano (a trozos) y se guarda mientras no cambien tus Pokémon, lo visto en la Torre
+  // ni el modelo. Devuelve el resultado, o null mientras se calcula.
   function resTrono(cole, t) {
     const vt = vistosTorre();
     const firma = cole.firma + '|' + firmaCal() + '|' + vt.lista.length;
-    if (!memoTronos || memoTronos.firma !== firma) memoTronos = { firma, res: {} };
-    if (!memoTronos.res[t]) {
+    if (!memoTronos || memoTronos.firma !== firma) memoTronos = { firma, res: {}, calc: {} };
+    const M = memoTronos;
+    if (M.res[t]) return M.res[t];
+    if (!M.calc[t]) {
+      M.calc[t] = true;
       const recs = lsGet(LS_TRONOS, {});
-      const r = calcularTrono(t, cole.lista, vt, recs[t]);
-      memoTronos.res[t] = r;
-      if (r.n) { recs[t] = { datos: r.datos, eq: r.eq.map(c => String(c.id)), porTam: r.porTam }; lsPut(LS_TRONOS, recs); }
+      correrPasos(calcularTronoPasos(t, cole.lista, vt, recs[t])).then(r => {
+        M.res[t] = r;
+        if (r.n) { const g = lsGet(LS_TRONOS, {}); g[t] = { datos: r.datos, eq: r.eq.map(c => String(c.id)), porTam: r.porTam }; lsPut(LS_TRONOS, g); }
+        programar();
+      }, e => { console.warn('[axt tronos]', e); M.calc[t] = false; });
     }
-    return memoTronos.res[t];
+    return null;
   }
-  // «Mi ficha» de un trono: tu equipo guardado ahí (con sus movimientos), qué le falta y qué cambiarías
+  // «Mi ficha» de un trono: tu equipo puesto ahí (con sus movimientos)
+  const avisoFicha = () => $$('p').find(p => /en cada combate solo salen 3 al azar/i.test(p.textContent || ''));
+  function huecosTrono() {
+    const aviso = avisoFicha();
+    return aviso ? $$('.tarjeta-hueco', aviso.parentElement).filter(h => h.querySelector('button[aria-label^="Quitar a"]')) : [];
+  }
+  const nombreHueco = h => ((h.querySelector('p.truncate') || {}).textContent || '').trim();
+  const botonSel = b => !b.disabled && /background/.test(b.getAttribute('style') || '');
+  function gruposMovs(h) {
+    return $$('div.flex-wrap', h).map(g => ({ t: tipoDe((g.querySelector('span.pastilla') || {}).textContent || ''), btns: $$('button', g) })).filter(g => g.t);
+  }
   function leerFichaTrono() {
-    const aviso = $$('p').find(p => /en cada combate solo salen 3 al azar/i.test(p.textContent || ''));
+    const aviso = avisoFicha();
     if (!aviso) return null;
-    const cont = aviso.parentElement;
-    const miembros = $$(':scope > .tarjeta-hueco', cont).map(h => {
+    const miembros = huecosTrono().map(h => {
       const img = h.querySelector('img[src*="/sprites/"]');
-      const nombre = ((h.querySelector('p.truncate') || {}).textContent || '').trim();
       const movs = {};
-      for (const g of $$('div.flex-wrap', h)) {
-        const t = tipoDe((g.querySelector('span.pastilla') || {}).textContent || '');
-        if (!t) continue;
-        movs[t] = $$('button', g).filter(b => !b.disabled && /background/.test(b.getAttribute('style') || '')).length;
-      }
-      return { nombre, num: img ? numDe(img) : null, sprite: img ? img.getAttribute('src') : '', movs };
+      for (const g of gruposMovs(h)) movs[g.t] = g.btns.filter(botonSel).length;
+      return { nombre: nombreHueco(h), num: img ? numDe(img) : null, movs };
     }).filter(m => m.nombre);
-    return { aviso, cont, miembros };
+    return { aviso, miembros };
   }
-  function fichaTrono() {
-    const F = leerFichaTrono();
-    let caja = document.getElementById('axt-trono-ficha');
-    if (!F) { if (caja) caja.remove(); return; }
-    if (!caja) { caja = document.createElement('div'); caja.id = 'axt-trono-ficha'; caja.className = 'rounded-card border-2 border-ambar-300 bg-ambar-50 p-2.5 space-y-1'; caja.setAttribute('data-ax-ignore', '1'); }
-    if (caja.nextElementSibling !== F.aviso) F.aviso.insertAdjacentElement('beforebegin', caja);
-    const pinta = html => { if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; } };
-    const cole = coleccion();
-    if (!cole) { pinta(`<p class="text-[11px] font-semibold text-tinta-600">${avisoCole()}</p>`); return; }
-    // tus Pokémon de la colección (por nombre; si no, por nº de sprite)
-    const deCole = m => cole.lista.find(c => c.nombre === m.nombre) || cole.lista.find(c => numSrc(c.sprite) === m.num);
-    const cs = F.miembros.map(m => ({ m, c: deCole(m) }));
-    // el trono: el que se tocó; si no, el tipo que comparten todos
+  function tipoTrono(cs) {
     const cab = $$('h1, h2, h3').map(h => ((h.textContent || '').match(/trono de\s+([a-záéíóúñ]+)/i) || [])[1]).find(Boolean);
     let t = (cab && tipoDe(cab)) || tronoActivo;
     if (!t) {
       const comunes = cs.filter(x => x.c).map(x => tiposDeC(x.c)).reduce((a, b) => (a ? a.filter(y => b.includes(y)) : b), null);
       if (comunes && comunes.length === 1) t = comunes[0];
     }
+    return t;
+  }
+  function fichaTrono() {
+    if (automatizando) return;
+    const F = leerFichaTrono();
+    let caja = document.getElementById('axt-trono-ficha');
+    if (!F) { if (caja) caja.remove(); return; }
+    if (!caja) { caja = document.createElement('div'); caja.id = 'axt-trono-ficha'; caja.className = 'rounded-card border-2 border-ambar-300 bg-ambar-50 p-2.5 space-y-1'; caja.setAttribute('data-ax-ignore', '1'); }
+    if (caja.nextElementSibling !== F.aviso) F.aviso.insertAdjacentElement('beforebegin', caja);
+    const pinta = html => { if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; const b = caja.querySelector('.axt-auto'); if (b) b.addEventListener('click', e => { e.preventDefault(); ponerMejorEquipo(); }); } };
+    const cole = coleccion();
+    if (!cole) { pinta(`<p class="text-[11px] font-semibold text-tinta-600">${avisoCole()}</p>`); return; }
+    const deCole = m => cole.lista.find(c => c.nombre === m.nombre) || cole.lista.find(c => numSrc(c.sprite) === m.num);
+    const cs = F.miembros.map(m => ({ m, c: deCole(m) }));
+    const t = tipoTrono(cs);
     if (!t) { pinta('<p class="text-[11px] font-semibold text-tinta-600">Vuelve a la lista y toca el trono para que sepa de qué tipo es.</p>'); return; }
     const r = resTrono(cole, t);
+    if (!r) { pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p><p class="text-[11px] font-semibold text-tinta-500">Calculando el mejor equipo de tipo ${bonito(t)}… (solo la primera vez)</p>`); return; }
     if (!r.n) { pinta(`<p class="text-[11px] font-semibold text-tinta-600">No tienes ningún Pokémon de tipo ${bonito(t)} que no sea legendario.</p>`); return; }
-    const B = r.B;
     const firma = t + '|' + JSON.stringify(F.miembros) + '|' + (r.datos || '');
     if (caja.dataset.firma === firma) return;
     caja.dataset.firma = firma;
-    // cada uno pelea solo con los tipos de los movimientos que tiene marcados
-    const luchConMovs = x => { const l = luchadorT(x.c); const movs = Object.keys(x.m.movs).filter(k => x.m.movs[k] > 0); return { ...l, movs }; };
+    const B = r.B;
     const validos = cs.filter(x => x.c);
-    const eqL = validos.map(luchConMovs);
+    // cada uno pelea solo con los tipos de los movimientos que tiene marcados
+    const eqL = validos.map(x => ({ ...luchadorT(x.c), movs: Object.keys(x.m.movs).filter(k => x.m.movs[k] > 0) }));
     const lineas = [];
     if (eqL.length) {
       const n = notasTrono(eqL, B);
-      lineas.push(`<p class="text-[11px] font-extrabold text-ambar-700">Tu equipo aquí (${eqL.length}/6): ⚔️ quitarlo <span style="color:${colPct(n.gA)}">≈ ${pctT(n.gA)}</span> · 🛡️ defenderlo <span style="color:${colPct(n.gD)}">≈ ${pctT(n.gD)}</span></p>`);
-      // movimientos de cada uno
+      lineas.push(`<p class="text-[11px] font-extrabold text-ambar-700">Tu equipo ahora (${eqL.length}): ⚔️ quitarlo <span style="color:${colPct(n.gA)}">≈ ${pctT(n.gA)}</span> · 🛡️ defenderlo <span style="color:${colPct(n.gD)}">≈ ${pctT(n.gD)}</span></p>`);
+      const mal = [];
       for (const x of validos) {
         const l = luchadorT(x.c), falta = l.tipos.filter(tp => !(x.m.movs[tp] > 0)).map(bonito);
         const uso = usoNormal(l, [...B.poolA, ...B.poolD]);
-        const quiereNormal = uso >= 0.05 && !l.tipos.includes('normal') && !(x.m.movs.normal > 0);
-        const sobraNormal = uso < 0.05 && !l.tipos.includes('normal') && x.m.movs.normal > 0;
-        const txt = falta.length || quiereNormal
-          ? `le falta ${[...falta.map(f => `uno de ${f}`), ...(quiereNormal ? [`uno Normal (le sirve contra el ${pctT(uso)})`] : [])].join(' y ')}`
-          : sobraNormal ? 'bien (el Normal casi no lo usará: mejor otro de sus tipos)' : 'bien';
-        lineas.push(`<p class="text-[10px] font-semibold text-tinta-600">🎯 <b>${x.m.nombre}</b>: ${txt}.</p>`);
+        if (uso >= 0.05 && !l.tipos.includes('normal') && !(x.m.movs.normal > 0)) falta.push('Normal');
+        if (falta.length) mal.push(`${x.m.nombre} (le falta ${falta.join(' y ')})`);
       }
+      if (mal.length) lineas.push(`<p class="text-[10px] font-semibold text-tinta-600">🎯 Movimientos: ${mal.join(' · ')}.</p>`);
     } else lineas.push('<p class="text-[11px] font-semibold text-tinta-600">Aún no tienes a nadie puesto en este trono.</p>');
-    for (const x of cs.filter(y => !y.c)) lineas.push(`<p class="text-[10px] font-semibold text-tinta-400">No encuentro a ${x.m.nombre} en tu colección (¿lo tienes desde que abriste la Torre?).</p>`);
-    // qué añadir o cambiar
-    const enEq = new Set(validos.map(x => x.c.especie || x.c.nombre));
-    const libres = B.mios.filter(c => !enEq.has(c.especie || c.nombre));
-    const valor = arr => { const q = notasTrono(arr, B); return (q.gA + q.gD) / 2; };
-    if (eqL.length) {
-      const base = valor(eqL);
-      const cambios = [];
-      // añadir (solo si sube: uno flojo baja la media, porque sale igual de a menudo que los buenos)
-      if (eqL.length < 6 && libres.length) {
-        const opciones = libres.map(c => ({ c, v: valor([...eqL, luchadorT(c)]) })).sort((a, b) => b.v - a.v).filter(o => o.v > base + 0.01).slice(0, 3);
-        if (opciones.length) cambios.push(`➕ Añadir sube: ${opciones.map(o => `<b>${o.c.nombre}</b> (≈ ${pctT(o.v)})`).join(' · ')}`);
-        else cambios.push('✔ No añadas a nadie: cualquiera de los que te quedan baja la media');
-      }
-      // quitar (con más de 3)
-      if (eqL.length > 3) {
-        const q = eqL.map((_, i) => ({ i, v: valor(eqL.filter((__, k) => k !== i)) })).sort((a, b) => b.v - a.v)[0];
-        if (q.v > base + 0.01) cambios.push(`➖ Quitar a <b>${validos[q.i].m.nombre}</b> sube a ≈ ${pctT(q.v)}`);
-      }
-      // cambiar uno por otro
-      if (libres.length && eqL.length >= 3) {
-        let mejor = null;
-        eqL.forEach((_, i) => { for (const c of libres.slice(0, 20)) { const v = valor(eqL.map((y, k) => (k === i ? luchadorT(c) : y))); if (!mejor || v > mejor.v) mejor = { i, c, v }; } });
-        if (mejor && mejor.v > base + 0.02) cambios.push(`🔁 Cambiar a <b>${validos[mejor.i].m.nombre}</b> por <b>${mejor.c.nombre}</b> sube a ≈ ${pctT(mejor.v)}`);
-      }
-      lineas.push(`<p class="text-[11px] font-semibold text-tinta-600">Ahora ≈ ${pctT(base)} (media de quitarlo y defenderlo). ${cambios.join('. ')}.</p>`);
-    }
+    for (const x of cs.filter(y => !y.c)) lineas.push(`<p class="text-[10px] font-semibold text-tinta-400">No encuentro a ${x.m.nombre} en tu colección.</p>`);
     const ids = new Set(validos.map(x => String(x.c.id)));
-    const tams = Object.entries(r.porTam || {}).map(([k, v]) => `con ${k} ≈ ${pctT(v)}`).join(' · ');
-    if (r.eq && !(r.eq.length === ids.size && r.eq.every(c => ids.has(String(c.id))))) lineas.push(`<p class="text-[10px] font-semibold text-tinta-500">⭐ Lo mejor con lo que tienes, <b>${r.eq.length}</b>: ${r.eq.map(c => c.nombre).join(' · ')} (⚔️ ≈ ${pctT(r.gA)} · 🛡️ ≈ ${pctT(r.gD)}).</p>`);
-    else lineas.push('<p class="text-[10px] font-semibold text-hoja-600">⭐ Ya tienes puesto el mejor equipo posible.</p>');
-    if (tams) lineas.push(`<p class="text-[10px] font-semibold text-tinta-400">Lo mejor según cuántos lleves: ${tams}. Como salen 3 al azar, uno flojo sale igual de a menudo que los buenos y baja la media: a veces rinde más llevar menos.</p>`);
+    const yaEs = r.eq.length === ids.size && r.eq.every(c => ids.has(String(c.id)));
+    lineas.push(`<p class="text-[11px] font-semibold text-tinta-600">⭐ El mejor (${r.eq.length}): <b>${r.eq.map(c => c.nombre).join(' · ')}</b> · ⚔️ ≈ ${pctT(r.gA)} · 🛡️ ≈ ${pctT(r.gD)}</p>`);
+    const tams = Object.entries(r.porTam || {}).map(([k, v]) => `${k}: ${pctT(v)}`).join(' · ');
+    if (tams) lineas.push(`<p class="text-[10px] font-semibold text-tinta-400">Según cuántos lleves: ${tams}. Como salen 3 al azar, uno flojo sale igual de a menudo que los buenos: a veces rinde más llevar menos.</p>`);
+    lineas.push(`<button type="button" class="axt-auto boton-principal w-full !py-2 text-xs">${yaEs ? '🤖 Revisar movimientos y guardar' : '🤖 Poner el mejor equipo y guardar'}</button><p class="axt-auto-msg text-center text-[10px] font-semibold text-tinta-500"></p>`);
     pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p>${lineas.join('')}`);
+  }
+
+  /* ---- Poner el mejor equipo solo: quita los que sobran, añade los que faltan (con el buscador de «Añadir»),
+   *      deja en cada uno al menos un movimiento de cada tipo suyo (y Normal si le sirve) y guarda. ---- */
+  const espera = ms => new Promise(ok => setTimeout(ok, ms));
+  const propsReact = el => { const k = Object.keys(el).find(x => x.startsWith('__reactProps$')); return k ? el[k] : null; };
+  function escribir(input, v) {
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    set.call(input, v);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  const buscadorTrono = () => $$('input').find(i => /buscar por nombre/i.test(i.getAttribute('placeholder') || ''));
+  // La entrada de la lista de «Añadir» con ese nombre: lo que tenga el clic, subiendo desde el texto del nombre
+  function entradaLista(input, nombre) {
+    let cont = input;
+    while (cont && !/Nv\.\s*\d+/.test(cont.textContent || '')) cont = cont.parentElement;
+    if (!cont) return null;
+    const textos = $$('p, span', cont).filter(e => !e.children.length && (e.textContent || '').trim() === nombre);
+    for (const tx of textos) {
+      for (let el = tx; el && el !== cont; el = el.parentElement) {
+        const pr = propsReact(el);
+        if (el.tagName === 'BUTTON' || (pr && typeof pr.onClick === 'function')) return el;
+      }
+    }
+    return null;
+  }
+  const msgAuto = txt => { const p = document.querySelector('#axt-trono-ficha .axt-auto-msg'); if (p) p.textContent = txt; };
+  async function ajustarMovs(nombre, l, quiereNormal) {
+    const quiere = [...l.tipos, ...(quiereNormal && !l.tipos.includes('normal') ? ['normal'] : [])];
+    for (let paso = 0; paso < 10; paso++) {
+      const h = huecosTrono().find(x => nombreHueco(x) === nombre);
+      if (!h) return false;
+      const gr = gruposMovs(h), cuenta = g => g.btns.filter(botonSel).length;
+      const total = gr.reduce((x, g) => x + cuenta(g), 0);
+      const libre = g => g.btns.find(b => !botonSel(b) && !b.disabled);
+      // quitar Normal si no le sirve
+      const normalSobra = gr.find(g => g.t === 'normal' && !quiere.includes('normal') && cuenta(g) > 0);
+      if (normalSobra) { normalSobra.btns.find(botonSel).click(); await espera(250); continue; }
+      const falta = gr.find(g => quiere.includes(g.t) && cuenta(g) === 0 && g.btns.length);
+      if (falta) {
+        if (total >= 4) {
+          const g = gr.filter(x => cuenta(x) >= 2).sort((a, b) => cuenta(b) - cuenta(a))[0];
+          if (!g) return false;
+          g.btns.find(botonSel).click(); await espera(250); continue;
+        }
+        const b = libre(falta);
+        if (!b) return false;
+        b.click(); await espera(250); continue;
+      }
+      // hasta 4, con movimientos de sus tipos (cuál dentro de cada tipo da igual)
+      if (total < 4) {
+        const g = gr.find(x => quiere.includes(x.t) && x.t !== 'normal' && libre(x)) || gr.find(x => quiere.includes(x.t) && libre(x));
+        if (g) { libre(g).click(); await espera(250); continue; }
+      }
+      return true;
+    }
+    return true;
+  }
+  async function ponerMejorEquipo() {
+    if (automatizando) return;
+    const cole = coleccion(), F = leerFichaTrono();
+    if (!cole || !F) return;
+    const t = tipoTrono(F.miembros.map(m => ({ m, c: cole.lista.find(c => c.nombre === m.nombre) })));
+    const r = t && memoTronos && memoTronos.res[t];
+    if (!r || !r.n) return;
+    automatizando = true;
+    const objetivo = r.eq.map(c => c.nombre), fallos = [];
+    try {
+      // 1) quitar los que sobran
+      for (let v = 0; v < 8; v++) {
+        const sobra = leerFichaTrono().miembros.find(m => !objetivo.includes(m.nombre));
+        if (!sobra) break;
+        msgAuto(`Quitando a ${sobra.nombre}…`);
+        const x = $$('button').find(b => (b.getAttribute('aria-label') || '') === 'Quitar a ' + sobra.nombre);
+        if (!x) { fallos.push(`no pude quitar a ${sobra.nombre}`); break; }
+        x.click(); await espera(450);
+      }
+      // 2) añadir los que faltan
+      for (const nombre of objetivo) {
+        if (leerFichaTrono().miembros.some(m => m.nombre === nombre)) continue;
+        msgAuto(`Añadiendo a ${nombre}…`);
+        let input = buscadorTrono();
+        if (!input) { const b = $$('button').find(x => /^\s*\+\s*añadir/i.test(x.textContent || '')); if (b) { b.click(); await espera(500); } input = buscadorTrono(); }
+        if (!input) { fallos.push(`no encuentro el buscador para añadir a ${nombre}`); continue; }
+        escribir(input, nombre); await espera(500);
+        const el = entradaLista(input, nombre);
+        if (!el) { fallos.push(`${nombre} no sale en la lista`); escribir(input, ''); continue; }
+        el.click(); await espera(700);
+        if (!leerFichaTrono().miembros.some(m => m.nombre === nombre)) fallos.push(`no se añadió ${nombre}`);
+        const inp2 = buscadorTrono();
+        if (inp2 && inp2.value) escribir(inp2, '');
+      }
+      // 3) movimientos
+      for (let i = 0; i < r.eq.length; i++) {
+        msgAuto(`Movimientos de ${r.eq[i].nombre}…`);
+        if (!await ajustarMovs(r.eq[i].nombre, luchadorT(r.eq[i]), r.normal[i] >= 0.05)) fallos.push(`movimientos de ${r.eq[i].nombre}`);
+      }
+      // 4) guardar (solo si todo ha salido bien)
+      if (!fallos.length) {
+        const g = $$('button').find(b => /^\s*guardar equipo\s*$/i.test(b.textContent || '') && !b.disabled);
+        if (g) { msgAuto('Guardando…'); g.click(); await espera(900); }
+      }
+    } catch (e) { console.warn('[axt tronos auto]', e); fallos.push('error: ' + (e && e.message)); }
+    finally {
+      automatizando = false;
+      const caja = document.getElementById('axt-trono-ficha');
+      if (caja) { caja.dataset.firma = ''; caja.dataset.html = ''; }
+      fichaTrono();
+      msgAuto(fallos.length ? `⚠️ No he podido con todo (no he guardado): ${fallos.join(' · ')}.` : '✔ Equipo puesto y guardado.');
+    }
   }
 
   /* ------------------------------------------------------------------ *
@@ -1483,5 +1618,5 @@
   const arrancar = () => setTimeout(() => { listo = true; programar(); }, 1500);
   if (document.readyState === 'complete') arrancar(); else window.addEventListener('load', arrancar);
 
-  window.__axTiers = { analizar, stats, datos, mejoras, calibracion: () => ({ ...CAL, ...infoCal }), estadoTorre, luchadorT, notaEquipo, simulaciones, mejorEquipo, poolTorre, candidatosUnicos, tierTorre, calcularTrono, vistosTorre };
+  window.__axTiers = { analizar, stats, datos, mejoras, calibracion: () => ({ ...CAL, ...infoCal }), estadoTorre, luchadorT, notaEquipo, simulaciones, mejorEquipo, poolTorre, candidatosUnicos, tierTorre, calcularTronoPasos, correrPasos, vistosTorre };
 })();
