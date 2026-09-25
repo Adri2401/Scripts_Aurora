@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.11.0
+// @version      1.12.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -646,15 +646,21 @@
     if (!top.length) return 80;
     return top.reduce((x, c) => { const s = sinObjeto(c.stats, c.itemId); return x + ((s.ps - 64) / 1.5 + s.ataque - 5 + s.defensa - 5 + 2 * (s.especial - 5) + s.velocidad - 5) / 6; }, 0) / top.length;
   }
+  // En la liga clásica todo el mundo lleva lo mejor: solo cuentan los tier S y A (tuyos y de los rivales)
+  const soloSA = est => est.modo === 'clasico';
+  const esSA = c => { const l = tierTorre(c).letra; return l === 'S' || l === 'A'; };
   function poolTorre(est, cands) {
     const reg = registroRivales(est);
-    const vistos = reg.lista.map(x => ({ k: 'V|' + x.k, l: luchadorT(x.p), w: x.w }));
+    const clasico = soloSA(est);
+    const vistos = reg.lista
+      .filter(x => !clasico || esSA(x.p))
+      .map(x => ({ k: 'V|' + x.k, l: luchadorT(x.p), w: x.w * (clasico && tierTorre(x.p).letra === 'S' ? 2 : 1) }));
     const pesoVistos = vistos.reduce((x, v) => x + v.w, 0);
     // la fuerza del banco genérico se redondea para que no cambie por cualquier Pokémon nuevo
     const bm = Math.round(baseMediaDe(cands) / 5) * 5;
     const sint = GEN.flatMap(t => PERFILES.map((pf, i) => ({ k: 'S|' + t + '|' + i, l: { ...stats(pf.map(v => Math.max(20, Math.round(v + bm - 80))), 50), L: 50, tipos: t.split('/'), num: 0 }, w: 1 })));
     // cuantos más jugadores distintos se han visto, menos pesa el banco genérico (poco a poco: 100% sin ninguno, 50% con 10, 30% como mínimo)
-    const parte = Math.max(0.3, 1 / (1 + reg.equipos / 10));
+    const parte = Math.max(clasico ? 0.15 : 0.3, 1 / (1 + reg.equipos / (clasico ? 6 : 10)));
     const pesoSint = pesoVistos ? pesoVistos * parte / (1 - parte) / sint.length : 1;
     for (const s of sint) s.w = pesoSint;
     return { pool: [...vistos, ...sint], vistos: vistos.length, equipos: reg.equipos, bm };
@@ -662,6 +668,12 @@
 
   // Un candidato por especie (el más fuerte) y solo los que valen en esta liga
   function candidatosUnicos(est) {
+    const todos = candidatosUnicosTodos(est);
+    if (!soloSA(est)) return todos;
+    const sa = todos.filter(esSA);
+    return sa.length >= 6 ? sa : todos.filter(c => ['S', 'A', 'B'].includes(tierTorre(c).letra));
+  }
+  function candidatosUnicosTodos(est) {
     const porEspecie = {};
     for (const c of est.candidatos) {
       if (c.vale === false || !c.stats) continue;
@@ -672,7 +684,7 @@
   }
   const cacheTierT = new Map();
   function tierTorre(c) {
-    const num = numSrc(c.sprite), k = c.id + '|' + c.itemId + '|' + c.stats.total + '|' + (num && datos[num] ? 1 : 0);
+    const num = numSrc(c.sprite), k = (c.id != null ? c.id : c.sprite) + '|' + c.itemId + '|' + c.stats.total + '|' + (num && datos[num] ? 1 : 0);
     if (cacheTierT.has(k)) return cacheTierT.get(k);
     const yo = luchadorT(c);
     const pct = BANCO.reduce((x, r) => x + duelo(yo, r), 0) / BANCO.length;
@@ -1090,15 +1102,18 @@
         <p class="text-sm font-extrabold">${M.eq.map(c => chipT(c) + c.nombre).join(' · ')}</p>
         <p class="text-[11px] font-semibold text-tinta-600">Gana ≈ <b>${pctT(M.nota.g)}</b> de los combates.</p>
         ${M.comp ? compHTML(M.comp) : ''}
-        <p class="text-[10px] font-bold ${yaSel ? 'text-hoja-600' : 'text-tinta-400'}">${yaSel ? '✔ Son los que tienes elegidos.' : 'Llevan una ⭐ en la lista de abajo; márcalos tú si quieres usarlos.'}</p>
+        <button type="button" class="axt-poner boton-principal w-full !py-2 text-xs" ${M.esGuardado ? 'disabled' : ''}>${M.esGuardado ? '✔ Ya es tu equipo guardado' : '🤖 Poner este equipo y guardarlo'}</button>
+        <p class="axt-poner-msg text-center text-[10px] font-bold ${yaSel ? 'text-hoja-600' : 'text-tinta-400'}">${yaSel ? '✔ Son los que tienes elegidos.' : 'Llevan una ⭐ en la lista de abajo.'}</p>
       </div>
       <p class="text-[11px] font-semibold text-tinta-500">Los mejores sueltos para la Torre: ${M.sueltos.slice(0, 10).map((x, i) => `${i + 1}. ${chipT(x.c)}${x.c.nombre}`).join(' · ')}</p>
-      <p class="text-[10px] font-semibold text-tinta-400">El orden no importa: el juego sortea quién sale primero en cada combate. Se simulan combates en fila (el que gana sigue con la vida que le queda) contra equipos de 6 sacados de los rivales vistos en «Retar» y de un banco de todos los tipos tan fuerte como tus mejores Pokémon, todos a Nv.50. Un Pokémon por especie. La recomendación solo cambia si otra gana claramente más (no por el azar de la simulación). Cada nuevo miembro se elige por lo que suma a los que ya están (tipos, debilidades, papeles), no por lo bueno que es solo; también se prueban especialistas contra lo que más se ve en «Retar». «Sin él»: lo que ganaría el equipo con cinco. Cada uno juega con el objeto que lleva ahora. «Potenciar»: la estadística que más le conviene subir (con un objeto o como sea). ${cal}</p>
+      <p class="text-[10px] font-semibold text-tinta-400">${soloSA(est) ? 'Liga clásica: solo se tienen en cuenta los tier S y A, tuyos y de los rivales (los S pesan el doble), porque es contra lo que vas a pelear. ' : ''}El orden no importa: el juego sortea quién sale primero en cada combate. Se simulan combates en fila (el que gana sigue con la vida que le queda) contra equipos de 6 sacados de los rivales vistos en «Retar» y de un banco de todos los tipos tan fuerte como tus mejores Pokémon, todos a Nv.50. Un Pokémon por especie. La recomendación solo cambia si otra gana claramente más (no por el azar de la simulación). Cada nuevo miembro se elige por lo que suma a los que ya están (tipos, debilidades, papeles), no por lo bueno que es solo; también se prueban especialistas contra lo que más se ve en «Retar». «Sin él»: lo que ganaría el equipo con cinco. Cada uno juega con el objeto que lleva ahora. «Potenciar»: la estadística que más le conviene subir (con un objeto o como sea). ${cal}</p>
       ${botonCopiar}`;
     if (caja.dataset.html !== html) {
       caja.innerHTML = html; caja.dataset.html = html;
       const b = caja.querySelector('.axt-copiar');
       if (b) b.addEventListener('click', e => { e.preventDefault(); copiarDatosTorre(est, b); });
+      const bp = caja.querySelector('.axt-poner');
+      if (bp) bp.addEventListener('click', e => { e.preventDefault(); ponerEquipoTorre(idsMejor); });
     }
     estrellasTorre(idsMejor);
   }
@@ -1118,6 +1133,34 @@
     const txt = JSON.stringify(datosJSON);
     const ok = () => { boton.textContent = '✔ Copiado: pégamelo'; };
     try { navigator.clipboard.writeText(txt).then(ok, () => { prompt('Copia esto:', txt); }); } catch { prompt('Copia esto:', txt); }
+  }
+  // Marca en la lista los 6 del mejor equipo (primero suelta los que sobran) y pulsa guardar
+  function botonCandidato(id) {
+    for (const li of $$('main ul.grid > li')) { const f = fibraDe(li); if (f && String(f.key) === String(id)) return li.querySelector(':scope > button'); }
+    return null;
+  }
+  let poniendoTorre = false;
+  async function ponerEquipoTorre(ids) {
+    if (poniendoTorre) return;
+    poniendoTorre = true;
+    const espera = ms => new Promise(r => setTimeout(r, ms));
+    const msg = t => { const p = document.querySelector('#axt-torre .axt-poner-msg'); if (p) p.textContent = t; };
+    try {
+      for (const id of seleccionTorre()) if (!ids.includes(id)) { const b = botonCandidato(id); if (b) { b.click(); await espera(180); } }
+      const faltan = [];
+      for (const id of ids) {
+        if (seleccionTorre().includes(id)) continue;
+        const b = botonCandidato(id);
+        if (b) { b.click(); await espera(180); } else faltan.push(id);
+      }
+      if (faltan.length) { msg('⚠️ Alguno no se ve en la lista (¿hay un filtro puesto?). No he guardado.'); return; }
+      await espera(250);
+      const g = $$('main button').find(b => /^\s*(Cambiar el equipo|Dejar estos)/i.test(b.textContent || '') && !b.disabled);
+      if (!g) { msg('✔ Marcados. No encuentro el botón de guardar: dale tú a «Cambiar el equipo».'); return; }
+      g.click();
+      msg('✔ Equipo puesto y guardado.');
+    } catch (e) { console.warn('[axt torre]', e); msg('⚠️ Error: ' + (e && e.message)); }
+    finally { poniendoTorre = false; }
   }
   // Una ⭐ abajo a la derecha en los 6 recomendados (solo se señalan: elegirlos es cosa tuya)
   function estrellasTorre(ids) {
