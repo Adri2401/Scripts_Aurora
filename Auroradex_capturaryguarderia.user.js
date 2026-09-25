@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.8.0
+// @version      2.9.0
 // @description  Auto-explora y captura; ante shiny/legendario vibra, notifica y PARA la macro para captura manual. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -956,6 +956,76 @@
     } catch { /* sin notificaciones */ }
   }
 
+  /* Aviso completo: tarjeta en la página (con sprite, título y datos) + notificación del sistema + vibración.
+   * tipo: 'fin' (verde), 'aviso' (ámbar), 'error' (rojo), 'shiny' (dorado, con sonido y sin cerrarse sola). */
+  const AVISO_COLOR = {
+    fin: ['#2FA84F', 'linear-gradient(135deg,#1F7A3A,#2FA84F)'],
+    aviso: ['#E0A21E', 'linear-gradient(135deg,#B8791A,#E0A21E)'],
+    error: ['#E0473A', 'linear-gradient(135deg,#A8322A,#E0473A)'],
+    shiny: ['#FFB23E', 'linear-gradient(135deg,#F5A300,#F97316 55%,#E0473A)'],
+  };
+  function sonido() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [880, 1320, 1760, 2349].forEach((f, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'triangle'; o.frequency.value = f; o.connect(g); g.connect(ctx.destination);
+        g.gain.setValueAtTime(0.11, ctx.currentTime + i * 0.13);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.13 + 0.25);
+        o.start(ctx.currentTime + i * 0.13); o.stop(ctx.currentTime + i * 0.13 + 0.26);
+      });
+    } catch { /* sin audio */ }
+  }
+  function avisar({ tipo = 'fin', titulo, lineas = [], sprite = null }) {
+    const [color, fondo] = AVISO_COLOR[tipo] || AVISO_COLOR.fin;
+    const icono = sprite ? new URL(sprite, location.origin).href : new URL('/icono-app.svg', location.origin).href;
+    // tarjeta en la página
+    const viejo = document.getElementById('adx-aviso');
+    if (viejo) viejo.remove();
+    const d = document.createElement('div');
+    d.id = 'adx-aviso';
+    d.setAttribute('role', 'alert');
+    d.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 12px);transform:translate(-50%,-20px);z-index:2147483001;' +
+      `width:min(380px,calc(100vw - 24px));border-radius:18px;overflow:hidden;box-shadow:0 14px 36px -10px rgba(0,0,0,.55),0 0 0 2px ${color};` +
+      'background:rgb(var(--lienzo,255 255 255));color:inherit;opacity:0;transition:opacity .3s ease,transform .3s ease;font-family:inherit';
+    const esc = x => String(x ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    d.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:${fondo};color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.28)">
+        <div style="width:52px;height:52px;flex-shrink:0;border-radius:14px;background:rgba(255,255,255,.22);display:grid;place-items:center;${tipo === 'shiny' ? 'box-shadow:0 0 18px rgba(255,240,180,.9)' : ''}">
+          ${sprite ? `<img src="${esc(sprite)}" alt="" style="width:48px;height:48px;image-rendering:pixelated">` : `<span style="font-size:26px">${tipo === 'error' ? '⚠️' : tipo === 'aviso' ? '⚡' : '✅'}</span>`}
+        </div>
+        <div style="min-width:0;flex:1">
+          <p style="margin:0;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85">Macro de captura</p>
+          <p style="margin:0;font-size:16px;font-weight:900;line-height:1.2">${esc(titulo)}</p>
+        </div>
+        <button type="button" aria-label="Cerrar" style="width:30px;height:30px;border-radius:999px;border:0;background:rgba(0,0,0,.18);color:#fff;font-weight:900;cursor:pointer">✕</button>
+      </div>
+      ${lineas.length ? `<ul style="margin:0;padding:10px 16px 12px;list-style:none;display:grid;gap:4px;font-size:12px;font-weight:700">${lineas.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}`;
+    d.querySelector('button').addEventListener('click', () => d.remove());
+    document.body.appendChild(d);
+    requestAnimationFrame(() => { d.style.opacity = '1'; d.style.transform = 'translate(-50%,0)'; });
+    if (tipo !== 'shiny') setTimeout(() => { if (d.isConnected) { d.style.opacity = '0'; setTimeout(() => d.remove(), 350); } }, 12000);
+    // sonido y vibración
+    if (tipo === 'shiny') { sonido(); try { navigator.vibrate && navigator.vibrate([300, 120, 300, 120, 500]); } catch { /* nada */ } }
+    else vibrate();
+    // notificación del sistema
+    try {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      const opts = { body: lineas.join('\n'), icon: icono, badge: icono, tag: 'adx-macro-' + tipo, renotify: true, requireInteraction: tipo === 'shiny' || tipo === 'error', silent: tipo !== 'shiny' };
+      try { new Notification(titulo, opts); }
+      catch { if (navigator.serviceWorker) navigator.serviceWorker.getRegistration().then(r => r && r.showNotification(titulo, opts)).catch(() => {}); }
+    } catch { /* sin notificaciones */ }
+  }
+  // Resumen de la sesión para los avisos
+  function lineasResumen() {
+    const l = [`🔍 ${S.explores} exploraciones · ⚡ ${S.spent} de energía · ⏱ ${fmtTime((S.endedAt || Date.now()) - S.startedAt)}`];
+    const extra = [S.hatched ? `🥚 ${S.hatched} huevo${S.hatched > 1 ? 's' : ''}` : null, S.shiny ? `✨ ${S.shiny} shiny` : null, S.legendary ? `👑 ${S.legendary} legendario${S.legendary > 1 ? 's' : ''}` : null, S.trainers ? `🎌 ${S.trainers} entrenador${S.trainers > 1 ? 'es' : ''}` : null].filter(Boolean);
+    if (extra.length) l.push(extra.join(' · '));
+    const en = readEnergy();
+    if (en) l.push(`Te queda ⚡ ${en.normal}${en.vet ? ' · 🌿 ' + en.vet : ''}`);
+    return l;
+  }
+
   function start() {
     if (S.running) return;
     pedirPermisoNotif();
@@ -985,7 +1055,8 @@
     loop(run);
   }
 
-  function stop(reason, { alert = false } = {}) {
+  function stop(reason, opts = {}) {
+    const alert = !!opts.alert;
     if (!S.running) return;
     S.running = false;
     S.run++;
@@ -994,10 +1065,11 @@
     const resumen = `${S.explores} exploraciones · ${S.spent} de energía · ${S.hatched} huevos · ${fmtTime(S.endedAt - S.startedAt)}`;
     setMsg(`${reason || 'Macro detenida.'} — ${resumen}`);
     log('Detenida:', reason || '(manual)');
-    if (alert) {
-      vibrate();
-      const corto = /^(L[ií]mite|Hecho)/.test(reason || '') ? 'Exploración terminada' : String(reason || 'Exploración terminada');
-      toast(corto.length > 90 ? corto.slice(0, 87) + '…' : corto, 2500);
+    if (alert && !opts.sinAviso) {
+      const r = String(reason || 'Exploración terminada');
+      const tipo = /l[ií]mite|hecho|energ/i.test(r) ? (/sin energ|no te queda|se acab/i.test(r) ? 'aviso' : 'fin') : 'error';
+      const titulo = /l[ií]mite de energ/i.test(r) ? 'Límite de energía alcanzado' : /^hecho/i.test(r) ? 'Exploraciones gratis hechas' : /energ/i.test(r) ? 'Sin energía' : 'La macro se ha parado';
+      avisar({ tipo, titulo, lineas: [...(tipo === 'error' || titulo === 'Sin energía' ? [r] : []), ...lineasResumen()] });
     }
   }
 
@@ -1340,8 +1412,13 @@
     const tag = `${info.shiny ? '¡SHINY! ' : ''}${info.legendary ? '¡LEGENDARIO! ' : ''}`;
     const txt = `${tag}${who} — ¡captúralo tú! Macro detenida.`;
     log('★', txt);
-    stop(txt, { alert: true });
-    notificarSistema(`${tag}${who}. Macro parada: captúralo tú.`);
+    stop(txt, { alert: true, sinAviso: true });
+    avisar({
+      tipo: 'shiny',
+      titulo: `${info.shiny ? '✨ ¡Shiny' : '👑 ¡Legendario'}: ${info.name || 'Pokémon'}!`,
+      sprite: info.sprite,
+      lineas: [`${who}${info.rarity ? ' · ' + info.rarity : ''}${info.unregistered ? ' · ⭐ sin registrar' : ''}${info.pct !== null ? ' · ' + info.pct + '% de captura' : ''}`, 'Macro parada: captúralo tú.', ...lineasResumen()],
+    });
     return true;
   }
 
@@ -1543,7 +1620,17 @@
     const p = $$('p').find(e => norm(e.textContent).includes('el huevo se ha abierto'));
     const card = p && p.closest('.tarjeta');
     const h3 = card && $('h3', card);
-    return h3 ? h3.textContent.trim() : null;
+    return h3 ? h3.textContent.replace(/✨/g, '').trim() : null;
+  }
+  // ¿El que acaba de nacer es shiny? (sprite de /shiny/ o el diálogo lo dice)
+  function hatchInfo() {
+    const p = $$('p').find(e => norm(e.textContent).includes('el huevo se ha abierto'));
+    const card = p && (p.closest('.tarjeta') || p.parentElement);
+    if (!card) return null;
+    const img = $$('img', card).find(i => /\/sprites\//.test(i.getAttribute('src') || ''));
+    const src = img ? img.getAttribute('src') : null;
+    const shiny = /\/shiny\//i.test(src || '') || /variocolor|shiny|✨/i.test(card.textContent || '');
+    return { name: readHatch(), sprite: src, shiny };
   }
 
   const hatchDialogBtn = () => {
@@ -1560,10 +1647,12 @@
     item.btn.click();
     log('Guardería: abro el huevo.');
 
-    let name = null, clicks = 0;
+    let name = null, clicks = 0, nacido = null;
     let b = await waitFor(run, hatchDialogBtn, 15000, 60);
     while (b) {
       name = readHatch() || name;
+      const hi = hatchInfo();
+      if (hi && (hi.shiny || !nacido)) nacido = hi;
       await waitAnimations(run);                       // dejar que se vea la animación de la eclosión
       await pause(run, 200, 450);
       if (b.isConnected) { b.click(); clicks++; log('Click:', (b.textContent || '').trim(), name ? `(nació: ${name})` : ''); }
@@ -1576,6 +1665,14 @@
     if (!gone) throw new Fail('Pulsé «Abrir» pero el huevo no desapareció. Detalles en la consola.', `botones visibles: ${visibleLabels()}`);
     S.hatched++;
     if (name) setMsg(`Nació: ${name}`);
+    if (nacido && nacido.shiny) {
+      S.shiny++;
+      const txt = `✨ ¡Ha nacido un ${nacido.name || 'Pokémon'} SHINY en la Guardería! Macro detenida.`;
+      log('★', txt);
+      stop(txt, { alert: true, sinAviso: true });
+      avisar({ tipo: 'shiny', titulo: `✨ ¡Nació shiny: ${nacido.name || 'Pokémon'}!`, sprite: nacido.sprite, lineas: ['Ha salido de un huevo de la Guardería. He parado la macro.', ...lineasResumen()] });
+      throw new Abort();
+    }
   }
 
   // Cierra cualquier diálogo pendiente antes de tocar la caja
