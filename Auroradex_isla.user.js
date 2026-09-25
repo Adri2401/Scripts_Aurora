@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      1.0.0
+// @version      1.1.0
 // @description  Solo en /isla. Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -34,12 +34,24 @@
     }
     return f;
   }
-  function estadoIsla() {
+  // El componente de la página (el que recibe `estado`)
+  function fibraIsla() {
     const el = $$('main section').find(s => /isla-espejismo/.test(s.className)) || $$('main section')[0];
     let f = actual(fibraDe(el));
     for (let i = 0; f && i < 60; i++, f = f.return) {
       const p = f.memoizedProps;
-      if (p && p.estado && Array.isArray(p.estado.caja) && Array.isArray(p.estado.equipo)) return p.estado;
+      if (p && p.estado && Array.isArray(p.estado.caja) && Array.isArray(p.estado.equipo)) return f;
+    }
+    return null;
+  }
+  function estadoIsla() { const f = fibraIsla(); return f ? f.memoizedProps.estado : null; }
+  // La función de la página que guarda el equipo entero en un orden (la misma que usan «Al equipo», «Sacar» y arrastrar):
+  // recibe la lista de ids en orden y un mensaje
+  function guardarEquipoFn() {
+    const f = fibraIsla();
+    for (let h = f && f.memoizedState, k = 0; h && k < 80; h = h.next, k++) {
+      const v = h.memoizedState;
+      if (Array.isArray(v) && typeof v[0] === 'function' && v[0].length === 2 && /refresh\(\)/.test(String(v[0]))) return v[0];
     }
     return null;
   }
@@ -144,6 +156,41 @@
   }
 
   /* ------------------------------------------------------------------ *
+   *  EQUIPO PROPUESTO: el 1.º no se toca; del 2.º al 6.º, los que evolucionan a especies nuevas (primero los que lo
+   *  consiguen antes: hoy mismo, luego con menos niveles). Entre los elegidos, los de más nivel delante (el 2.º y el
+   *  3.º también pelean). Si no hay 5, se completa con los que ya estaban, por nivel.
+   * ------------------------------------------------------------------ */
+  function equipoPropuesto(est, A) {
+    const primero = est.equipo[0];
+    if (!primero) return null;
+    const elegidos = [];
+    for (const c of A.candidatos) {
+      if (elegidos.length >= 5) break;
+      if (c.p.id === primero.id || elegidos.some(p => p.id === c.p.id)) continue;
+      elegidos.push(c.p);
+    }
+    const resto = est.equipo.slice(1).filter(p => !elegidos.some(e => e.id === p.id)).sort((a, b) => b.nivel - a.nivel);
+    while (elegidos.length < 5 && resto.length) elegidos.push(resto.shift());
+    elegidos.sort((a, b) => b.nivel - a.nivel || (b.progreso || 0) - (a.progreso || 0));
+    return [primero, ...elegidos];
+  }
+  let ordenando = false;
+  async function ordenarEquipo() {
+    if (ordenando) return;
+    const est = estadoIsla(), fn = guardarEquipoFn();
+    const msg = t => { const p = document.querySelector('#axi-panel .axi-msg'); if (p) p.textContent = t; };
+    if (!est || !fn) { msg('⚠️ No encuentro cómo cambiar el equipo en esta página.'); return; }
+    const prop = equipoPropuesto(est, analizar(est));
+    if (!prop) return;
+    const ids = prop.map(p => p.id);
+    if (ids.join() === est.equipo.map(p => p.id).join()) { msg('✔ El equipo ya está así.'); return; }
+    ordenando = true;
+    try { fn(ids, 'Equipo ordenado para evolucionar a especies nuevas.'); msg('✔ Equipo cambiado.'); }
+    catch (e) { console.warn('[axi]', e); msg('⚠️ No se pudo: ' + (e && e.message)); }
+    finally { setTimeout(() => { ordenando = false; programar(); }, 1500); }
+  }
+
+  /* ------------------------------------------------------------------ *
    *  PANEL (antes de «Tu equipo de la isla») y marcas en el equipo
    * ------------------------------------------------------------------ */
   function pintar() {
@@ -175,14 +222,23 @@
       return { p, i, porque };
     }).filter(Boolean);
     const pelean = s => s.i < 3;
+    const prop = equipoPropuesto(est, A);
+    const igual = prop && prop.map(p => p.id).join() === est.equipo.map(p => p.id).join();
     const html = `
       <p class="titulo-seccion !mb-0">🧬 Especies nuevas por evolución</p>
       <p class="text-[11px] font-semibold text-tinta-500">Cada especie distinta que tengas aquí son 10 puntos. La experiencia es para todos los del equipo, así que en los huecos que no pelean mete a los que van a evolucionar a una especie que aún no tienes.</p>
       ${A.faltan.length ? `<p class="text-[10px] font-semibold text-tinta-400">Buscando evoluciones de ${A.faltan.length} especies…</p>` : ''}
       ${A.candidatos.length ? `<ul class="space-y-1">${A.candidatos.map(fila).join('')}</ul>` : '<p class="text-[11px] font-semibold text-tinta-500">Ninguno de los que tienes evoluciona subiendo de nivel a una especie nueva antes de que se hunda la isla.</p>'}
       ${sobran.length ? `<p class="text-[11px] font-semibold text-tinta-600">🔁 En tu equipo no suman especie nueva: ${sobran.map(s => `<b>${esc(s.p.nombre)}</b> (${esc(s.porque)}${pelean(s) ? '; está entre los 3 que pelean, déjalo si te hace falta para ganar' : ''})`).join(' · ')}.</p>` : ''}
-      <p class="text-[10px] font-semibold text-tinta-400">Solo cuentan las evoluciones por nivel (piedras, intercambios o amistad no se pueden hacer aquí). Tope de hoy: Nv.${est.topeNivel}; el último día, Nv.${A.topeMax}.</p>`;
-    if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; }
+      ${prop ? `<p class="text-[11px] font-semibold text-tinta-600">${igual ? '✔ Tu equipo ya está así' : 'Quedaría'}: ${prop.map((p, i) => `${i + 1}. ${esc(p.nombre)} (Nv.${p.nivel})`).join(' · ')}</p>
+        <button type="button" class="axi-ordenar boton-principal w-full !py-2 text-xs" ${igual ? 'disabled' : ''}>🔀 Ordenar el equipo así (el 1.º se queda)</button>
+        <p class="axi-msg text-center text-[10px] font-semibold text-tinta-500"></p>` : ''}
+      <p class="text-[10px] font-semibold text-tinta-400">Solo cuentan las evoluciones por nivel: los que evolucionan con piedra, intercambio o amistad no se tienen en cuenta. Tope de hoy: Nv.${est.topeNivel}; el último día, Nv.${A.topeMax}.</p>`;
+    if (caja.dataset.html !== html) {
+      caja.innerHTML = html; caja.dataset.html = html;
+      const b = caja.querySelector('.axi-ordenar');
+      if (b) b.addEventListener('click', e => { e.preventDefault(); ordenarEquipo(); });
+    }
     // marca en cada miembro del equipo
     for (const li of $$('main li[data-id]')) {
       const info = A.porPokemon[li.dataset.id];
