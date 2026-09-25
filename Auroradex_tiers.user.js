@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.9.0
+// @version      1.9.1
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos: para cada trono, los 6 de ese tipo (sin legendarios) que mejor lo quitan y lo defienden, qué movimientos llevar y, en «Mi ficha», qué le falta a tu equipo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1207,6 +1207,54 @@
     const g = lsGet(LS_COLE, null);
     if (!g || g.firma !== firma) lsPut(LS_COLE, { firma, t: Date.now(), lista });
   }
+  // Tus Pokémon se leen solos de la Torre (modo clásico), pidiendo su página en segundo plano: vienen en los datos de
+  // Next.js («self.__next_f.push(...)») dentro de "candidatos". Se repite como mucho una vez por minuto y se renueva si
+  // lo guardado tiene más de 6 horas.
+  function textoFlight(html) {
+    let t = '';
+    const re = /self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)/g;
+    let m;
+    while ((m = re.exec(html))) { try { t += JSON.parse(m[1]); } catch { /* trozo raro */ } }
+    return t;
+  }
+  function listaFlight(t, clave) {
+    const mm = new RegExp('"' + clave + '"\\s*:\\s*\\[').exec(t);
+    if (!mm) return null;
+    const j = mm.index + mm[0].length - 1;
+    let d = 0, str = false, esc = false;
+    for (let k = j; k < t.length; k++) {
+      const ch = t[k];
+      if (str) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') str = false; continue; }
+      if (ch === '"') str = true;
+      else if (ch === '[' || ch === '{') d++;
+      else if ((ch === ']' || ch === '}') && --d === 0) { try { return JSON.parse(t.slice(j, k + 1), (_, v) => (v === '$undefined' ? undefined : v)); } catch { return null; } }
+    }
+    return null;
+  }
+  let coleIntento = 0, colePidiendo = false, coleFallo = false;
+  async function traerColeccion() {
+    if (colePidiendo || Date.now() - coleIntento < 60000) return;
+    coleIntento = Date.now();
+    colePidiendo = true;
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const reloj = setTimeout(() => { if (ctl) ctl.abort(); }, 20000);
+    try {
+      const r = await fetch('/torre?liga=clasico', { credentials: 'same-origin', cache: 'no-store', signal: ctl ? ctl.signal : undefined });
+      const cands = r.ok ? listaFlight(textoFlight(await r.text()), 'candidatos') : null;
+      if (Array.isArray(cands) && cands.length) { guardarColeccion({ modo: 'clasico', candidatos: cands }); coleFallo = false; }
+      else coleFallo = true;
+    } catch (e) { coleFallo = true; console.warn('[axt tronos] no pude leer la Torre', e); }
+    finally { clearTimeout(reloj); colePidiendo = false; programar(); }
+  }
+  // La colección guardada; si no hay o es vieja, se pide (mientras tanto se usa la que haya)
+  function coleccion() {
+    const g = lsGet(LS_COLE, null);
+    if (!g || Date.now() - (g.t || 0) > 6 * 3600e3) traerColeccion();
+    return g;
+  }
+  const avisoCole = () => (coleFallo
+    ? 'No he podido leer tus Pokémon de la Torre Desafío. Ábrela una vez (modo clásico) y vuelve.'
+    : 'Leyendo tus Pokémon de la Torre Desafío…');
   const tiposDeC = c => [c.tipo1, c.tipo2].map(tipoDe).filter(Boolean);
   // Los Pokémon vistos en «Retar» de la Torre (las dos ligas), con cuántos jugadores los llevaban
   function vistosTorre() {
@@ -1284,8 +1332,8 @@
     else if (caja.nextElementSibling !== cartas[0].b.parentElement) cartas[0].b.parentElement.insertAdjacentElement('beforebegin', caja);
     const pinta = html => { if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; } };
     const titulo = '<p class="titulo-seccion !mb-0">👑 Tu mejor equipo para cada trono</p>';
-    const cole = lsGet(LS_COLE, null);
-    if (!cole) { pinta(titulo + '<p class="text-[11px] font-semibold text-tinta-500">Abre una vez la <b>Torre Desafío</b> en modo clásico: de ahí salen tus Pokémon con sus estadísticas a Nv.50.</p>'); return; }
+    const cole = coleccion();
+    if (!cole) { pinta(titulo + `<p class="text-[11px] font-semibold text-tinta-500">${avisoCole()}</p>`); return; }
     const tipos = [...new Set(cartas.map(x => x.t))];
     const M = calcularTronos(cole, tipos);
     const filas = tipos.map(t => {
@@ -1366,13 +1414,14 @@
     if (!caja) { caja = document.createElement('div'); caja.id = 'axt-trono-ficha'; caja.className = 'rounded-card border-2 border-ambar-300 bg-ambar-50 p-2.5 space-y-1'; caja.setAttribute('data-ax-ignore', '1'); }
     if (caja.nextElementSibling !== F.aviso) F.aviso.insertAdjacentElement('beforebegin', caja);
     const pinta = html => { if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; } };
-    const cole = lsGet(LS_COLE, null);
-    if (!cole) { pinta('<p class="text-[11px] font-semibold text-tinta-600">Abre una vez la Torre Desafío (modo clásico) para que sepa qué Pokémon tienes.</p>'); return; }
+    const cole = coleccion();
+    if (!cole) { pinta(`<p class="text-[11px] font-semibold text-tinta-600">${avisoCole()}</p>`); return; }
     // tus Pokémon de la colección (por nombre; si no, por nº de sprite)
     const deCole = m => cole.lista.find(c => c.nombre === m.nombre) || cole.lista.find(c => numSrc(c.sprite) === m.num);
     const cs = F.miembros.map(m => ({ m, c: deCole(m) }));
     // el trono: el que se tocó; si no, el tipo que comparten todos
-    let t = tronoActivo;
+    const cab = $$('h1, h2, h3').map(h => ((h.textContent || '').match(/trono de\s+([a-záéíóúñ]+)/i) || [])[1]).find(Boolean);
+    let t = (cab && tipoDe(cab)) || tronoActivo;
     if (!t) {
       const comunes = cs.filter(x => x.c).map(x => tiposDeC(x.c)).reduce((a, b) => (a ? a.filter(y => b.includes(y)) : b), null);
       if (comunes && comunes.length === 1) t = comunes[0];
