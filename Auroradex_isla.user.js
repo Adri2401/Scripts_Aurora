@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      1.1.0
+// @version      1.2.0
 // @description  Solo en /isla. Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -48,10 +48,18 @@
   // La función de la página que guarda el equipo entero en un orden (la misma que usan «Al equipo», «Sacar» y arrastrar):
   // recibe la lista de ids en orden y un mensaje
   function guardarEquipoFn() {
-    const f = fibraIsla();
-    for (let h = f && f.memoizedState, k = 0; h && k < 80; h = h.next, k++) {
-      const v = h.memoizedState;
-      if (Array.isArray(v) && typeof v[0] === 'function' && v[0].length === 2 && /refresh\(\)/.test(String(v[0]))) return v[0];
+    const el = $$('main section').find(s => /isla-espejismo/.test(s.className)) || $$('main li[data-id]')[0] || $$('main section')[0];
+    const esGuardar = v => Array.isArray(v) && typeof v[0] === 'function' && v[0].length === 2 && /refresh\(\)/.test(String(v[0]));
+    // se sube por todos los componentes (y sus versiones alternas) hasta la raíz mirando sus hooks
+    for (const inicio of [fibraDe(el), actual(fibraDe(el))]) {
+      for (let f = inicio, i = 0; f && i < 200; f = f.return, i++) {
+        for (const c of [f, f.alternate]) {
+          for (let h = c && c.memoizedState, k = 0; h && typeof h === 'object' && k < 120; h = h.next, k++) {
+            if (esGuardar(h.memoizedState)) return h.memoizedState[0];
+            if (h.queue && esGuardar(h.baseState)) return h.baseState[0];
+          }
+        }
+      }
     }
     return null;
   }
@@ -115,50 +123,60 @@
   }
 
   /* ------------------------------------------------------------------ *
-   *  A QUIÉN SUBIR: por cada especie que tienes, el ejemplar de más nivel. Si evoluciona por nivel a una especie
-   *  que no tienes y ese nivel cabe en algún tope de la semana, es candidato (+10 puntos). Los del equipo que no
-   *  llevan a ninguna especie nueva, fuera (salvo que sean de los 3 que pelean).
+   *  A QUIÉN SUBIR: por cada Pokémon, las especies que aún no tienes a las que llega SUBIENDO DE NIVEL por su línea
+   *  (también la segunda evolución: si ya tienes Pupitar pero no Tyranitar, interesa subir a tu Pupitar). Cada especie
+   *  nueva se apunta al ejemplar que la consigue antes. Prioridad para el equipo:
+   *   1. los que llegan a una especie nueva esta semana (primero los que lo consiguen antes),
+   *   2. los que tienen una especie nueva en su línea aunque esta semana no les dé el tope,
+   *   3. el resto (su evolución ya la tienes o no evolucionan por nivel).
+   *  Living dex: si solo tienes un ejemplar de esa especie, al evolucionar te quedas sin ella; se avisa y, a igualdad,
+   *  se prefiere subir a un repetido.
    * ------------------------------------------------------------------ */
   function analizar(est) {
     const todos = [...est.equipo, ...est.caja];
     const tengo = new Set(todos.map(p => p.speciesId));
+    const cuantos = {};
+    for (const p of todos) cuantos[p.speciesId] = (cuantos[p.speciesId] || 0) + 1;
     const topes = topesSemana(est), topeMax = Math.max(...Object.values(topes));
     const diaPara = n => { for (let d = est.dia; d <= (est.dias || 7); d++) if (topes[d] >= n) return d; return null; };
-    const mejorDe = {};
-    for (const p of todos) if (!mejorDe[p.speciesId] || p.nivel + (p.progreso || 0) / 100 > mejorDe[p.speciesId].nivel + (mejorDe[p.speciesId].progreso || 0) / 100) mejorDe[p.speciesId] = p;
-    const faltan = todos.map(p => p.speciesId).filter(id => !evos[id]);
-    const candidatos = [], porPokemon = {};
+    const faltan = [...tengo].filter(id => !evos[id]);
+    // especies nuevas a las que lleva su línea subiendo de nivel, con el nivel que hace falta (el mayor del camino)
+    const destinos = (id, base = 0, paso = 1, visto = new Set([id])) => {
+      const out = [];
+      for (const e of evos[id] || []) {
+        if (visto.has(e.a)) continue;
+        visto.add(e.a);
+        const nivel = Math.max(base, e.nivel);
+        if (!tengo.has(e.a)) out.push({ ...e, nivel, paso });
+        out.push(...destinos(e.a, nivel, paso + 1, visto));
+      }
+      return out;
+    };
+    const porPokemon = {};
     for (const p of todos) {
       const lista = evos[p.speciesId];
       if (!lista) continue;
-      const nuevas = lista.filter(e => !tengo.has(e.a));
-      const info = { p, nuevas: [], yaTengo: lista.filter(e => tengo.has(e.a)), sinNivel: !lista.length };
-      for (const e of nuevas) {
-        const dia = diaPara(e.nivel);
-        info.nuevas.push({ ...e, dia, falta: Math.max(0, e.nivel - p.nivel), alcanzable: e.nivel <= topeMax });
-      }
-      porPokemon[p.id] = info;
+      const nuevas = destinos(p.speciesId).map(e => ({ ...e, falta: Math.max(0, e.nivel - p.nivel), dia: diaPara(e.nivel), alcanzable: e.nivel <= topeMax }));
+      porPokemon[p.id] = { p, nuevas, yaTengo: lista.filter(e => tengo.has(e.a)), sinNivel: !lista.length, unico: cuantos[p.speciesId] === 1 };
     }
-    // candidatos: el ejemplar de más nivel de cada especie; una evolución nueva solo una vez (el que esté más cerca)
+    // cada especie nueva, para el ejemplar que la consigue antes (a igualdad, uno repetido y luego el de más nivel)
     const vistoDestino = {};
-    for (const p of Object.values(mejorDe)) {
-      const info = porPokemon[p.id];
-      if (!info) continue;
-      for (const e of info.nuevas.filter(x => x.alcanzable)) {
+    for (const info of Object.values(porPokemon)) {
+      for (const e of info.nuevas) {
         const prev = vistoDestino[e.a];
-        if (prev && prev.falta <= e.falta) continue;
-        vistoDestino[e.a] = { p, ...e };
+        const mejor = !prev || e.falta < prev.falta || (e.falta === prev.falta && (prev.unico && !info.unico || (prev.unico === info.unico && info.p.nivel > prev.p.nivel)));
+        if (mejor) vistoDestino[e.a] = { p: info.p, unico: info.unico, ...e };
       }
     }
-    for (const c of Object.values(vistoDestino)) candidatos.push(c);
-    candidatos.sort((a, b) => (a.dia || 99) - (b.dia || 99) || a.falta - b.falta);
+    const orden = (a, b) => (b.alcanzable - a.alcanzable) || ((a.dia || 99) - (b.dia || 99)) || (a.falta - b.falta) || (a.unico - b.unico);
+    const candidatos = Object.values(vistoDestino).sort(orden);
     return { candidatos, porPokemon, topes, topeMax, faltan, tengo };
   }
 
   /* ------------------------------------------------------------------ *
-   *  EQUIPO PROPUESTO: el 1.º no se toca; del 2.º al 6.º, los que evolucionan a especies nuevas (primero los que lo
-   *  consiguen antes: hoy mismo, luego con menos niveles). Entre los elegidos, los de más nivel delante (el 2.º y el
-   *  3.º también pelean). Si no hay 5, se completa con los que ya estaban, por nivel.
+   *  EQUIPO PROPUESTO: el 1.º no se toca; del 2.º al 6.º, por la prioridad de arriba (primero los que llegan esta
+   *  semana, luego los que tienen algo nuevo en su línea aunque no lleguen, y solo si faltan, los demás). Entre los
+   *  elegidos, los de más nivel delante (el 2.º y el 3.º también pelean).
    * ------------------------------------------------------------------ */
   function equipoPropuesto(est, A) {
     const primero = est.equipo[0];
@@ -209,16 +227,15 @@
     const enEquipo = new Set(est.equipo.map(p => p.id));
     const fila = c => {
       const dentro = enEquipo.has(c.p.id);
-      const cuando = c.falta === 0 ? 'en cuanto suba un nivel' : c.dia === est.dia ? `faltan ${c.falta} niveles (se puede hoy)` : c.dia ? `faltan ${c.falta} niveles (el tope lo permite el día ${c.dia})` : `faltan ${c.falta} niveles`;
-      return `<li class="flex items-center gap-2 text-[11px] font-semibold ${dentro ? 'text-hoja-700' : 'text-tinta-600'}"><img src="${esc(c.p.sprite)}" alt="" width="28" height="28" class="pixelado" style="width:28px;height:28px"><span class="min-w-0 flex-1"><b>${esc(c.p.nombre)}</b> Nv.${c.p.nivel} → <b>${esc(c.nombre)}</b> (Nv.${c.nivel}${c.cond ? ', ' + esc(c.cond) : ''}) · ${cuando}</span><span class="shrink-0 text-[10px] font-extrabold">${dentro ? '✔ en el equipo' : '➕ mételo'}</span></li>`;
+      const cuando = !c.alcanzable ? `faltan ${c.falta} niveles (esta semana el tope no llega)` : c.falta === 0 ? 'en cuanto suba un nivel' : c.dia === est.dia ? `faltan ${c.falta} niveles (se puede hoy)` : c.dia ? `faltan ${c.falta} niveles (el tope lo permite el día ${c.dia})` : `faltan ${c.falta} niveles`;
+      return `<li class="flex items-center gap-2 text-[11px] font-semibold ${dentro ? 'text-hoja-700' : 'text-tinta-600'}"><img src="${esc(c.p.sprite)}" alt="" width="28" height="28" class="pixelado" style="width:28px;height:28px"><span class="min-w-0 flex-1"><b>${esc(c.p.nombre)}</b> Nv.${c.p.nivel} → <b>${esc(c.nombre)}</b> (Nv.${c.nivel}${c.paso > 1 ? ', 2.ª evolución' : ''}${c.cond ? ', ' + esc(c.cond) : ''}) · ${cuando}${c.unico ? ' · <span class="text-ambar-600">es tu único ' + esc(c.p.nombre) + '</span>' : ''}</span><span class="shrink-0 text-[10px] font-extrabold">${dentro ? '✔ en el equipo' : '➕ mételo'}</span></li>`;
     };
     // del equipo: quién no aporta especie nueva
     const sobran = est.equipo.map((p, i) => {
       const info = A.porPokemon[p.id];
       if (!info) return null;
-      const utiles = info.nuevas.filter(x => x.alcanzable);
-      if (utiles.length) return null;
-      const porque = info.sinNivel ? 'no evoluciona subiendo de nivel' : info.nuevas.length ? `su evolución (${info.nuevas.map(x => `${x.nombre} Nv.${x.nivel}`).join(', ')}) no llega con el tope de esta semana (${A.topeMax})` : `su evolución ya la tienes (${info.yaTengo.map(x => x.nombre).join(', ')})`;
+      if (info.nuevas.length) return null;
+      const porque = info.sinNivel ? 'no evoluciona subiendo de nivel' : `su evolución ya la tienes (${info.yaTengo.map(x => x.nombre).join(', ')})`;
       return { p, i, porque };
     }).filter(Boolean);
     const pelean = s => s.i < 3;
@@ -228,7 +245,8 @@
       <p class="titulo-seccion !mb-0">🧬 Especies nuevas por evolución</p>
       <p class="text-[11px] font-semibold text-tinta-500">Cada especie distinta que tengas aquí son 10 puntos. La experiencia es para todos los del equipo, así que en los huecos que no pelean mete a los que van a evolucionar a una especie que aún no tienes.</p>
       ${A.faltan.length ? `<p class="text-[10px] font-semibold text-tinta-400">Buscando evoluciones de ${A.faltan.length} especies…</p>` : ''}
-      ${A.candidatos.length ? `<ul class="space-y-1">${A.candidatos.map(fila).join('')}</ul>` : '<p class="text-[11px] font-semibold text-tinta-500">Ninguno de los que tienes evoluciona subiendo de nivel a una especie nueva antes de que se hunda la isla.</p>'}
+      ${A.candidatos.some(c => c.alcanzable) ? `<ul class="space-y-1">${A.candidatos.filter(c => c.alcanzable).map(fila).join('')}</ul>` : '<p class="text-[11px] font-semibold text-tinta-500">Ninguno de los que tienes llega esta semana a una especie nueva subiendo de nivel.</p>'}
+      ${A.candidatos.some(c => !c.alcanzable) ? `<p class="text-[10px] font-extrabold text-tinta-500">Tienen algo nuevo en su línea aunque esta semana no les dé el tope (mejor ellos que uno que ya no suma):</p><ul class="space-y-1">${A.candidatos.filter(c => !c.alcanzable).map(fila).join('')}</ul>` : ''}
       ${sobran.length ? `<p class="text-[11px] font-semibold text-tinta-600">🔁 En tu equipo no suman especie nueva: ${sobran.map(s => `<b>${esc(s.p.nombre)}</b> (${esc(s.porque)}${pelean(s) ? '; está entre los 3 que pelean, déjalo si te hace falta para ganar' : ''})`).join(' · ')}.</p>` : ''}
       ${prop ? `<p class="text-[11px] font-semibold text-tinta-600">${igual ? '✔ Tu equipo ya está así' : 'Quedaría'}: ${prop.map((p, i) => `${i + 1}. ${esc(p.nombre)} (Nv.${p.nivel})`).join(' · ')}</p>
         <button type="button" class="axi-ordenar boton-principal w-full !py-2 text-xs" ${igual ? 'disabled' : ''}>🔀 Ordenar el equipo así (el 1.º se queda)</button>
@@ -243,8 +261,8 @@
     for (const li of $$('main li[data-id]')) {
       const info = A.porPokemon[li.dataset.id];
       let m = li.querySelector('.axi-marca');
-      const util = info && info.nuevas.find(x => x.alcanzable);
-      const txt = !info ? '' : util ? `🧬 → ${util.nombre} Nv.${util.nivel}` : info.sinNivel ? 'no evoluciona por nivel' : '✖ su evolución ya la tienes';
+      const util = info && (info.nuevas.find(x => x.alcanzable) || info.nuevas[0]);
+      const txt = !info ? '' : util ? `🧬 → ${util.nombre} Nv.${util.nivel}${util.alcanzable ? '' : ' (no llega esta semana)'}` : info.sinNivel ? 'no evoluciona por nivel' : '✖ su evolución ya la tienes';
       if (!txt) { if (m) m.remove(); continue; }
       if (!m) {
         m = document.createElement('span');
