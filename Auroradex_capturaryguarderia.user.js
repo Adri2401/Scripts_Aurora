@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.7.1
+// @version      2.8.0
 // @description  Auto-explora y captura; ante shiny/legendario vibra, notifica y PARA la macro para captura manual. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -52,6 +52,7 @@
     PARTNER_KEY: 'adx_macro_partner',      // Pokémon 2 de la crianza (se mantiene la clave antigua)
     PARENT1_KEY: 'adx_macro_parent1',      // Pokémon 1 de la crianza (por defecto Ditto)
     MODE_KEY: 'adx_macro_nursery_mode',    // off | pair | mystery
+    X2_KEY: 'adx_macro_egg_x2',            // '1': alguien del equipo lleva la Piedra Cálida (los huevos progresan el doble)
     ENERGY_KEY: 'adx_macro_energy_limit',  // energía máxima a gastar por sesión (vacío = sin límite; 0 = solo lo gratis de la manada)
     DEFAULT_PARENT1: 'Ditto',
 
@@ -478,6 +479,18 @@
       ${U} .adx-seg button{padding:8px 4px;font-size:11px;font-weight:800;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.15}
       ${U} .adx-seg button span:first-child{font-size:18px}
       ${U} .adx-pair{display:grid;grid-template-columns:1fr auto 1fr;gap:6px;align-items:center}
+      ${U} .adx-x2{width:100%;display:flex;align-items:center;gap:10px;padding:8px 10px;text-align:left;margin-top:8px;transition:box-shadow .2s, background .2s}
+      ${U} .adx-x2 img{width:30px;height:30px;image-rendering:pixelated;flex-shrink:0;transition:filter .3s, transform .3s}
+      ${U} .adx-x2[aria-checked="false"] img{filter:grayscale(1) opacity(.55)}
+      ${U} .adx-x2[aria-checked="true"] img{filter:drop-shadow(0 0 5px #FF8A3A);transform:scale(1.06)}
+      ${U} .adx-x2[aria-checked="true"]{box-shadow:0 0 0 1px #FFB347, 0 0 14px -4px #FF8A3A}
+      ${U} .adx-x2 .adx-x2-t{flex:1;min-width:0;line-height:1.2}
+      ${U} .adx-x2 .adx-x2-t b{display:block;font-size:12px;font-weight:800}
+      ${U} .adx-x2 .adx-x2-t small{display:block;font-size:10px;font-weight:700;opacity:.75}
+      ${U} .adx-x2 .adx-sw{position:relative;width:38px;height:22px;border-radius:999px;flex-shrink:0;background:rgba(127,127,127,.35);transition:background .2s}
+      ${U} .adx-x2 .adx-sw::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .2s}
+      ${U} .adx-x2[aria-checked="true"] .adx-sw{background:linear-gradient(90deg,#FF8A3A,#E0473A)}
+      ${U} .adx-x2[aria-checked="true"] .adx-sw::after{transform:translateX(16px)}
       ${U} .adx-heart{font-size:16px;opacity:.8}
       ${U} .adx-err{box-shadow:0 0 0 2px #E0473A}
       ${U} .adx-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
@@ -514,6 +527,9 @@
   const FIELD = 'w-full rounded-card border-2 border-crema-200 bg-crema-50 px-3 py-2 text-sm font-semibold text-tinta-600 outline-none';
   const BALL_IMG = { poke: 'poke-ball', super: 'great-ball', ultra: 'ultra-ball', master: 'master-ball' };
   const MYSTERY_LEFT_KEY = 'adx_macro_mystery_left';
+  // Piedra Cálida: cada exploración suma 2 al huevo (uno de 5 se abre en 3 exploraciones)
+  const eggX2 = () => lsGet(CONFIG.X2_KEY, '0') === '1';
+  const pasoHuevo = () => (eggX2() ? 2 : 1);
 
   const fmtTime = ms => {
     const t = Math.max(0, Math.floor(ms / 1000));
@@ -568,6 +584,11 @@
             <span class="adx-heart">💗</span>
             <input id="adx-partner" class="adx-in-p2 ${FIELD}" type="text" placeholder="Pareja" aria-label="Pokémon 2" autocomplete="off" spellcheck="false">
           </div>
+          <button type="button" role="switch" class="adx-x2 rounded-card border-2 border-ambar-200 bg-ambar-50 text-ambar-700" aria-checked="false">
+            <img src="/items/piedra-calida.png?v=5" alt="">
+            <span class="adx-x2-t"><b>Piedra Cálida</b><small class="adx-x2-s"></small></span>
+            <span class="adx-sw" aria-hidden="true"></span>
+          </button>
           <p class="adx-mystery-info mt-1 flex items-center gap-2 rounded-card border-2 p-1.5 text-[11px] font-extrabold border-ambar-200 bg-ambar-50 text-ambar-700" style="margin-top:8px">
             <img src="/items/mystery-egg.png?v=5" alt="" width="18" height="18" class="pixelado" style="width:18px;height:18px"><span class="adx-mystery-t"></span>
           </p>
@@ -631,6 +652,17 @@
     for (const b of $$('[data-e]', card)) b.addEventListener('click', () => setEnergy(Math.max(0, (getEnergyLimit() ?? 0) + +b.dataset.e)));
     for (const b of $$('[data-q]', card)) b.addEventListener('click', () => setEnergy(b.dataset.q));
     for (const b of $$('[data-mode]', card)) b.addEventListener('click', () => { lsSet(CONFIG.MODE_KEY, b.dataset.mode); renderUI(); });
+    const x2 = $('.adx-x2', card);
+    if (x2) x2.addEventListener('click', () => {
+      const on = !eggX2();
+      lsSet(CONFIG.X2_KEY, on ? '1' : '0');
+      // lo que faltaba para el huevo se recalcula con el nuevo ritmo
+      if (S.eggMax > 0) {
+        const faltaProgreso = Math.max(0, (S.nurseryIn - S.sinceNursery) * (on ? 1 : 2));
+        S.nurseryIn = S.sinceNursery + Math.max(1, Math.ceil(faltaProgreso / (on ? 2 : 1)));
+      }
+      renderUI();
+    });
 
     inP1.addEventListener('input', () => lsSet(CONFIG.PARENT1_KEY, inP1.value.trim()));
     // Si se deja vacío, al salir del campo vuelve a Ditto
@@ -753,6 +785,13 @@
     }
     const pair = $('.adx-pair', card);
     if (pair) pair.hidden = mode !== 'pair';
+    const x2b = $('.adx-x2', card);
+    if (x2b) {
+      const on = eggX2();
+      x2b.hidden = mode === 'off';
+      if (x2b.getAttribute('aria-checked') !== String(on)) x2b.setAttribute('aria-checked', String(on));
+      setText($('.adx-x2-s', card), on ? 'Los huevos progresan ×2: uno de 5 se abre en 3 exploraciones' : 'Actívalo si alguien del equipo la lleva (huevos ×2)');
+    }
     const mys = $('.adx-mystery-info', card);
     if (mys) {
       mys.hidden = mode !== 'mystery';
@@ -779,8 +818,8 @@
     if (egg) egg.hidden = !eggKnown;
     if (eggKnown) {
       const left = Math.max(0, S.nurseryIn - S.sinceNursery);
-      const done = Math.min(S.eggMax, S.eggMax - left);
-      setText($('.adx-egg-t', card), left ? `faltan ${left} exploraciones` : '¡listo para abrir!');
+      const done = Math.max(0, Math.min(S.eggMax, S.eggMax - left * pasoHuevo()));
+      setText($('.adx-egg-t', card), left ? `faltan ${left} exploraciones${eggX2() ? ' · ×2' : ''}` : '¡listo para abrir!');
       const eb = $('.adx-egg-bar', card);
       if (eb) eb.style.width = Math.round((done / S.eggMax) * 100) + '%';
     }
@@ -1592,14 +1631,15 @@
       const items = await waitFor(run, () => { const l = readEggItems(); return l.length ? l : null; }, 4000);
       const stuck = items && items.find(x => x.cur >= x.max && !x.ready);
       if (stuck) throw new Fail(`Huevo completo (${stuck.cur}/${stuck.max}) pero «Abrir» sigue deshabilitado.`);
+      // con la Piedra Cálida cada exploración suma 2: faltan la mitad (redondeando hacia arriba)
       const remaining = items
-        ? Math.min(...items.map(x => Math.max(1, x.max - x.cur)))
+        ? Math.min(...items.map(x => Math.max(1, Math.ceil((x.max - x.cur) / pasoHuevo()))))
         : CONFIG.NURSERY_FALLBACK_EXPLORES;
 
       S.nurseryIn = remaining;
       const watched = items && items.reduce((a, x) => (!a || x.max - x.cur < a.max - a.cur ? x : a), null);
       S.eggMax = watched ? watched.max : 0;
-      log(`Guardería: próxima revisión en ${remaining} exploraciones.`, items ? items.map(x => `${x.cur}/${x.max}`) : '(sin huevo legible)');
+      log(`Guardería: próxima revisión en ${remaining} exploraciones${eggX2() ? ' (Piedra Cálida: ×2)' : ''}.`, items ? items.map(x => `${x.cur}/${x.max}`) : '(sin huevo legible)');
     } catch (e) {
       if (e instanceof Fail) await navigate(run, '/mapa').catch(() => {});  // intentar dejarte en el mapa con el aviso visible
       throw e;
