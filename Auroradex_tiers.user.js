@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.7.0
-// @description  En /equipo y en la Torre (/torre). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
+// @version      1.8.0
+// @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos: para cada trono, los 6 de ese tipo que más ganan para quitarlo y para defenderlo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_tiers.user.js
@@ -585,14 +585,15 @@
       return { rivs: barajar(rivs, azar), perm: barajar([0, 1, 2, 3, 4, 5], azar) };
     });
   }
-  function notaEquipo(equipo, sims) {
+  // `n`: cuántos salen de cada lado (6 en la Torre; 3 en los Tronos, los primeros del sorteo)
+  function notaEquipo(equipo, sims, n = 6) {
     let g = 0, k = 0;
     for (const s of sims) {
-      const r = combateT(s.perm.filter(i => i < equipo.length).map(i => equipo[i]), s.rivs);
+      const r = combateT(s.perm.filter(i => i < equipo.length).slice(0, n).map(i => equipo[i]), n < 6 ? s.rivs.slice(0, n) : s.rivs);
       if (r.gana) g++;
       k += r.caidos;
     }
-    return { g: g / sims.length, k: k / sims.length / 6 };
+    return { g: g / sims.length, k: k / sims.length / n };
   }
   const valorN = n => n.g + n.k * 0.15;
 
@@ -695,7 +696,7 @@
       return { c, v: v / pesoT };
     }).sort((a, b) => b.v - a.v || b.c.stats.total - a.c.stats.total);
   }
-  function mejorEquipo(unicos, sims, pool, previo) {
+  function mejorEquipo(unicos, sims, pool, previo, n = 6) {
     const sueltos = sueltosTorre(unicos, pool);
     const pre = sueltos.slice(0, 28).map(x => x.c);
     const amenazas = pool.filter(p => p.k[0] === 'V').sort((a, b) => b.w - a.w || (a.k < b.k ? -1 : 1)).slice(0, 12);
@@ -704,7 +705,7 @@
       for (const f of frenan.slice(0, 2)) if (!pre.includes(f.c)) pre.push(f.c);
     }
     const simsB = sims.length > 500 ? sims.slice(0, 500) : sims;
-    const notaCon = (eq, ss) => valorN(notaEquipo(eq.map(c => luchadorT(c)), ss));
+    const notaCon = (eq, ss) => valorN(notaEquipo(eq.map(c => luchadorT(c)), ss, n));
     const nota = eq => notaCon(eq, simsB);
     const mejorar = eq => {
       let v0 = nota(eq);
@@ -1155,6 +1156,7 @@
     const est = estadoTorre();
     if (!est) return;
     aprenderTorre(est);
+    guardarColeccion(est);
     insigniasTorre(est);
     // el cálculo del equipo hace falta también en «Retar» (para el banco de rivales); el panel solo sale en «Mi equipo»
     if ($$('main ul.grid').some(u => u.querySelector(':scope > li > button'))) panelTorre(est);
@@ -1176,7 +1178,141 @@
   }
 
   /* ------------------------------------------------------------------ *
-   *  ARRANQUE: solo en /equipo y /torre; se repasa al cambiar la página (con un pequeño retraso para no cargar)
+   *  LOS TRONOS (/tronos)
+   *  Un trono por tipo y reto en espejo: los dos equipos tienen que ser de ese tipo (como primero o como segundo), el del
+   *  trono va a ciegas y en cada combate salen 3 de los 6 de cada lado, al azar. Tus Pokémon salen de la Torre (modo
+   *  clásico: todos, a Nv.50 y con su objeto), así que hace falta haberla abierto alguna vez. Para cada trono:
+   *  · Atacar: los 6 de ese tipo que más ganan contra equipos de ese tipo (los vistos en la Torre y un banco de ese tipo
+   *    combinado con todos los demás, tan fuerte como los mejores de ese tipo que se conocen).
+   *  · Defender: los que más ganan contra los 12 MÁS FUERTES de ese tipo, que es lo que traerá quien quiera quitártelo.
+   * ------------------------------------------------------------------ */
+  const LS_COLE = 'axt-coleccion', LS_TRONOS = 'axt-tronos-rec';
+  const enTronos = () => /^\/tronos(\/|$)/.test(location.pathname);
+  function guardarColeccion(est) {
+    if (est.modo !== 'clasico') return;
+    const lista = est.candidatos.filter(c => c.stats && c.tipo1).map(c => ({ id: c.id, nombre: c.nombre, especie: c.especie, tipo1: c.tipo1, tipo2: c.tipo2 || null, stats: c.stats, itemId: c.itemId || null, sprite: c.sprite }));
+    const firma = hash32(JSON.stringify(lista));
+    const g = lsGet(LS_COLE, null);
+    if (!g || g.firma !== firma) lsPut(LS_COLE, { firma, t: Date.now(), lista });
+  }
+  const tiposDeC = c => [c.tipo1, c.tipo2].map(tipoDe).filter(Boolean);
+  // Los Pokémon vistos en «Retar» de la Torre (las dos ligas), con cuántos jugadores los llevaban
+  function vistosTorre() {
+    const g = lsGet(LS_RIV, {}), peso = {}, pokes = {};
+    let equipos = 0;
+    for (const m of Object.values(g)) {
+      equipos += Object.keys(m.rivales || {}).length;
+      for (const r of Object.values(m.rivales || {})) for (const k of r.claves) if (m.pokes[k]) { peso[k] = (peso[k] || 0) + 1; pokes[k] = m.pokes[k]; }
+    }
+    return { equipos, lista: Object.keys(peso).sort().map(k => ({ k, p: pokes[k], w: peso[k] })) };
+  }
+  function unicosDe(lista) {
+    const porEspecie = {};
+    for (const c of lista) { const k = c.especie || c.nombre; if (!porEspecie[k] || c.stats.total > porEspecie[k].stats.total) porEspecie[k] = c; }
+    return Object.values(porEspecie).sort((a, b) => b.stats.total - a.stats.total || (String(a.id) < String(b.id) ? -1 : 1));
+  }
+  function calcularTrono(t, lista, vt, prev) {
+    const mios = unicosDe(lista.filter(c => tiposDeC(c).includes(t)));
+    if (!mios.length) return { t, n: 0 };
+    const vistos = vt.lista.filter(x => tiposDeC(x.p).includes(t)).map(x => ({ k: 'V|' + x.k, l: luchadorT(x.p), w: x.w }));
+    const bm = Math.round(baseMediaDe([...mios, ...vt.lista.filter(x => tiposDeC(x.p).includes(t)).map(x => x.p)]) / 5) * 5;
+    const sint = [t, ...TIPOS.filter(x => x !== t).map(x => t + '/' + x)].flatMap(ts => PERFILES.map((pf, i) => ({ k: 'S|' + ts + '|' + i, l: { ...stats(pf.map(v => Math.max(20, Math.round(v + bm - 80))), 50), L: 50, tipos: ts.split('/'), num: 0, nombre: bonito(t) }, w: 1 })));
+    const pesoVistos = vistos.reduce((x, v) => x + v.w, 0);
+    const parte = Math.max(0.3, 1 / (1 + vistos.length / 6));
+    if (pesoVistos) for (const x of sint) x.w = pesoVistos * parte / (1 - parte) / sint.length;
+    const poolA = [...vistos, ...sint];
+    // retadores: los 12 más fuertes de ese tipo que existen de verdad (los tuyos y los vistos en la Torre: otros jugadores
+    // tendrán parecidos), todos con el mismo peso; solo si no llegan a 6 se completa con lo mejor del banco
+    const pesoA = poolA.reduce((x, p) => x + p.w, 0);
+    const fuerza = l => poolA.reduce((x, p) => x + ventaja(l, p.l) * p.w, 0) / pesoA;
+    const porFuerza = arr => arr.map(p => ({ ...p, f: fuerza(p.l) })).sort((a, b) => b.f - a.f || (a.k < b.k ? -1 : 1));
+    const reales = porFuerza([...mios.map(c => ({ k: 'M|' + c.id, l: luchadorT(c) })), ...vistos]).slice(0, 12);
+    const poolD = [...reales, ...(reales.length < 6 ? porFuerza(sint).slice(0, 6 - reales.length) : [])].map(p => ({ k: p.k, l: p.l, w: 1 }));
+    const simsA = simulaciones(poolA, 600, 21), simsD = simulaciones(poolD, 600, 22);
+    const datosT = hash32(JSON.stringify([mios.map(c => c.id + '|' + c.stats.total + '|' + c.itemId), poolA.map(p => p.k + ':' + p.w.toFixed(3)), firmaCal()]));
+    const elegir = (sims, pool, ant) => {
+      if (mios.length <= 6) return mios;
+      if (prev && prev.datos === datosT && ant && ant.every(id => mios.some(c => String(c.id) === id))) return ant.map(id => mios.find(c => String(c.id) === id));
+      return mejorEquipo(mios, sims, pool, ant, 3).eq;
+    };
+    const atk = elegir(simsA, poolA, prev && prev.atk), def = elegir(simsD, poolD, prev && prev.def);
+    const nota = (eq, sims) => notaEquipo(eq.map(c => luchadorT(c)), sims, 3).g;
+    return { t, n: mios.length, datos: datosT, atk, def, gA: nota(atk, simsA), gD: nota(def, simsD), mismo: atk.map(c => c.id).sort().join() === def.map(c => c.id).sort().join() };
+  }
+  function tarjetasTronos() {
+    return $$('main section.grid > button.tarjeta').map(b => { const t = tipoDe((b.querySelector('p.font-display') || {}).textContent || ''); return t ? { b, t } : null; }).filter(Boolean);
+  }
+  let memoTronos = null, calculandoTronos = false;
+  function tronos() {
+    const cartas = tarjetasTronos();
+    if (!cartas.length) return;
+    const cabecera = $$('main section').find(sec => /los tronos/i.test((sec.querySelector('h1') || {}).textContent || ''));
+    let caja = document.getElementById('axt-tronos');
+    if (!caja) { caja = document.createElement('section'); caja.id = 'axt-tronos'; caja.className = 'tarjeta space-y-1.5 p-3'; caja.setAttribute('data-ax-ignore', '1'); }
+    const ancla = cabecera || cartas[0].b.parentElement;
+    if (cabecera ? caja.previousElementSibling !== cabecera : caja.nextElementSibling !== ancla) (cabecera ? cabecera.insertAdjacentElement('afterend', caja) : ancla.insertAdjacentElement('beforebegin', caja));
+    const pinta = html => { if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; } };
+    const titulo = '<p class="titulo-seccion !mb-0">👑 Tus mejores equipos por trono</p>';
+    const cole = lsGet(LS_COLE, null);
+    if (!cole) { pinta(titulo + '<p class="text-[11px] font-semibold text-tinta-500">Abre una vez la <b>Torre Desafío</b> en modo clásico: de ahí salen tus Pokémon con sus estadísticas a Nv.50.</p>'); return; }
+    const tipos = [...new Set(cartas.map(x => x.t))];
+    const vt = vistosTorre();
+    const firma = cole.firma + '|' + tipos.join(',') + '|' + firmaCal() + '|' + vt.lista.length;
+    if (!memoTronos || memoTronos.firma !== firma) {
+      if (calculandoTronos) return;
+      calculandoTronos = true;
+      memoTronos = { firma, res: {}, listo: false };
+      const M = memoTronos, recs = lsGet(LS_TRONOS, {});
+      let i = 0;
+      // de uno en uno, dejando respirar a la página entre trono y trono
+      const siguiente = () => {
+        if (memoTronos !== M) { calculandoTronos = false; return; }
+        if (i >= tipos.length) {
+          M.listo = true; calculandoTronos = false;
+          for (const r of Object.values(M.res)) if (r.n) recs[r.t] = { datos: r.datos, atk: r.atk.map(c => String(c.id)), def: r.def.map(c => String(c.id)) };
+          lsPut(LS_TRONOS, recs);
+          programar();
+          return;
+        }
+        const t = tipos[i++];
+        try { M.res[t] = calcularTrono(t, cole.lista, vt, recs[t]); } catch (e) { console.warn('[axt tronos]', t, e); }
+        programar();
+        setTimeout(siguiente, 30);
+      };
+      setTimeout(siguiente, 60);
+    }
+    const M = memoTronos;
+    const col = g => (g >= 0.6 ? '#2FA84F' : g >= 0.4 ? '#D08A00' : '#E0473A');
+    const nombres = eq => eq.map(c => `${chipTier(c)}${c.nombre}`).join(' · ');
+    const filas = tipos.map(t => {
+      const r = M.res[t];
+      if (!r) return `<p class="text-[11px] font-semibold text-tinta-400"><b>${bonito(t)}</b>: calculando…</p>`;
+      if (!r.n) return `<p class="text-[11px] font-semibold text-tinta-400"><b>${bonito(t)}</b>: no tienes ningún Pokémon de tipo ${bonito(t)}.</p>`;
+      const pocos = r.n < 6 ? ` <span class="text-ambar-600">(solo tienes ${r.n}${r.n < 3 ? ': no llegas ni a los 3 que salen' : ''})</span>` : ` <span class="text-tinta-400">(tienes ${r.n})</span>`;
+      return `<div class="rounded-card border-2 border-crema-200 p-2 space-y-0.5">
+        <p class="text-[11px] font-extrabold">${bonito(t)}${pocos}</p>
+        <p class="text-[11px] font-semibold text-tinta-600">⚔️ Para quitarlo: ${nombres(r.atk)} <b style="color:${col(r.gA)}">≈ ${pctT(r.gA)}</b></p>
+        ${r.mismo ? '<p class="text-[10px] font-semibold text-tinta-400">🛡️ Para defenderlo: el mismo equipo.</p>' : `<p class="text-[11px] font-semibold text-tinta-600">🛡️ Para defenderlo: ${nombres(r.def)} <b style="color:${col(r.gD)}">≈ ${pctT(r.gD)}</b></p>`}
+      </div>`;
+    }).join('');
+    pinta(`${titulo}${filas}
+      <p class="text-[10px] font-semibold text-tinta-400">Cada trono solo admite ese tipo (en cualquiera de sus dos tipos), así que la ventaja está en el <b>segundo tipo</b> y en las estadísticas. En cada combate salen 3 de tus 6 al azar: el % es de victorias con 3 de ellos al azar contra 3 del rival. «Para quitarlo»: contra equipos de ese tipo de todo tipo (los vistos en la Torre y un banco con ese tipo combinado con todos los demás). «Para defenderlo»: contra los 12 más fuertes de ese tipo que existen de verdad (los tuyos y los vistos en la Torre), que es lo que traerá quien vaya a por tu trono. Tus Pokémon, a Nv.50 y con su objeto, según la Torre${cole.t ? ` (vista el ${new Date(cole.t).toLocaleDateString()})` : ''}.</p>`);
+    // en cada trono, su resumen
+    for (const { b, t } of cartas) {
+      const r = M.res[t];
+      const zona = b.querySelector('div.flex.flex-wrap') || b;
+      let sp = zona.querySelector(':scope > .axt-trono');
+      const txt = !r ? '' : !r.n ? 'sin Pokémon de este tipo' : `⚔️ ${pctT(r.gA)}${r.mismo ? '' : ` · 🛡️ ${pctT(r.gD)}`}`;
+      if (!txt) { if (sp) sp.remove(); continue; }
+      if (!sp) { sp = document.createElement('span'); sp.className = 'axt-trono pastilla border border-crema-300 text-[10px] font-extrabold'; sp.setAttribute('data-ax-ignore', '1'); zona.appendChild(sp); }
+      if (sp.textContent !== txt) sp.textContent = txt;
+      sp.style.color = r.n ? col(r.gA) : '';
+    }
+  }
+  const chipTier = c => { const tt = tierTorre(c); return `<span style="display:inline-grid;place-items:center;min-width:14px;height:14px;border-radius:999px;background:${tt.color};color:#fff;font-size:8px;font-weight:900;margin-right:2px">${tt.letra}</span>`; };
+
+  /* ------------------------------------------------------------------ *
+   *  ARRANQUE: solo en /equipo, /torre y /tronos; se repasa al cambiar la página (con un pequeño retraso para no cargar)
    * ------------------------------------------------------------------ */
   let prog = null, listo = false;
   function programar() {
@@ -1186,13 +1322,14 @@
       try {
         if (enEquipo()) { decorarTarjetas(); decorarFichas(); botonOrden(); ordenar(); ordenEquipo(); }
         else if (enTorre()) torre();
+        else if (enTronos()) tronos();
       } catch (e) { console.warn('[axt]', e); }
     }, 250);
   }
   new MutationObserver(muts => {
-    if (!enEquipo() && !enTorre()) return;
+    if (!enEquipo() && !enTorre() && !enTronos()) return;
     // se ignoran los cambios que hace este mismo script
-    if (muts.every(m => [...m.addedNodes].every(n => n.nodeType === 1 && (n.classList.contains('axt-tier') || n.classList.contains('axt-ficha') || n.id === 'axt-equipo' || n.id === 'axt-torre' || n.classList.contains('axt-orden') || n.classList.contains('axt-predic') || n.classList.contains('axt-rec'))))) return;
+    if (muts.every(m => [...m.addedNodes].every(n => n.nodeType === 1 && (n.classList.contains('axt-tier') || n.classList.contains('axt-ficha') || n.id === 'axt-equipo' || n.id === 'axt-torre' || n.id === 'axt-tronos' || n.classList.contains('axt-trono') || n.classList.contains('axt-orden') || n.classList.contains('axt-predic') || n.classList.contains('axt-rec'))))) return;
     programar();
   }).observe(document.documentElement, { childList: true, subtree: true });
   // se espera a que la web termine de montarse (tocar el DOM antes provoca errores de hidratación de React)
@@ -1200,5 +1337,5 @@
   const arrancar = () => setTimeout(() => { listo = true; programar(); }, 1500);
   if (document.readyState === 'complete') arrancar(); else window.addEventListener('load', arrancar);
 
-  window.__axTiers = { analizar, stats, datos, mejoras, calibracion: () => ({ ...CAL, ...infoCal }), estadoTorre, luchadorT, notaEquipo, simulaciones, mejorEquipo, poolTorre, candidatosUnicos, tierTorre };
+  window.__axTiers = { analizar, stats, datos, mejoras, calibracion: () => ({ ...CAL, ...infoCal }), estadoTorre, luchadorT, notaEquipo, simulaciones, mejorEquipo, poolTorre, candidatosUnicos, tierTorre, calcularTrono, vistosTorre };
 })();
