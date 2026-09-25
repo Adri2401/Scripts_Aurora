@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.9.2
+// @version      1.10.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan, con quién llenar los huecos y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -698,7 +698,8 @@
       return { c, v: v / pesoT };
     }).sort((a, b) => b.v - a.v || b.c.stats.total - a.c.stats.total);
   }
-  function mejorEquipo(unicos, sims, pool, previo, n = 6) {
+  // `n`: cuántos salen de cada lado; `tam`: cuántos lleva el equipo
+  function mejorEquipo(unicos, sims, pool, previo, n = 6, tam = 6) {
     const sueltos = sueltosTorre(unicos, pool);
     const pre = sueltos.slice(0, 28).map(x => x.c);
     const amenazas = pool.filter(p => p.k[0] === 'V').sort((a, b) => b.w - a.w || (a.k < b.k ? -1 : 1)).slice(0, 12);
@@ -727,7 +728,7 @@
       return { eq, v: v0 };
     };
     let eq = [];
-    while (eq.length < Math.min(6, pre.length)) {
+    while (eq.length < Math.min(tam, pre.length)) {
       let mejor = null;
       for (const c of pre) { if (eq.includes(c)) continue; const v = nota([...eq, c]); if (!mejor || v > mejor.v) mejor = { c, v }; }
       eq.push(mejor.c);
@@ -735,7 +736,7 @@
     let r = mejorar(eq);
     const prev = (previo || []).map(id => unicos.find(c => String(c.id) === String(id))).filter(Boolean);
     let seMantiene = false;
-    if (prev.length === 6 && r.eq.length === 6) {
+    if (prev.length === tam && r.eq.length === tam) {
       for (const c of prev) if (!pre.includes(c)) pre.push(c);
       const r2 = mejorar(prev);
       if (r2.v > r.v) r = r2;
@@ -1304,13 +1305,31 @@
     const { mios } = B;
     if (!mios.length) return { t, n: 0, B };
     const datosT = hash32(JSON.stringify([mios.map(c => c.id + '|' + c.stats.total + '|' + c.itemId), B.poolA.map(p => p.k + ':' + p.w.toFixed(3)), firmaCal()]));
-    let eq;
-    if (mios.length <= 6) eq = mios;
-    else if (prev && prev.datos === datosT && prev.eq && prev.eq.every(id => mios.some(c => String(c.id) === id))) eq = prev.eq.map(id => mios.find(c => String(c.id) === id));
-    else eq = mejorEquipo(mios, B.sims, B.poolA, prev && prev.eq, 3).eq;
+    // Como salen 3 al azar, cada uno pelea 3 de cada N veces sin mirar contra quién: meter uno flojo baja la media.
+    // Se busca el mejor equipo de 3, de 4, de 5 y de 6 y se queda el que más gana (media de quitarlo y defenderlo).
+    const media = eq => { const q = notasTrono(eq.map(c => luchadorT(c)), B); return (q.gA + q.gD) / 2; };
+    let eq, porTam;
+    if (prev && prev.datos === datosT && prev.eq && prev.porTam && prev.eq.every(id => mios.some(c => String(c.id) === id))) {
+      eq = prev.eq.map(id => mios.find(c => String(c.id) === id));
+      porTam = prev.porTam;
+    } else if (mios.length <= 3) {
+      eq = mios; porTam = { [mios.length]: media(mios) };
+    } else {
+      porTam = {};
+      let mejor = null;
+      for (let k = 3; k <= Math.min(6, mios.length); k++) {
+        const ant = prev && prev.eq && prev.eq.length === k ? prev.eq : null;
+        const e = mejorEquipo(mios, B.sims, B.poolA, ant, 3, k).eq;
+        const v = media(e);
+        porTam[k] = v;
+        // a igualdad (medio punto), mejor con más: depende menos de que toque justo la peor combinación
+        if (!mejor || v > mejor.v + 0.005 || (v > mejor.v - 0.005 && k > mejor.e.length)) mejor = { e, v };
+      }
+      eq = mejor.e;
+    }
     const eqL = eq.map(c => luchadorT(c));
     const normal = eqL.map(l => usoNormal(l, [...B.poolA, ...B.poolD]));
-    return { t, n: mios.length, datos: datosT, eq, normal, ...notasTrono(eqL, B), B };
+    return { t, n: mios.length, datos: datosT, eq, porTam, normal, ...notasTrono(eqL, B), B };
   }
   function tarjetasTronos() {
     return $$('main section.grid > button.tarjeta').map(b => { const t = tipoDe((b.querySelector('p.font-display') || {}).textContent || ''); return t ? { b, t } : null; }).filter(Boolean);
@@ -1335,7 +1354,7 @@
       const recs = lsGet(LS_TRONOS, {});
       const r = calcularTrono(t, cole.lista, vt, recs[t]);
       memoTronos.res[t] = r;
-      if (r.n) { recs[t] = { datos: r.datos, eq: r.eq.map(c => String(c.id)) }; lsPut(LS_TRONOS, recs); }
+      if (r.n) { recs[t] = { datos: r.datos, eq: r.eq.map(c => String(c.id)), porTam: r.porTam }; lsPut(LS_TRONOS, recs); }
     }
     return memoTronos.res[t];
   }
@@ -1408,18 +1427,33 @@
     const enEq = new Set(validos.map(x => x.c.especie || x.c.nombre));
     const libres = B.mios.filter(c => !enEq.has(c.especie || c.nombre));
     const valor = arr => { const q = notasTrono(arr, B); return (q.gA + q.gD) / 2; };
-    if (eqL.length < 6 && libres.length) {
-      const opciones = libres.map(c => ({ c, v: valor([...eqL, luchadorT(c)]) })).sort((a, b) => b.v - a.v).slice(0, 3);
-      lineas.push(`<p class="text-[11px] font-semibold text-tinta-600">➕ Para llenar huecos, los que más suben: ${opciones.map(o => `<b>${o.c.nombre}</b> (≈ ${pctT(o.v)})`).join(' · ')}</p>`);
-    } else if (eqL.length === 6 && libres.length) {
+    if (eqL.length) {
       const base = valor(eqL);
-      let mejor = null;
-      eqL.forEach((_, i) => { for (const c of libres.slice(0, 20)) { const v = valor(eqL.map((y, k) => (k === i ? luchadorT(c) : y))); if (!mejor || v > mejor.v) mejor = { i, c, v }; } });
-      if (mejor && mejor.v > base + 0.02) lineas.push(`<p class="text-[11px] font-semibold text-tinta-600">🔁 Cambiar <b>${validos[mejor.i].m.nombre}</b> por <b>${mejor.c.nombre}</b>: de ≈ ${pctT(base)} a ≈ ${pctT(mejor.v)} (media de quitarlo y defenderlo).</p>`);
-      else lineas.push('<p class="text-[10px] font-semibold text-hoja-600">✔ Ningún cambio suelto lo mejora claramente.</p>');
+      const cambios = [];
+      // añadir (solo si sube: uno flojo baja la media, porque sale igual de a menudo que los buenos)
+      if (eqL.length < 6 && libres.length) {
+        const opciones = libres.map(c => ({ c, v: valor([...eqL, luchadorT(c)]) })).sort((a, b) => b.v - a.v).filter(o => o.v > base + 0.01).slice(0, 3);
+        if (opciones.length) cambios.push(`➕ Añadir sube: ${opciones.map(o => `<b>${o.c.nombre}</b> (≈ ${pctT(o.v)})`).join(' · ')}`);
+        else cambios.push('✔ No añadas a nadie: cualquiera de los que te quedan baja la media');
+      }
+      // quitar (con más de 3)
+      if (eqL.length > 3) {
+        const q = eqL.map((_, i) => ({ i, v: valor(eqL.filter((__, k) => k !== i)) })).sort((a, b) => b.v - a.v)[0];
+        if (q.v > base + 0.01) cambios.push(`➖ Quitar a <b>${validos[q.i].m.nombre}</b> sube a ≈ ${pctT(q.v)}`);
+      }
+      // cambiar uno por otro
+      if (libres.length && eqL.length >= 3) {
+        let mejor = null;
+        eqL.forEach((_, i) => { for (const c of libres.slice(0, 20)) { const v = valor(eqL.map((y, k) => (k === i ? luchadorT(c) : y))); if (!mejor || v > mejor.v) mejor = { i, c, v }; } });
+        if (mejor && mejor.v > base + 0.02) cambios.push(`🔁 Cambiar a <b>${validos[mejor.i].m.nombre}</b> por <b>${mejor.c.nombre}</b> sube a ≈ ${pctT(mejor.v)}`);
+      }
+      lineas.push(`<p class="text-[11px] font-semibold text-tinta-600">Ahora ≈ ${pctT(base)} (media de quitarlo y defenderlo). ${cambios.join('. ')}.</p>`);
     }
     const ids = new Set(validos.map(x => String(x.c.id)));
-    if (r.eq && !(r.eq.length === ids.size && r.eq.every(c => ids.has(String(c.id))))) lineas.push(`<p class="text-[10px] font-semibold text-tinta-500">⭐ El mejor con lo que tienes: ${r.eq.map(c => c.nombre).join(' · ')} (⚔️ ≈ ${pctT(r.gA)} · 🛡️ ≈ ${pctT(r.gD)}).</p>`);
+    const tams = Object.entries(r.porTam || {}).map(([k, v]) => `con ${k} ≈ ${pctT(v)}`).join(' · ');
+    if (r.eq && !(r.eq.length === ids.size && r.eq.every(c => ids.has(String(c.id))))) lineas.push(`<p class="text-[10px] font-semibold text-tinta-500">⭐ Lo mejor con lo que tienes, <b>${r.eq.length}</b>: ${r.eq.map(c => c.nombre).join(' · ')} (⚔️ ≈ ${pctT(r.gA)} · 🛡️ ≈ ${pctT(r.gD)}).</p>`);
+    else lineas.push('<p class="text-[10px] font-semibold text-hoja-600">⭐ Ya tienes puesto el mejor equipo posible.</p>');
+    if (tams) lineas.push(`<p class="text-[10px] font-semibold text-tinta-400">Lo mejor según cuántos lleves: ${tams}. Como salen 3 al azar, uno flojo sale igual de a menudo que los buenos y baja la media: a veces rinde más llevar menos.</p>`);
     pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p>${lineas.join('')}`);
   }
 
