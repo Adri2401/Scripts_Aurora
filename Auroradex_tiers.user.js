@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.8.0
-// @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos: para cada trono, los 6 de ese tipo que más ganan para quitarlo y para defenderlo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
+// @version      1.9.0
+// @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos: para cada trono, los 6 de ese tipo (sin legendarios) que mejor lo quitan y lo defienden, qué movimientos llevar y, en «Mi ficha», qué le falta a tu equipo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_tiers.user.js
@@ -105,11 +105,13 @@
   const MODELO = { potencia: 30.5, se: 1.65, nve: 0.6, critProb: 0.09, critX: 1.64 };
   let CAL = { k: 1, se: MODELO.se, nve: MODELO.nve, critP: MODELO.critProb, critX: MODELO.critX };
   // Tipo con el que ataca `a` a `b`: el suyo más eficaz; ataques Normal si todos los suyos son poco eficaces y Normal no tanto
+  // `a.movs` (Tronos): tipos de los movimientos que lleva; sin movimientos de un tipo no puede pegar con él
   function tipoAtaque(a, b) {
+    const propios = a.movs ? a.tipos.filter(t => a.movs.includes(t)) : a.tipos, conNormal = !a.movs || a.movs.includes('normal');
     let m = null;
-    for (const t of a.tipos) { const e = eficacia(t, b.tipos); if (!m || e > m.e) m = { t, e, propio: true }; }
-    if (!m) m = { t: 'normal', e: eficacia('normal', b.tipos), propio: true };
-    if (m.e < 1) { const en = eficacia('normal', b.tipos); if (en > m.e) return { t: 'normal', e: en, propio: a.tipos.includes('normal') }; }
+    for (const t of propios) { const e = eficacia(t, b.tipos); if (!m || e > m.e) m = { t, e, propio: true }; }
+    if (!m) return conNormal ? { t: 'normal', e: eficacia('normal', b.tipos), propio: a.tipos.includes('normal') } : { t: null, e: 0, propio: false };
+    if (m.e < 1 && conNormal) { const en = eficacia('normal', b.tipos); if (en > m.e) return { t: 'normal', e: en, propio: a.tipos.includes('normal') }; }
     return m;
   }
   // Eficacia tal como la aplica el juego: ×1,65 por cada tipo débil y ×0,6 por cada tipo que resiste
@@ -1179,18 +1181,28 @@
 
   /* ------------------------------------------------------------------ *
    *  LOS TRONOS (/tronos)
-   *  Un trono por tipo y reto en espejo: los dos equipos tienen que ser de ese tipo (como primero o como segundo), el del
-   *  trono va a ciegas y en cada combate salen 3 de los 6 de cada lado, al azar. Tus Pokémon salen de la Torre (modo
-   *  clásico: todos, a Nv.50 y con su objeto), así que hace falta haberla abierto alguna vez. Para cada trono:
-   *  · Atacar: los 6 de ese tipo que más ganan contra equipos de ese tipo (los vistos en la Torre y un banco de ese tipo
-   *    combinado con todos los demás, tan fuerte como los mejores de ese tipo que se conocen).
-   *  · Defender: los que más ganan contra los 12 MÁS FUERTES de ese tipo, que es lo que traerá quien quiera quitártelo.
+   *  Un trono por tipo y reto en espejo: los dos equipos tienen que ser de ese tipo (como primero o como segundo), sin
+   *  legendarios ni especies repetidas. En cada combate salen 3 de los 6 de cada lado, al azar. El mismo equipo ataca
+   *  y, si gana, defiende tal cual: se busca el que mejor hace las dos cosas a la vez (mitad y mitad):
+   *  · Quitarlo: contra equipos de ese tipo (los vistos en la Torre y un banco de ese tipo combinado con todos los
+   *    demás, tan fuerte como los mejores de ese tipo que se conocen).
+   *  · Defenderlo: contra los 12 más fuertes de ese tipo que existen de verdad (tuyos y vistos), que es lo que traerá
+   *    quien vaya a por él.
+   *  Movimientos: hasta 4, de sus tipos y de Normal. Con movimientos de un solo tipo pelea solo con ese tipo, así que lo
+   *  mejor es llevar al menos uno de cada tipo suyo y uno de Normal si le sirve (cuando sus tipos no le hacen nada al
+   *  rival). Tus Pokémon salen de la Torre (modo clásico, a Nv.50 y con su objeto): hace falta haberla abierto una vez.
    * ------------------------------------------------------------------ */
   const LS_COLE = 'axt-coleccion', LS_TRONOS = 'axt-tronos-rec';
   const enTronos = () => /^\/tronos(\/|$)/.test(location.pathname);
+  // Legendarios y singulares (nº de la Pokédex nacional): en los Tronos no se admiten
+  const LEGENDARIOS = new Set([144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386,
+    480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492, 493, 494, 638, 639, 640, 641, 642, 643, 644, 645, 646, 647, 648, 649,
+    716, 717, 718, 719, 720, 721, 772, 773, 785, 786, 787, 788, 789, 790, 791, 792, 800, 801, 802, 807, 808, 809,
+    888, 889, 890, 891, 892, 893, 894, 895, 896, 897, 898, 905, 1001, 1002, 1003, 1004, 1007, 1008, 1014, 1015, 1016, 1017, 1024, 1025]);
+  const esLegendario = c => /legend|m[ií]tic|singular/i.test(c.rareza || '') || LEGENDARIOS.has(numSrc(c.sprite));
   function guardarColeccion(est) {
     if (est.modo !== 'clasico') return;
-    const lista = est.candidatos.filter(c => c.stats && c.tipo1).map(c => ({ id: c.id, nombre: c.nombre, especie: c.especie, tipo1: c.tipo1, tipo2: c.tipo2 || null, stats: c.stats, itemId: c.itemId || null, sprite: c.sprite }));
+    const lista = est.candidatos.filter(c => c.stats && c.tipo1).map(c => ({ id: c.id, nombre: c.nombre, especie: c.especie, tipo1: c.tipo1, tipo2: c.tipo2 || null, stats: c.stats, itemId: c.itemId || null, sprite: c.sprite, rareza: c.rareza || null }));
     const firma = hash32(JSON.stringify(lista));
     const g = lsGet(LS_COLE, null);
     if (!g || g.firma !== firma) lsPut(LS_COLE, { firma, t: Date.now(), lista });
@@ -1211,103 +1223,207 @@
     for (const c of lista) { const k = c.especie || c.nombre; if (!porEspecie[k] || c.stats.total > porEspecie[k].stats.total) porEspecie[k] = c; }
     return Object.values(porEspecie).sort((a, b) => b.stats.total - a.stats.total || (String(a.id) < String(b.id) ? -1 : 1));
   }
-  function calcularTrono(t, lista, vt, prev) {
-    const mios = unicosDe(lista.filter(c => tiposDeC(c).includes(t)));
-    if (!mios.length) return { t, n: 0 };
-    const vistos = vt.lista.filter(x => tiposDeC(x.p).includes(t)).map(x => ({ k: 'V|' + x.k, l: luchadorT(x.p), w: x.w }));
-    const bm = Math.round(baseMediaDe([...mios, ...vt.lista.filter(x => tiposDeC(x.p).includes(t)).map(x => x.p)]) / 5) * 5;
+  // Bancos de rivales de un trono y sus combates de prueba (los de quitarlo y los de defenderlo, intercalados: mitad y mitad)
+  function bancosTrono(t, lista, vt) {
+    const mios = unicosDe(lista.filter(c => tiposDeC(c).includes(t) && !esLegendario(c)));
+    const vistosP = vt.lista.filter(x => tiposDeC(x.p).includes(t) && !esLegendario(x.p));
+    const vistos = vistosP.map(x => ({ k: 'V|' + x.k, l: luchadorT(x.p), w: x.w }));
+    const bm = Math.round(baseMediaDe([...mios, ...vistosP.map(x => x.p)]) / 5) * 5;
     const sint = [t, ...TIPOS.filter(x => x !== t).map(x => t + '/' + x)].flatMap(ts => PERFILES.map((pf, i) => ({ k: 'S|' + ts + '|' + i, l: { ...stats(pf.map(v => Math.max(20, Math.round(v + bm - 80))), 50), L: 50, tipos: ts.split('/'), num: 0, nombre: bonito(t) }, w: 1 })));
     const pesoVistos = vistos.reduce((x, v) => x + v.w, 0);
     const parte = Math.max(0.3, 1 / (1 + vistos.length / 6));
     if (pesoVistos) for (const x of sint) x.w = pesoVistos * parte / (1 - parte) / sint.length;
     const poolA = [...vistos, ...sint];
-    // retadores: los 12 más fuertes de ese tipo que existen de verdad (los tuyos y los vistos en la Torre: otros jugadores
-    // tendrán parecidos), todos con el mismo peso; solo si no llegan a 6 se completa con lo mejor del banco
     const pesoA = poolA.reduce((x, p) => x + p.w, 0);
     const fuerza = l => poolA.reduce((x, p) => x + ventaja(l, p.l) * p.w, 0) / pesoA;
     const porFuerza = arr => arr.map(p => ({ ...p, f: fuerza(p.l) })).sort((a, b) => b.f - a.f || (a.k < b.k ? -1 : 1));
     const reales = porFuerza([...mios.map(c => ({ k: 'M|' + c.id, l: luchadorT(c) })), ...vistos]).slice(0, 12);
     const poolD = [...reales, ...(reales.length < 6 ? porFuerza(sint).slice(0, 6 - reales.length) : [])].map(p => ({ k: p.k, l: p.l, w: 1 }));
-    const simsA = simulaciones(poolA, 600, 21), simsD = simulaciones(poolD, 600, 22);
-    const datosT = hash32(JSON.stringify([mios.map(c => c.id + '|' + c.stats.total + '|' + c.itemId), poolA.map(p => p.k + ':' + p.w.toFixed(3)), firmaCal()]));
-    const elegir = (sims, pool, ant) => {
-      if (mios.length <= 6) return mios;
-      if (prev && prev.datos === datosT && ant && ant.every(id => mios.some(c => String(c.id) === id))) return ant.map(id => mios.find(c => String(c.id) === id));
-      return mejorEquipo(mios, sims, pool, ant, 3).eq;
-    };
-    const atk = elegir(simsA, poolA, prev && prev.atk), def = elegir(simsD, poolD, prev && prev.def);
-    const nota = (eq, sims) => notaEquipo(eq.map(c => luchadorT(c)), sims, 3).g;
-    return { t, n: mios.length, datos: datosT, atk, def, gA: nota(atk, simsA), gD: nota(def, simsD), mismo: atk.map(c => c.id).sort().join() === def.map(c => c.id).sort().join() };
+    const simsA = simulaciones(poolA, 500, 21), simsD = simulaciones(poolD, 500, 22);
+    const sims = simsA.flatMap((s, i) => [s, simsD[i]]);
+    return { t, mios, poolA, poolD, simsA, simsD, sims };
   }
+  // Parte de los rivales (por peso) contra los que pegaría con Normal: si es casi nada, Normal no le hace falta
+  function usoNormal(l, pool) {
+    const pesoT = pool.reduce((x, p) => x + p.w, 0);
+    let w = 0;
+    for (const p of pool) { const a = tipoAtaque(l, p.l); if (a.t === 'normal' && !a.propio) w += p.w; }
+    return w / pesoT;
+  }
+  const notasTrono = (eqL, B) => ({ gA: notaEquipo(eqL, B.simsA, 3).g, gD: notaEquipo(eqL, B.simsD, 3).g });
+  function calcularTrono(t, lista, vt, prev) {
+    const B = bancosTrono(t, lista, vt);
+    const { mios } = B;
+    if (!mios.length) return { t, n: 0, B };
+    const datosT = hash32(JSON.stringify([mios.map(c => c.id + '|' + c.stats.total + '|' + c.itemId), B.poolA.map(p => p.k + ':' + p.w.toFixed(3)), firmaCal()]));
+    let eq;
+    if (mios.length <= 6) eq = mios;
+    else if (prev && prev.datos === datosT && prev.eq && prev.eq.every(id => mios.some(c => String(c.id) === id))) eq = prev.eq.map(id => mios.find(c => String(c.id) === id));
+    else eq = mejorEquipo(mios, B.sims, B.poolA, prev && prev.eq, 3).eq;
+    const eqL = eq.map(c => luchadorT(c));
+    const normal = eqL.map(l => usoNormal(l, [...B.poolA, ...B.poolD]));
+    return { t, n: mios.length, datos: datosT, eq, normal, ...notasTrono(eqL, B), B };
+  }
+  // Movimientos que conviene llevar: uno de cada tipo suyo y Normal si le sirve
+  const movsRecomendados = (l, uso) => [...l.tipos.map(bonito), ...(uso >= 0.05 && !l.tipos.includes('normal') ? [`Normal (le sirve contra el ${pctT(uso)})`] : [])];
   function tarjetasTronos() {
     return $$('main section.grid > button.tarjeta').map(b => { const t = tipoDe((b.querySelector('p.font-display') || {}).textContent || ''); return t ? { b, t } : null; }).filter(Boolean);
   }
-  let memoTronos = null, calculandoTronos = false;
+  let memoTronos = null, calculandoTronos = false, tronoActivo = null;
+  const colPct = g => (g >= 0.6 ? '#2FA84F' : g >= 0.4 ? '#D08A00' : '#E0473A');
   function tronos() {
     const cartas = tarjetasTronos();
+    // al tocar un trono se apunta su tipo (para el análisis de «Mi ficha»)
+    for (const { b, t } of cartas) if (!b.dataset.axtTrono) { b.dataset.axtTrono = t; b.addEventListener('click', () => { tronoActivo = t; }); }
+    fichaTrono();
     if (!cartas.length) return;
     const cabecera = $$('main section').find(sec => /los tronos/i.test((sec.querySelector('h1') || {}).textContent || ''));
     let caja = document.getElementById('axt-tronos');
     if (!caja) { caja = document.createElement('section'); caja.id = 'axt-tronos'; caja.className = 'tarjeta space-y-1.5 p-3'; caja.setAttribute('data-ax-ignore', '1'); }
-    const ancla = cabecera || cartas[0].b.parentElement;
-    if (cabecera ? caja.previousElementSibling !== cabecera : caja.nextElementSibling !== ancla) (cabecera ? cabecera.insertAdjacentElement('afterend', caja) : ancla.insertAdjacentElement('beforebegin', caja));
+    if (cabecera) { if (caja.previousElementSibling !== cabecera) cabecera.insertAdjacentElement('afterend', caja); }
+    else if (caja.nextElementSibling !== cartas[0].b.parentElement) cartas[0].b.parentElement.insertAdjacentElement('beforebegin', caja);
     const pinta = html => { if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; } };
-    const titulo = '<p class="titulo-seccion !mb-0">👑 Tus mejores equipos por trono</p>';
+    const titulo = '<p class="titulo-seccion !mb-0">👑 Tu mejor equipo para cada trono</p>';
     const cole = lsGet(LS_COLE, null);
     if (!cole) { pinta(titulo + '<p class="text-[11px] font-semibold text-tinta-500">Abre una vez la <b>Torre Desafío</b> en modo clásico: de ahí salen tus Pokémon con sus estadísticas a Nv.50.</p>'); return; }
     const tipos = [...new Set(cartas.map(x => x.t))];
+    const M = calcularTronos(cole, tipos);
+    const filas = tipos.map(t => {
+      const r = M.res[t];
+      if (!r) return `<p class="text-[11px] font-semibold text-tinta-400"><b>${bonito(t)}</b>: calculando…</p>`;
+      if (!r.n) return `<p class="text-[11px] font-semibold text-tinta-400"><b>${bonito(t)}</b>: no tienes ningún Pokémon de tipo ${bonito(t)} que no sea legendario.</p>`;
+      const pocos = r.n < 6 ? ` <span class="text-ambar-600">(solo tienes ${r.n}${r.n < 3 ? ': no llegas ni a los 3 que salen' : ''})</span>` : ` <span class="text-tinta-400">(tienes ${r.n})</span>`;
+      const normal = r.eq.map((c, i) => (r.normal[i] >= 0.05 && !tiposDeC(c).includes('normal') ? c.nombre : null)).filter(Boolean);
+      return `<div class="rounded-card border-2 border-crema-200 p-2 space-y-0.5">
+        <p class="text-[11px] font-extrabold">${bonito(t)}${pocos}</p>
+        <p class="text-[11px] font-semibold text-tinta-600">${r.eq.map(c => `${chipTier(c)}${c.nombre}`).join(' · ')}</p>
+        <p class="text-[10px] font-semibold text-tinta-500">⚔️ quitarlo <b style="color:${colPct(r.gA)}">≈ ${pctT(r.gA)}</b> · 🛡️ defenderlo <b style="color:${colPct(r.gD)}">≈ ${pctT(r.gD)}</b>${normal.length ? ` · con un movimiento Normal: ${normal.join(', ')}` : ''}</p>
+      </div>`;
+    }).join('');
+    pinta(`${titulo}${filas}
+      <p class="text-[10px] font-semibold text-tinta-400">Cada trono solo admite ese tipo (en cualquiera de sus dos tipos) y nada de legendarios, así que la ventaja está en el <b>segundo tipo</b> y en las estadísticas. El mismo equipo ataca y, si gana, defiende: se elige el que mejor hace las dos cosas. En cada combate salen 3 de tus 6 al azar: el % es de victorias con 3 al azar contra 3 del rival. «Quitarlo»: contra equipos de ese tipo de todo tipo (los vistos en la Torre y un banco con ese tipo combinado con todos los demás). «Defenderlo»: contra los 12 más fuertes de ese tipo que existen de verdad (tuyos y vistos en la Torre). Movimientos: uno de cada tipo suyo, y uno Normal donde se indica. Tus Pokémon, a Nv.50 y con su objeto, según la Torre${cole.t ? ` (vista el ${new Date(cole.t).toLocaleDateString()})` : ''}.</p>`);
+    for (const { b, t } of cartas) {
+      const r = M.res[t];
+      const zona = b.querySelector('div.flex.flex-wrap') || b;
+      let sp = zona.querySelector(':scope > .axt-trono');
+      const txt = !r ? '' : !r.n ? 'sin Pokémon de este tipo' : `⚔️ ${pctT(r.gA)} · 🛡️ ${pctT(r.gD)}`;
+      if (!txt) { if (sp) sp.remove(); continue; }
+      if (!sp) { sp = document.createElement('span'); sp.className = 'axt-trono pastilla border border-crema-300 text-[10px] font-extrabold'; sp.setAttribute('data-ax-ignore', '1'); zona.appendChild(sp); }
+      if (sp.textContent !== txt) sp.textContent = txt;
+      sp.style.color = r.n ? colPct((r.gA + r.gD) / 2) : '';
+    }
+  }
+  // Se calcula trono a trono, dejando respirar a la página entre uno y otro
+  function calcularTronos(cole, tipos) {
     const vt = vistosTorre();
-    const firma = cole.firma + '|' + tipos.join(',') + '|' + firmaCal() + '|' + vt.lista.length;
-    if (!memoTronos || memoTronos.firma !== firma) {
-      if (calculandoTronos) return;
+    const firma = cole.firma + '|' + firmaCal() + '|' + vt.lista.length;
+    if (!memoTronos || memoTronos.firma !== firma) memoTronos = { firma, res: {}, vt, cola: [] };
+    const M = memoTronos;
+    for (const t of tipos) if (!M.res[t] && !M.cola.includes(t)) M.cola.push(t);
+    if (!calculandoTronos && M.cola.length) {
       calculandoTronos = true;
-      memoTronos = { firma, res: {}, listo: false };
-      const M = memoTronos, recs = lsGet(LS_TRONOS, {});
-      let i = 0;
-      // de uno en uno, dejando respirar a la página entre trono y trono
+      const recs = lsGet(LS_TRONOS, {});
       const siguiente = () => {
-        if (memoTronos !== M) { calculandoTronos = false; return; }
-        if (i >= tipos.length) {
-          M.listo = true; calculandoTronos = false;
-          for (const r of Object.values(M.res)) if (r.n) recs[r.t] = { datos: r.datos, atk: r.atk.map(c => String(c.id)), def: r.def.map(c => String(c.id)) };
+        if (memoTronos !== M || !M.cola.length) {
+          calculandoTronos = false;
+          for (const r of Object.values(M.res)) if (r.n) recs[r.t] = { datos: r.datos, eq: r.eq.map(c => String(c.id)) };
           lsPut(LS_TRONOS, recs);
           programar();
           return;
         }
-        const t = tipos[i++];
-        try { M.res[t] = calcularTrono(t, cole.lista, vt, recs[t]); } catch (e) { console.warn('[axt tronos]', t, e); }
+        const t = M.cola.shift();
+        if (M.res[t]) { setTimeout(siguiente, 0); return; }
+        try { M.res[t] = calcularTrono(t, cole.lista, M.vt, recs[t]); } catch (e) { console.warn('[axt tronos]', t, e); }
         programar();
         setTimeout(siguiente, 30);
       };
       setTimeout(siguiente, 60);
     }
-    const M = memoTronos;
-    const col = g => (g >= 0.6 ? '#2FA84F' : g >= 0.4 ? '#D08A00' : '#E0473A');
-    const nombres = eq => eq.map(c => `${chipTier(c)}${c.nombre}`).join(' · ');
-    const filas = tipos.map(t => {
-      const r = M.res[t];
-      if (!r) return `<p class="text-[11px] font-semibold text-tinta-400"><b>${bonito(t)}</b>: calculando…</p>`;
-      if (!r.n) return `<p class="text-[11px] font-semibold text-tinta-400"><b>${bonito(t)}</b>: no tienes ningún Pokémon de tipo ${bonito(t)}.</p>`;
-      const pocos = r.n < 6 ? ` <span class="text-ambar-600">(solo tienes ${r.n}${r.n < 3 ? ': no llegas ni a los 3 que salen' : ''})</span>` : ` <span class="text-tinta-400">(tienes ${r.n})</span>`;
-      return `<div class="rounded-card border-2 border-crema-200 p-2 space-y-0.5">
-        <p class="text-[11px] font-extrabold">${bonito(t)}${pocos}</p>
-        <p class="text-[11px] font-semibold text-tinta-600">⚔️ Para quitarlo: ${nombres(r.atk)} <b style="color:${col(r.gA)}">≈ ${pctT(r.gA)}</b></p>
-        ${r.mismo ? '<p class="text-[10px] font-semibold text-tinta-400">🛡️ Para defenderlo: el mismo equipo.</p>' : `<p class="text-[11px] font-semibold text-tinta-600">🛡️ Para defenderlo: ${nombres(r.def)} <b style="color:${col(r.gD)}">≈ ${pctT(r.gD)}</b></p>`}
-      </div>`;
-    }).join('');
-    pinta(`${titulo}${filas}
-      <p class="text-[10px] font-semibold text-tinta-400">Cada trono solo admite ese tipo (en cualquiera de sus dos tipos), así que la ventaja está en el <b>segundo tipo</b> y en las estadísticas. En cada combate salen 3 de tus 6 al azar: el % es de victorias con 3 de ellos al azar contra 3 del rival. «Para quitarlo»: contra equipos de ese tipo de todo tipo (los vistos en la Torre y un banco con ese tipo combinado con todos los demás). «Para defenderlo»: contra los 12 más fuertes de ese tipo que existen de verdad (los tuyos y los vistos en la Torre), que es lo que traerá quien vaya a por tu trono. Tus Pokémon, a Nv.50 y con su objeto, según la Torre${cole.t ? ` (vista el ${new Date(cole.t).toLocaleDateString()})` : ''}.</p>`);
-    // en cada trono, su resumen
-    for (const { b, t } of cartas) {
-      const r = M.res[t];
-      const zona = b.querySelector('div.flex.flex-wrap') || b;
-      let sp = zona.querySelector(':scope > .axt-trono');
-      const txt = !r ? '' : !r.n ? 'sin Pokémon de este tipo' : `⚔️ ${pctT(r.gA)}${r.mismo ? '' : ` · 🛡️ ${pctT(r.gD)}`}`;
-      if (!txt) { if (sp) sp.remove(); continue; }
-      if (!sp) { sp = document.createElement('span'); sp.className = 'axt-trono pastilla border border-crema-300 text-[10px] font-extrabold'; sp.setAttribute('data-ax-ignore', '1'); zona.appendChild(sp); }
-      if (sp.textContent !== txt) sp.textContent = txt;
-      sp.style.color = r.n ? col(r.gA) : '';
+    return M;
+  }
+  // «Mi ficha» de un trono: tu equipo guardado ahí (con sus movimientos), qué le falta y qué cambiarías
+  function leerFichaTrono() {
+    const aviso = $$('p').find(p => /en cada combate solo salen 3 al azar/i.test(p.textContent || ''));
+    if (!aviso) return null;
+    const cont = aviso.parentElement;
+    const miembros = $$(':scope > .tarjeta-hueco', cont).map(h => {
+      const img = h.querySelector('img[src*="/sprites/"]');
+      const nombre = ((h.querySelector('p.truncate') || {}).textContent || '').trim();
+      const movs = {};
+      for (const g of $$('div.flex-wrap', h)) {
+        const t = tipoDe((g.querySelector('span.pastilla') || {}).textContent || '');
+        if (!t) continue;
+        movs[t] = $$('button', g).filter(b => !b.disabled && /background/.test(b.getAttribute('style') || '')).length;
+      }
+      return { nombre, num: img ? numDe(img) : null, sprite: img ? img.getAttribute('src') : '', movs };
+    }).filter(m => m.nombre);
+    return { aviso, cont, miembros };
+  }
+  function fichaTrono() {
+    const F = leerFichaTrono();
+    let caja = document.getElementById('axt-trono-ficha');
+    if (!F) { if (caja) caja.remove(); return; }
+    if (!caja) { caja = document.createElement('div'); caja.id = 'axt-trono-ficha'; caja.className = 'rounded-card border-2 border-ambar-300 bg-ambar-50 p-2.5 space-y-1'; caja.setAttribute('data-ax-ignore', '1'); }
+    if (caja.nextElementSibling !== F.aviso) F.aviso.insertAdjacentElement('beforebegin', caja);
+    const pinta = html => { if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; } };
+    const cole = lsGet(LS_COLE, null);
+    if (!cole) { pinta('<p class="text-[11px] font-semibold text-tinta-600">Abre una vez la Torre Desafío (modo clásico) para que sepa qué Pokémon tienes.</p>'); return; }
+    // tus Pokémon de la colección (por nombre; si no, por nº de sprite)
+    const deCole = m => cole.lista.find(c => c.nombre === m.nombre) || cole.lista.find(c => numSrc(c.sprite) === m.num);
+    const cs = F.miembros.map(m => ({ m, c: deCole(m) }));
+    // el trono: el que se tocó; si no, el tipo que comparten todos
+    let t = tronoActivo;
+    if (!t) {
+      const comunes = cs.filter(x => x.c).map(x => tiposDeC(x.c)).reduce((a, b) => (a ? a.filter(y => b.includes(y)) : b), null);
+      if (comunes && comunes.length === 1) t = comunes[0];
     }
+    if (!t) { pinta('<p class="text-[11px] font-semibold text-tinta-600">Vuelve a la lista y toca el trono para que sepa de qué tipo es.</p>'); return; }
+    const M = memoTronos && memoTronos.res[t] ? memoTronos : calcularTronos(cole, [t]);
+    let r = M.res[t];
+    if (!r) { M.res[t] = r = calcularTrono(t, cole.lista, M.vt, lsGet(LS_TRONOS, {})[t]); }
+    if (!r.n) { pinta(`<p class="text-[11px] font-semibold text-tinta-600">No tienes ningún Pokémon de tipo ${bonito(t)} que no sea legendario.</p>`); return; }
+    const B = r.B;
+    const firma = t + '|' + JSON.stringify(F.miembros) + '|' + (r.datos || '');
+    if (caja.dataset.firma === firma) return;
+    caja.dataset.firma = firma;
+    // cada uno pelea solo con los tipos de los movimientos que tiene marcados
+    const luchConMovs = x => { const l = luchadorT(x.c); const movs = Object.keys(x.m.movs).filter(k => x.m.movs[k] > 0); return { ...l, movs }; };
+    const validos = cs.filter(x => x.c);
+    const eqL = validos.map(luchConMovs);
+    const lineas = [];
+    if (eqL.length) {
+      const n = notasTrono(eqL, B);
+      lineas.push(`<p class="text-[11px] font-extrabold text-ambar-700">Tu equipo aquí (${eqL.length}/6): ⚔️ quitarlo <span style="color:${colPct(n.gA)}">≈ ${pctT(n.gA)}</span> · 🛡️ defenderlo <span style="color:${colPct(n.gD)}">≈ ${pctT(n.gD)}</span></p>`);
+      // movimientos de cada uno
+      for (const x of validos) {
+        const l = luchadorT(x.c), falta = l.tipos.filter(tp => !(x.m.movs[tp] > 0)).map(bonito);
+        const uso = usoNormal(l, [...B.poolA, ...B.poolD]);
+        const quiereNormal = uso >= 0.05 && !l.tipos.includes('normal') && !(x.m.movs.normal > 0);
+        const sobraNormal = uso < 0.05 && !l.tipos.includes('normal') && x.m.movs.normal > 0;
+        const txt = falta.length || quiereNormal
+          ? `le falta ${[...falta.map(f => `uno de ${f}`), ...(quiereNormal ? [`uno Normal (le sirve contra el ${pctT(uso)})`] : [])].join(' y ')}`
+          : sobraNormal ? 'bien (el Normal casi no lo usará: mejor otro de sus tipos)' : 'bien';
+        lineas.push(`<p class="text-[10px] font-semibold text-tinta-600">🎯 <b>${x.m.nombre}</b>: ${txt}.</p>`);
+      }
+    } else lineas.push('<p class="text-[11px] font-semibold text-tinta-600">Aún no tienes a nadie puesto en este trono.</p>');
+    for (const x of cs.filter(y => !y.c)) lineas.push(`<p class="text-[10px] font-semibold text-tinta-400">No encuentro a ${x.m.nombre} en tu colección (¿lo tienes desde que abriste la Torre?).</p>`);
+    // qué añadir o cambiar
+    const enEq = new Set(validos.map(x => x.c.especie || x.c.nombre));
+    const libres = B.mios.filter(c => !enEq.has(c.especie || c.nombre));
+    const valor = arr => { const q = notasTrono(arr, B); return (q.gA + q.gD) / 2; };
+    if (eqL.length < 6 && libres.length) {
+      const opciones = libres.map(c => ({ c, v: valor([...eqL, luchadorT(c)]) })).sort((a, b) => b.v - a.v).slice(0, 3);
+      lineas.push(`<p class="text-[11px] font-semibold text-tinta-600">➕ Para llenar huecos, los que más suben: ${opciones.map(o => `<b>${o.c.nombre}</b> (≈ ${pctT(o.v)})`).join(' · ')}</p>`);
+    } else if (eqL.length === 6 && libres.length) {
+      const base = valor(eqL);
+      let mejor = null;
+      eqL.forEach((_, i) => { for (const c of libres.slice(0, 20)) { const v = valor(eqL.map((y, k) => (k === i ? luchadorT(c) : y))); if (!mejor || v > mejor.v) mejor = { i, c, v }; } });
+      if (mejor && mejor.v > base + 0.02) lineas.push(`<p class="text-[11px] font-semibold text-tinta-600">🔁 Cambiar <b>${validos[mejor.i].m.nombre}</b> por <b>${mejor.c.nombre}</b>: de ≈ ${pctT(base)} a ≈ ${pctT(mejor.v)} (media de quitarlo y defenderlo).</p>`);
+      else lineas.push('<p class="text-[10px] font-semibold text-hoja-600">✔ Ningún cambio suelto lo mejora claramente.</p>');
+    }
+    const ids = new Set(validos.map(x => String(x.c.id)));
+    if (r.eq && !(r.eq.length === ids.size && r.eq.every(c => ids.has(String(c.id))))) lineas.push(`<p class="text-[10px] font-semibold text-tinta-500">⭐ El mejor con lo que tienes: ${r.eq.map(c => c.nombre).join(' · ')} (⚔️ ≈ ${pctT(r.gA)} · 🛡️ ≈ ${pctT(r.gD)}).</p>`);
+    pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p>${lineas.join('')}`);
   }
   const chipTier = c => { const tt = tierTorre(c); return `<span style="display:inline-grid;place-items:center;min-width:14px;height:14px;border-radius:999px;background:${tt.color};color:#fff;font-size:8px;font-weight:900;margin-right:2px">${tt.letra}</span>`; };
 
@@ -1329,7 +1445,7 @@
   new MutationObserver(muts => {
     if (!enEquipo() && !enTorre() && !enTronos()) return;
     // se ignoran los cambios que hace este mismo script
-    if (muts.every(m => [...m.addedNodes].every(n => n.nodeType === 1 && (n.classList.contains('axt-tier') || n.classList.contains('axt-ficha') || n.id === 'axt-equipo' || n.id === 'axt-torre' || n.id === 'axt-tronos' || n.classList.contains('axt-trono') || n.classList.contains('axt-orden') || n.classList.contains('axt-predic') || n.classList.contains('axt-rec'))))) return;
+    if (muts.every(m => [...m.addedNodes].every(n => n.nodeType === 1 && (n.classList.contains('axt-tier') || n.classList.contains('axt-ficha') || n.id === 'axt-equipo' || n.id === 'axt-torre' || n.id === 'axt-tronos' || n.id === 'axt-trono-ficha' || n.classList.contains('axt-trono') || n.classList.contains('axt-orden') || n.classList.contains('axt-predic') || n.classList.contains('axt-rec'))))) return;
     programar();
   }).observe(document.documentElement, { childList: true, subtree: true });
   // se espera a que la web termine de montarse (tocar el DOM antes provoca errores de hidratación de React)
