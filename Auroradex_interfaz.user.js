@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.5.2
+// @version      1.5.3
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -217,7 +217,7 @@
   ];
   // Bloques antiguos (guardados por versiones anteriores) → bloques actuales; y accesos que se fuerzan a un bloque
   const ALIAS_BLOQUE = { diario: 'pve', minijuegos: 'extra', base: 'extra', demas: 'extra' };
-  const FORZAR_BLOQUE = { '/miel': 'extra', '/concurso': 'extra', '/subsuelo': 'extra' };
+  const FORZAR_BLOQUE = { '/miel': 'extra', '/concurso': 'extra', '/subsuelo': 'extra', '/evento-comunidad': 'extra' };
 
   const lsJSON = (k, def) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } };
   const lsPut = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin storage */ } };
