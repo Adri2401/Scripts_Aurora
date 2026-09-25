@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.15.0
+// @version      1.16.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -783,7 +783,7 @@
     const l = { hp: r(b.ps, o.hp), atk: r(b.ataque, o.atk), def: r(b.defensa, o.def), esp, spa: esp, spd: esp, spe: r(b.velocidad, o.spe), L: 50,
       fis: base ? base.s[1] >= base.s[3] : b.ataque >= b.especial,
       tipos: [c.tipo1, c.tipo2].map(tipoDe).filter(Boolean), num, aguanta: !!o.aguanta, nombre: c.nombre, item: id,
-      sprite: c.sprite || null, cid: c.id != null ? c.id : null, src: c };
+      sprite: c.sprite || null, cid: c.id != null ? c.id : null };
     if (!l.tipos.length) l.tipos = ['normal'];
     cacheLuch.set(clave, l);
     return l;
@@ -808,14 +808,22 @@
   const fmix = h => { h = Math.imul(h ^ (h >>> 16), 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); return (h ^ (h >>> 16)) >>> 0; };
   const hash32 = str => { let h = 2166136261; for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619); return fmix(h); };
   // Combates de prueba: equipos rivales de 6 sin repetir, sacados del banco según su peso, y un orden de salida sorteado para los dos
-  function simulaciones(pool, n, semilla, fijos) {
+  function simulaciones(...args) {
+    const it = simulacionesPasos(...args);
+    let r;
+    while (!(r = it.next()).done);
+    return r.value;
+  }
+  function* simulacionesPasos(pool, n, semilla, fijos) {
     fijos = fijos || [];
     const hs = pool.map(p => hash32(p.k)), inv = pool.map(p => 1 / p.w);
     // primero se sortea si el hueco es de un rival visto o del banco genérico (así, cuando cambia lo que pesa cada parte,
     // solo cambian los huecos que estaban en el límite) y luego cuál de esa parte
     const gen = pool.map(p => p.k[0] === 'S');
     const pesoG = pool.reduce((x, p, i) => x + (gen[i] ? p.w : 0), 0), parteG = pesoG / pool.reduce((x, p) => x + p.w, 0);
-    return Array.from({ length: n }, (_, s) => {
+    const out = [];
+    for (let s = 0; s < n; s++) {
+      if (s % 25 === 24) yield;
       const rivs = [...fijos], usados = new Set();
       for (let k = rivs.length; k < 6 && usados.size < pool.length; k++) {
         const hk = fmix(Math.imul(semilla, 0x27d4eb2d) ^ Math.imul(s * 8 + k + 1, 0x165667b1));
@@ -835,8 +843,9 @@
         rivs.push(pool[mejor].l);
       }
       const azar = rng(1 + (fmix(Math.imul(semilla, 7919) ^ (s + 1)) % 2147483645));
-      return { rivs: barajar(rivs, azar), perm: barajar([0, 1, 2, 3, 4, 5], azar) };
-    });
+      out.push({ rivs: barajar(rivs, azar), perm: barajar([0, 1, 2, 3, 4, 5], azar) });
+    }
+    return out;
   }
   // `n`: cuántos salen de cada lado (6 en la Torre; 3 en los Tronos, los primeros del sorteo)
   function notaEquipo(equipo, sims, n = 6) {
@@ -1115,7 +1124,6 @@
       for (const key of Object.keys(cacheTier)) delete cacheTier[key];
       cacheTierT.clear();
       memoRival.clear();
-      memoTorre = null;
     }
   }
   const firmaCal = () => [CAL.k, CAL.se, CAL.nve, CAL.critP, CAL.critX].map(x => x.toFixed(3)).join(',');
@@ -1226,6 +1234,112 @@
     });
     return { debiles, sinCobertura, amenazas, papeles };
   }
+  // Lo que necesita el cálculo (y su firma: si cambia algo desde el último cálculo, se ofrece recalcular)
+  function datosTorre(est) {
+    const unicos = candidatosUnicos(est);
+    // estadísticas base (para saber quién pega cuerpo a cuerpo y quién a distancia)
+    const nums = [...new Set([...unicos, ...Object.values(((lsGet(LS_RIV, {})[est.modo] || {}).pokes) || {})].map(c => numSrc(c.sprite)).filter(Boolean))];
+    const faltan = nums.filter(n => !datos[n]);
+    faltan.forEach(pedir);
+    const firma = est.modo + '|' + est.candidatos.length + '|' + est.candidatos.reduce((x, c) => x + (c.stats ? c.stats.total : 0) + (c.itemId ? c.itemId.length : 0), 0) + '|' + Object.keys(((lsGet(LS_RIV, {})[est.modo] || {}).rivales) || {}).length + '|' + firmaCal() + '|' + (nums.length - faltan.length);
+    return { unicos, nums, faltan, firma };
+  }
+  let progTorre = '';
+  const pausaT = () => new Promise(r => setTimeout(r, 30));
+  function avanceTorre(t) { progTorre = t; const p = document.querySelector('#axt-torre .axt-prog'); if (p) p.textContent = t; }
+  // Se calcula solo al pulsar el botón, a trocitos de ~20 ms (la página no se congela)
+  async function calcularTorre() {
+    if (calculandoTorre) return;
+    let est = estadoTorre();
+    if (!est) return;
+    calculandoTorre = true; progTorre = 'Preparando…';
+    programar();
+    try {
+      await pausaT();
+      // se espera un poco a las estadísticas base que falten (como mucho 10 s)
+      let D = datosTorre(est);
+      for (let i = 0; D.faltan.length && i < 20; i++) { avanceTorre(`Buscando las estadísticas de ${D.faltan.length} Pokémon…`); await new Promise(r => setTimeout(r, 500)); est = estadoTorre() || est; D = datosTorre(est); }
+      const { unicos, nums, faltan, firma } = D;
+      avanceTorre('Preparando los rivales…'); await pausaT();
+      const { pool, vistos, equipos, bm } = poolTorre(est, unicos);
+      avanceTorre('Sorteando 1000 combates de prueba…'); await pausaT();
+      const sims = await correrPasos(simulacionesPasos(pool, N_SIMS, 7));
+      const recs = lsGet(LS_REC, {}), prev = recs[est.modo] || {};
+      // con los mismos datos que la última vez no se repite la búsqueda (sale lo mismo)
+      const datosCalc = hash32(JSON.stringify([unicos.map(c => c.id + '|' + c.stats.total), est.candidatos.map(c => c.itemId || ''), pool.map(p => p.k + ':' + p.w.toFixed(4)), firmaCal(), nums.length - faltan.length]));
+      let eq, sueltos, seMantiene = false, items = null;
+      if (prev.datos === datosCalc && prev.ids && prev.ids.every(id => unicos.some(c => String(c.id) === id))) {
+        eq = prev.ids.map(id => unicos.find(c => String(c.id) === id));
+        sueltos = sueltosTorre(unicos, pool);
+        seMantiene = !!prev.seMantiene;
+      } else {
+        avanceTorre('Probando equipos…'); await pausaT();
+        ({ eq, sueltos, seMantiene } = await correrPasos(mejorEquipoPasos(unicos, sims, pool, prev.ids)));
+      }
+      // el equipo guardado también compite: nunca se recomienda algo peor que lo que ya tienes
+      let esGuardado = false;
+      const gC = equipoGuardadoC(est);
+      if (gC.length === 6) {
+        const vG = valorN(notaEquipo(gC.map(x => luchadorT(x.c, x.item)), sims));
+        const vR = valorN(notaEquipo(eq.map(c => luchadorT(c)), sims));
+        if (vG >= vR - 0.005) { eq = gC.map(x => x.c); items = gC.map(x => x.item); esGuardado = true; }
+      }
+      let eqL = eq.map((c, i) => luchadorT(c, items ? items[i] : undefined));
+      // el orden: el que más gana si salieran en fila
+      avanceTorre('Buscando el mejor orden de salida…'); await pausaT();
+      const orden = await correrPasos(mejorOrdenPasos(eqL, sims.slice(0, 250)));
+      eq = orden.map(i => eq[i]); eqL = orden.map(i => eqL[i]); if (items) items = orden.map(i => items[i]);
+      const ids = eq.map(c => String(c.id));
+      const nota = notaEquipo(eqL, sims);
+      recs[est.modo] = { ids, datos: datosCalc, seMantiene: seMantiene || esGuardado };
+      lsPut(LS_REC, recs);
+      avanceTorre('Mirando la composición…'); await pausaT();
+      const comp = composicion(eqL, sims.slice(0, 500), pool);
+      memoTorre = { firma, pool, vistos, equipos, bm, sims, eq, sueltos, nota, seMantiene, esGuardado, comp, porSel: {}, t: Date.now() };
+      memoRival.clear();
+    } catch (e) { console.warn('[axt torre]', e); progTorre = '⚠️ Error: ' + (e && e.message); }
+    calculandoTorre = false;
+    programar();
+  }
+  // Tu selección: lo que gana, quién aporta menos y el cambio que más sube (al pulsar «Analizar mi selección»)
+  function* analizarSeleccionPasos(M, est, sel) {
+    const cs = sel.map(id => est.candidatos.find(c => String(c.id) === id)).filter(Boolean);
+    const r = { cs };
+    if (!cs.length) return r;
+    const sims = M.sims.slice(0, 600);
+    // los que están en el equipo guardado juegan con el objeto que tienen allí (si su ficha no enseña otro)
+    const itemDe = c => { if (c.itemId) return undefined; const m = (est.miEquipo || []).find(x => String(x.ownedId) === String(c.id)); return (m && idObjetoT(m.itemId, m.itemNombre)) || undefined; };
+    const eqL = cs.map(c => luchadorT(c, itemDe(c)));
+    r.nota = notaEquipo(eqL, sims);
+    yield;
+    if (cs.length === 6) {
+      // quién aporta menos y el cambio que más sube
+      const aporte = [];
+      for (let i = 0; i < cs.length; i++) { aporte.push({ c: cs[i], i, baja: valorN(r.nota) - valorN(notaEquipo(eqL.filter((_, k) => k !== i), sims)) }); yield; }
+      aporte.sort((a, b) => a.baja - b.baja);
+      r.flojo = aporte[0];
+      let cambio = null;
+      const pre = M.sueltos.slice(0, 20).map(x => x.c).filter(c => !cs.some(y => (y.especie || y.nombre) === (c.especie || c.nombre)));
+      for (const c of pre) {
+        const n = notaEquipo(eqL.map((x, k) => (k === r.flojo.i ? luchadorT(c) : x)), sims);
+        if (!cambio || valorN(n) > valorN(cambio.n)) cambio = { c, n };
+        yield;
+      }
+      if (cambio && cambio.n.g > r.nota.g + 0.01) r.cambio = cambio;
+      r.comp = composicion(eqL, sims.slice(0, 400), M.pool);
+    }
+    return r;
+  }
+  let analizandoSel = false;
+  async function analizarSeleccion() {
+    const M = memoTorre, est = estadoTorre();
+    if (!M || !M.eq || !est || analizandoSel) return;
+    analizandoSel = true; programar();
+    const sel = seleccionTorre();
+    try { M.porSel[sel.join(',')] = await correrPasos(analizarSeleccionPasos(M, est, sel)); }
+    catch (e) { console.warn('[axt torre]', e); }
+    analizandoSel = false; programar();
+  }
   function panelTorre(est) {
     const rejilla = $$('main ul.grid').find(u => u.querySelector(':scope > li > button'));
     const tarjeta = rejilla && rejilla.closest('.tarjeta');
@@ -1239,100 +1353,36 @@
     }
     kStyle('axt-kit', '#axt-torre', '#7C3AED');
     if (caja.nextElementSibling !== tarjeta) tarjeta.insertAdjacentElement('beforebegin', caja);
-    const unicos = candidatosUnicos(est);
-    // estadísticas base (para saber quién pega cuerpo a cuerpo y quién a distancia): se esperan hasta 15 s
-    const nums = [...new Set([...unicos, ...Object.values(((lsGet(LS_RIV, {})[est.modo] || {}).pokes) || {})].map(c => numSrc(c.sprite)).filter(Boolean))];
-    const faltan = nums.filter(n => !datos[n]);
-    faltan.forEach(pedir);
-    if (!esperaDatosT) esperaDatosT = Date.now();
-    if (faltan.length && Date.now() - esperaDatosT < 15000) {
-      const html0 = `<p class="titulo-seccion !mb-0">🗼 Análisis de la Torre</p><p class="text-[11px] font-semibold text-tinta-500">Buscando las estadísticas base de ${faltan.length} Pokémon…</p>`;
-      if (caja.dataset.html !== html0) { caja.innerHTML = html0; caja.dataset.html = html0; }
-      setTimeout(programar, 1500);
+    const M = memoTorre && memoTorre.eq ? memoTorre : null;
+    const pintar = (html, badge, eventos) => {
+      if (caja.dataset.html === html) return;
+      caja.innerHTML = html; caja.dataset.html = html;
+      kBadge(caja.querySelector('.k-badge'), badge[0], badge[1]);
+      const bc = caja.querySelector('.axt-calcular');
+      if (bc) bc.addEventListener('click', e => { e.preventDefault(); calcularTorre(); });
+      if (eventos) eventos();
+    };
+    const botonCalc = (txt) => `<button type="button" class="axt-calcular boton-principal w-full !py-2.5 text-sm" ${calculandoTorre ? 'disabled' : ''}>${calculandoTorre ? '⏳ Calculando…' : txt}</button>${calculandoTorre ? `<p class="axt-prog text-center text-[11px] font-bold text-tinta-500">${progTorre}</p>` : progTorre.startsWith('⚠️') ? `<p class="text-center text-[11px] font-bold text-rojo-600">${progTorre}</p>` : ''}`;
+    // sin calcular todavía: solo el botón (no se calcula nada solo, así no hay lag)
+    if (!M) {
+      pintar(`${kHead('🗼', 'Análisis de la Torre', est.modo === 'clasico' ? 'Liga clásica' : 'Liga ' + est.modo)}
+        <p class="text-[11px] font-semibold text-tinta-500">Busca el mejor equipo con todo lo que tienes, contra lo que se ve en «Retar» (entra antes para que vea rivales) y un banco de todos los tipos. Tarda unos segundos.</p>
+        ${botonCalc('🧮 Calcular el mejor equipo')}`, calculandoTorre ? ['on', 'CALCULANDO'] : ['off', 'SIN CALCULAR']);
       return;
     }
-    const firma = est.modo + '|' + est.candidatos.length + '|' + est.candidatos.reduce((x, c) => x + (c.stats ? c.stats.total : 0) + (c.itemId ? c.itemId.length : 0), 0) + '|' + (est.rivales || []).map(r => r.userId).join(',') + '|' + firmaCal() + '|' + (nums.length - faltan.length);
-    if (!memoTorre || memoTorre.firma !== firma) {
-      if (!calculandoTorre) {
-        calculandoTorre = true;
-        const html0 = '<p class="titulo-seccion !mb-0">🗼 Análisis de la Torre</p><p class="text-[11px] font-semibold text-tinta-500">Calculando el mejor equipo con todo lo que tienes…</p>';
-        if (caja.dataset.html !== html0) { caja.innerHTML = html0; caja.dataset.html = html0; }
-        setTimeout(() => {
-          try {
-            const { pool, vistos, equipos, bm } = poolTorre(est, unicos);
-            const sims = simulaciones(pool, N_SIMS, 7);
-            const recs = lsGet(LS_REC, {}), prev = recs[est.modo] || {};
-            // con los mismos datos que la última vez no se repite la búsqueda (sale lo mismo)
-            const datosCalc = hash32(JSON.stringify([unicos.map(c => c.id + '|' + c.stats.total), est.candidatos.map(c => c.itemId || ''), pool.map(p => p.k + ':' + p.w.toFixed(4)), firmaCal(), nums.length - faltan.length]));
-            let eq, sueltos, seMantiene = false, items = null;
-            if (prev.datos === datosCalc && prev.ids && prev.ids.every(id => unicos.some(c => String(c.id) === id))) {
-              eq = prev.ids.map(id => unicos.find(c => String(c.id) === id));
-              sueltos = sueltosTorre(unicos, pool);
-              seMantiene = !!prev.seMantiene;
-            } else ({ eq, sueltos, seMantiene } = mejorEquipo(unicos, sims, pool, prev.ids));
-            // el equipo guardado también compite: nunca se recomienda algo peor que lo que ya tienes
-            let esGuardado = false;
-            const gC = equipoGuardadoC(est);
-            if (gC.length === 6) {
-              const vG = valorN(notaEquipo(gC.map(x => luchadorT(x.c, x.item)), sims));
-              const vR = valorN(notaEquipo(eq.map(c => luchadorT(c)), sims));
-              if (vG >= vR - 0.005) { eq = gC.map(x => x.c); items = gC.map(x => x.item); esGuardado = true; }
-            }
-            let eqL = eq.map((c, i) => luchadorT(c, items ? items[i] : undefined));
-            // el orden: el que más gana si salieran en fila
-            const orden = mejorOrdenT(eqL, sims.slice(0, 250));
-            eq = orden.map(i => eq[i]); eqL = orden.map(i => eqL[i]); if (items) items = orden.map(i => items[i]);
-            const ids = eq.map(c => String(c.id));
-            const nota = notaEquipo(eqL, sims);
-            // ¿es ya tu equipo guardado, y en este orden?
-            const idsG = (est.miEquipo || []).map(m => String(m.ownedId));
-            const guardadoEnOrden = esGuardado && idsG.join() === ids.join();
-            recs[est.modo] = { ids, datos: datosCalc, seMantiene: seMantiene || esGuardado };
-            lsPut(LS_REC, recs);
-            const comp = composicion(eqL, sims.slice(0, 500), pool);
-            memoTorre = { firma, pool, vistos, equipos, bm, sims, eq, sueltos, nota, seMantiene, esGuardado, guardadoEnOrden, comp, porSel: {} };
-          } catch (e) { console.warn('[axt torre]', e); }
-          calculandoTorre = false;
-          programar();
-        }, 60);
-      }
-      return;
-    }
-    const M = memoTorre;
+    const D = { firma: datosTorre(est).firma };
+    const viejo = D.firma !== M.firma;
     const sel = seleccionTorre();
-    const claveSel = sel.join(',');
-    if (!M.porSel[claveSel]) {
-      const cs = sel.map(id => est.candidatos.find(c => String(c.id) === id)).filter(Boolean);
-      const r = { cs };
-      if (cs.length) {
-        // los que están en el equipo guardado juegan con el objeto que tienen allí (si su ficha no enseña otro)
-        const itemDe = c => { if (c.itemId) return undefined; const m = (est.miEquipo || []).find(x => String(x.ownedId) === String(c.id)); return (m && idObjetoT(m.itemId, m.itemNombre)) || undefined; };
-        const eqL = cs.map(c => luchadorT(c, itemDe(c)));
-        r.nota = notaEquipo(eqL, M.sims);
-        if (cs.length === 6) {
-          // quién aporta menos y el cambio que más sube
-          const aporte = cs.map((c, i) => ({ c, i, baja: valorN(r.nota) - valorN(notaEquipo(eqL.filter((_, k) => k !== i), M.sims)) })).sort((a, b) => a.baja - b.baja);
-          r.flojo = aporte[0];
-          let cambio = null;
-          const pre = M.sueltos.slice(0, 20).map(x => x.c).filter(c => !cs.some(y => (y.especie || y.nombre) === (c.especie || c.nombre)));
-          for (const c of pre) {
-            const prueba = eqL.map((x, k) => (k === r.flojo.i ? luchadorT(c) : x));
-            const n = notaEquipo(prueba, M.sims);
-            if (!cambio || valorN(n) > valorN(cambio.n)) cambio = { c, n };
-          }
-          if (cambio && cambio.n.g > r.nota.g + 0.01) r.cambio = cambio;
-          r.comp = composicion(eqL, M.sims.slice(0, 500), M.pool);
-        }
-      }
-      M.porSel[claveSel] = r;
-    }
-    const S = M.porSel[claveSel];
+    const S = M.porSel[sel.join(',')];
     const guardado = equipoGuardado(est);
     if (M.notaGuardado === undefined || M.claveGuardado !== JSON.stringify((est.miEquipo || []).map(m => m.ownedId + '|' + m.itemId))) {
       M.claveGuardado = JSON.stringify((est.miEquipo || []).map(m => m.ownedId + '|' + m.itemId));
-      M.notaGuardado = guardado.length ? notaEquipo(guardado, M.sims) : null;
+      M.notaGuardado = guardado.length ? notaEquipo(guardado, M.sims.slice(0, 400)) : null;
     }
     const idsMejor = M.eq.map(c => String(c.id));
+    const idsG = (est.miEquipo || []).map(m => String(m.ownedId));
+    const guardadoEnOrden = idsG.join() === idsMejor.join();
+    const esGuardado = idsG.length === idsMejor.length && idsMejor.every(id => idsG.includes(id));
     const yaSel = idsMejor.length === sel.length && idsMejor.every(id => sel.includes(id));
     const chipT = c => { const t = tierTorre(c); return `<span style="display:inline-grid;place-items:center;min-width:15px;height:15px;border-radius:999px;background:${t.color};color:#fff;font-size:9px;font-weight:900;margin-right:2px">${t.letra}</span>`; };
     const avisosComp = C => [
@@ -1347,37 +1397,35 @@
     };
     const cal = infoCal.golpes ? `Modelo afinado con ${infoCal.golpes} golpes de ${infoCal.combates} combate${infoCal.combates === 1 ? '' : 's'}${infoCal.aciertoTipo != null ? ` (acierta el tipo de ataque el ${pctT(infoCal.aciertoTipo)} de las veces)` : ''}.` : 'Cuando veas el log de un combate de la Torre, el modelo se afina solo con lo que ve.';
     const botonCopiar = '<button type="button" class="axt-copiar text-[10px] font-bold text-tinta-400 underline">📋 Copiar datos del cálculo (para revisarlo)</button>';
+    const lineaSel = !sel.length ? '' : S
+      ? `<p class="text-[11px] font-semibold text-tinta-600">Tu selección (${S.cs.length}/6): gana ≈ <b>${pctT(S.nota.g)}</b> de los combates${S.cs.length < 6 ? ' (con menos de 6 pierdes mucho)' : ''}.${S.flojo ? ` El que menos aporta: <b>${S.flojo.c.nombre}</b>.` : ''}${S.cambio ? ` Si lo cambias por <b>${S.cambio.c.nombre}</b>: ≈ ${pctT(S.cambio.n.g)}.` : ''}</p>${S.comp && !yaSel && avisosComp(S.comp).length ? `<p class="text-[10px] font-semibold text-tinta-500">En tu selección: ${avisosComp(S.comp).join(' ')}</p>` : ''}`
+      : yaSel ? '' : `<button type="button" class="axt-analizar boton-suave w-full !py-1.5 text-xs" ${analizandoSel ? 'disabled' : ''}>${analizandoSel ? '⏳ Analizando tu selección…' : `📊 Analizar mi selección (${sel.length}/6)`}</button>`;
+    const hace = Math.round((Date.now() - M.t) / 60000);
     const html = `
-      ${kHead('🗼', 'Análisis de la Torre', M.vistos ? `${M.vistos} rivales vistos en «Retar» · ${est.modo === 'clasico' ? 'liga clásica' : 'liga ' + est.modo}` : 'Sin rivales vistos aún: entra en «Retar»')}
-      ${S.cs.length ? `<p class="text-[11px] font-semibold text-tinta-600">Tu selección (${S.cs.length}/6): gana ≈ <b>${pctT(S.nota.g)}</b> de los combates${S.cs.length < 6 ? ' (con menos de 6 pierdes mucho)' : ''}.${S.flojo ? ` El que menos aporta: <b>${S.flojo.c.nombre}</b>.` : ''}${S.cambio ? ` Si lo cambias por <b>${S.cambio.c.nombre}</b>: ≈ ${pctT(S.cambio.n.g)}.` : ''}</p>` : ''}
-      ${S.comp && !yaSel && avisosComp(S.comp).length ? `<p class="text-[10px] font-semibold text-tinta-500">En tu selección: ${avisosComp(S.comp).join(' ')}</p>` : ''}
+      ${kHead('🗼', 'Análisis de la Torre', `${M.vistos ? `${M.vistos} rivales vistos en «Retar»` : 'Sin rivales vistos en «Retar»'} · calculado ${hace < 1 ? 'ahora' : `hace ${hace} min`}`)}
+      ${viejo ? `<p class="rounded-card border-2 border-ambar-200 bg-ambar-50 p-2 text-[11px] font-bold text-ambar-700">🔄 Hay cambios desde el último cálculo (Pokémon, objetos o rivales nuevos).</p>` : ''}
+      ${lineaSel}
       ${M.notaGuardado ? `<p class="text-[11px] font-semibold text-tinta-600">Equipo guardado (el que defiende y ataca): ≈ <b>${pctT(M.notaGuardado.g)}</b>.</p>` : ''}
       <div class="rounded-card border-2 border-ambar-300 bg-ambar-50 p-2 space-y-1">
-        <p class="text-[11px] font-extrabold text-ambar-700">⭐ El mejor equipo con todo lo que tienes${M.esGuardado ? ' (es el que ya tienes guardado)' : ''}</p>
+        <p class="text-[11px] font-extrabold text-ambar-700">⭐ El mejor equipo con todo lo que tienes${esGuardado ? ' (es el que ya tienes guardado)' : ''}</p>
         <p class="text-sm font-extrabold">${M.eq.map((c, i) => `${i + 1}. ${chipT(c)}${c.nombre}`).join(' · ')}</p>
         <p class="text-[11px] font-semibold text-tinta-600">Gana ≈ <b>${pctT(M.nota.g)}</b> de los combates.</p>
         ${M.comp ? compHTML(M.comp) : ''}
-        <button type="button" class="axt-poner boton-principal w-full !py-2 text-xs" ${M.guardadoEnOrden ? 'disabled' : ''}>${M.guardadoEnOrden ? '✔ Ya es tu equipo guardado, en este orden' : M.esGuardado ? '🤖 Ponerlo en este orden y guardarlo' : '🤖 Poner este equipo en este orden y guardarlo'}</button>
+        <button type="button" class="axt-poner boton-principal w-full !py-2 text-xs" ${guardadoEnOrden ? 'disabled' : ''}>${guardadoEnOrden ? '✔ Ya es tu equipo guardado, en este orden' : esGuardado ? '🤖 Ponerlo en este orden y guardarlo' : '🤖 Poner este equipo en este orden y guardarlo'}</button>
         <p class="axt-poner-msg text-center text-[10px] font-bold ${yaSel ? 'text-hoja-600' : 'text-tinta-400'}">${yaSel ? '✔ Son los que tienes elegidos.' : 'Llevan una ⭐ en la lista de abajo.'}</p>
       </div>
       <p class="text-[11px] font-semibold text-tinta-500">Los mejores sueltos para la Torre: ${M.sueltos.slice(0, 10).map((x, i) => `${i + 1}. ${chipT(x.c)}${x.c.nombre}`).join(' · ')}</p>
+      ${botonCalc(viejo ? '🔄 Recalcular con lo nuevo' : '🔄 Volver a calcular')}
       <p class="text-[10px] font-semibold text-tinta-400">${soloSA(est) ? 'Liga clásica: solo se tienen en cuenta los tier S y A, tuyos y de los rivales (los S pesan el doble), porque es contra lo que vas a pelear. ' : ''}El mismo equipo ataca y defiende, así que se busca el mejor en general. El juego dice que el orden de salida se sortea al empezar cada combate; por si acaso, se guarda en el orden que más gana si salieran en fila. Se simulan combates en fila (el que gana sigue con la vida que le queda) contra equipos de 6 sacados de los rivales vistos en «Retar» y de un banco de todos los tipos tan fuerte como tus mejores Pokémon, todos a Nv.50. Un Pokémon por especie. La recomendación solo cambia si otra gana claramente más (no por el azar de la simulación). Cada nuevo miembro se elige por lo que suma a los que ya están (tipos, debilidades, papeles), no por lo bueno que es solo; también se prueban especialistas contra lo que más se ve en «Retar». «Sin él»: lo que ganaría el equipo con cinco. Cada uno juega con el objeto que lleva ahora. «Potenciar»: la estadística que más le conviene subir (con un objeto o como sea). ${cal}</p>
-      <button type="button" class="axt-lab-abrir" style="width:100%;border:0;border-radius:14px;padding:10px 12px;display:flex;align-items:center;gap:10px;text-align:left;cursor:pointer;color:#fff;background:linear-gradient(135deg,#4338CA,#7C3AED 55%,#DB2777);box-shadow:0 8px 18px -10px #7C3AED;font-family:inherit">
-        <span style="font-size:22px;line-height:1">🧪</span>
-        <span style="flex:1;min-width:0"><b style="display:block;font-size:13px;font-weight:900">Laboratorio: liga de autojuego</b><small style="display:block;font-size:10.5px;font-weight:700;opacity:.88">Combates fingidos contra los equipos que mejor te ganan, con logs</small></span>
-        <span style="font-size:16px;font-weight:900;opacity:.9">›</span>
-      </button>
       ${botonCopiar}`;
-    if (caja.dataset.html !== html) {
-      caja.innerHTML = html; caja.dataset.html = html;
-      kBadge(caja.querySelector('.k-badge'), M.nota.g >= 0.6 ? 'ok' : M.nota.g >= 0.45 ? 'warn' : 'err', `GANA ≈ ${pctT(M.nota.g)}`);
+    pintar(html, calculandoTorre ? ['on', 'CALCULANDO'] : viejo ? ['warn', 'DESACTUALIZADO'] : [M.nota.g >= 0.6 ? 'ok' : M.nota.g >= 0.45 ? 'warn' : 'err', `GANA ≈ ${pctT(M.nota.g)}`], () => {
       const b = caja.querySelector('.axt-copiar');
       if (b) b.addEventListener('click', e => { e.preventDefault(); copiarDatosTorre(est, b); });
       const bp = caja.querySelector('.axt-poner');
       if (bp) bp.addEventListener('click', e => { e.preventDefault(); ponerEquipoTorre(idsMejor); });
-      const bl = caja.querySelector('.axt-lab-abrir');
-      if (bl) bl.addEventListener('click', e => { e.preventDefault(); abrirLab(); });
-    }
+      const ba = caja.querySelector('.axt-analizar');
+      if (ba) ba.addEventListener('click', e => { e.preventDefault(); analizarSeleccion(); });
+    });
     estrellasTorre(idsMejor);
   }
   // Todo lo que usa el cálculo, en JSON, al portapapeles (sin nombres de jugadores ni ids de cuenta)
@@ -1448,507 +1496,6 @@
     } catch (e) { console.warn('[axt torre]', e); msg('⚠️ Error: ' + (e && e.message)); }
     finally { poniendoTorre = false; }
   }
-  /* ------------------------------------------------------------------ *
-   *  LABORATORIO DE LA TORRE: liga de autojuego
-   *  Los rivales también se adaptan: si llevas siempre lo mismo, alguien acaba montando el equipo que mejor te gana.
-   *  La liga lo simula por rondas: (1) tu mejor equipo; (2) el equipo rival que más le gana, con Pokémon que existen
-   *  de verdad (los S y A vistos en «Retar» y los que tienes tú); (3) tu mejor respuesta contra ese contraequipo,
-   *  contra los anteriores y contra lo de siempre; y otra vez. Al final se recomienda el equipo más robusto:
-   *  35% lo que gana de media + 65% lo que gana contra el contraequipo que peor le va. Con combates de ejemplo
-   *  golpe a golpe para ver por qué gana o pierde. Solo calcula al pulsar el botón y a trocitos (sin lag).
-   * ------------------------------------------------------------------ */
-  const LAB_CSS = `
-    #axt-lab{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:flex-end;justify-content:center;background:rgba(8,10,24,.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:axl-fondo .25s ease;font-family:inherit}
-    @media (min-width:640px){#axt-lab{align-items:center;padding:16px}}
-    #axt-lab *{box-sizing:border-box}
-    #axt-lab .axl-hoja{position:relative;width:min(600px,100%);max-height:94dvh;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;border-radius:26px 26px 0 0;background:rgb(var(--lienzo,250 248 242));color:rgb(var(--tinta-800,33 36 29));box-shadow:0 -20px 60px -20px rgba(0,0,0,.6);animation:axl-sube .38s cubic-bezier(.2,.9,.3,1.1)}
-    @media (min-width:640px){#axt-lab .axl-hoja{border-radius:26px}}
-    @keyframes axl-fondo{from{opacity:0}to{opacity:1}}
-    @keyframes axl-sube{from{transform:translateY(48px);opacity:0}to{transform:none;opacity:1}}
-    @keyframes axl-brillo{from{background-position:200% 0}to{background-position:-200% 0}}
-    @keyframes axl-entra{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-    @keyframes axl-late{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
-    @keyframes axl-flota{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-5px) rotate(6deg)}}
-    @keyframes axl-gira{to{transform:rotate(360deg)}}
-    #axt-lab .axl-cab{position:sticky;top:0;z-index:5;padding:20px 58px 18px 18px;color:#fff;overflow:hidden;background:linear-gradient(135deg,#4338CA 0%,#7C3AED 50%,#DB2777 100%);box-shadow:0 10px 24px -14px rgba(76,29,149,.9)}
-    #axt-lab .axl-cab::before,#axt-lab .axl-cab::after{content:"";position:absolute;border-radius:999px;background:rgba(255,255,255,.13);pointer-events:none}
-    #axt-lab .axl-cab::before{width:190px;height:190px;right:-60px;top:-90px}
-    #axt-lab .axl-cab::after{width:120px;height:120px;left:-44px;bottom:-70px}
-    #axt-lab .axl-cab h2{position:relative;margin:0;font-size:22px;font-weight:900;line-height:1.1;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
-    #axt-lab .axl-cab h2 span{display:inline-block;animation:axl-flota 3s ease-in-out infinite}
-    #axt-lab .axl-cab p{position:relative;margin:5px 0 0;font-size:12px;font-weight:700;opacity:.9;max-width:46ch;line-height:1.35;max-height:60px;overflow:hidden;transition:max-height .25s ease,opacity .25s ease,margin .25s ease}
-    #axt-lab .axl-cab,#axt-lab .axl-cab h2{transition:padding .25s ease,font-size .25s ease}
-    #axt-lab .axl-hoja.axl-bajado .axl-cab{padding-top:13px;padding-bottom:12px}
-    #axt-lab .axl-hoja.axl-bajado .axl-cab h2{font-size:18px}
-    #axt-lab .axl-hoja.axl-bajado .axl-cab p{max-height:0;opacity:0;margin:0}
-    #axt-lab .axl-hoja.axl-bajado .axl-x{top:9px}
-    #axt-lab .axl-x{position:absolute;right:14px;top:14px;width:34px;height:34px;border-radius:999px;border:0;background:rgba(255,255,255,.2);color:#fff;font-size:15px;font-weight:900;cursor:pointer;z-index:3;transition:background .15s}
-    #axt-lab .axl-x:hover{background:rgba(255,255,255,.34)}
-    #axt-lab .axl-cuerpo{padding:14px 14px 20px;display:grid;gap:12px}
-    #axt-lab .axl-card{min-width:0;border-radius:20px;padding:13px;background:rgba(127,127,127,.07);border:1.5px solid rgba(127,127,127,.16)}
-    #axt-lab .axl-nuevo{animation:axl-entra .35s ease both}
-    #axt-lab .axl-tit{margin:0 0 9px;font-size:11px;font-weight:900;letter-spacing:.09em;text-transform:uppercase;opacity:.72}
-    #axt-lab .axl-chips{display:flex;gap:6px;flex-wrap:wrap}
-    #axt-lab .axl-chip{border:1.5px solid rgba(127,127,127,.3);background:transparent;color:inherit;border-radius:999px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;transition:all .15s;font-family:inherit}
-    #axt-lab .axl-chip small{font-weight:700;opacity:.65}
-    #axt-lab .axl-chip[aria-pressed="true"]{background:#7C3AED;border-color:#7C3AED;color:#fff}
-    #axt-lab .axl-chip[aria-pressed="true"] small{opacity:.85}
-    #axt-lab .axl-chip:disabled{opacity:.5;cursor:default}
-    #axt-lab .axl-go{width:100%;margin-top:11px;border:0;border-radius:16px;padding:13px;font-size:15px;font-weight:900;color:#fff;cursor:pointer;background:linear-gradient(135deg,#4338CA,#7C3AED 55%,#DB2777);box-shadow:0 10px 22px -10px #7C3AED;transition:transform .12s,filter .15s;font-family:inherit}
-    #axt-lab .axl-go:hover:not(:disabled){filter:brightness(1.08)}
-    #axt-lab .axl-go:active:not(:disabled){transform:scale(.98)}
-    #axt-lab .axl-go:disabled{opacity:.65;cursor:default}
-    #axt-lab .axl-go.axl-verde{background:linear-gradient(135deg,#15803D,#22C55E);box-shadow:0 10px 22px -10px #16A34A}
-    #axt-lab .axl-rueda{display:inline-block;width:14px;height:14px;margin-right:7px;vertical-align:-2px;border-radius:999px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;animation:axl-gira .8s linear infinite}
-    #axt-lab .axl-barra{height:10px;border-radius:999px;background:rgba(127,127,127,.18);overflow:hidden;margin-top:12px}
-    #axt-lab .axl-barra>span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#7C3AED,#DB2777,#F59E0B,#DB2777,#7C3AED);background-size:200% 100%;animation:axl-brillo 2s linear infinite;transition:width .5s ease}
-    #axt-lab .axl-estado{margin:7px 0 0;font-size:11.5px;font-weight:800;opacity:.75}
-    #axt-lab .axl-equipo{display:flex;gap:7px;flex-wrap:wrap}
-    #axt-lab .axl-poke{position:relative;width:44px;height:44px;border-radius:13px;display:grid;place-items:center;flex-shrink:0;background:rgba(127,127,127,.13)}
-    #axt-lab .axl-poke img{width:42px;height:42px;image-rendering:pixelated;object-fit:contain}
-    #axt-lab .axl-poke.axl-gr{width:62px;height:62px;border-radius:18px;background:rgb(var(--lienzo,250 248 242) / .7)}
-    #axt-lab .axl-poke.axl-gr img{width:58px;height:58px}
-    #axt-lab .axl-poke .axl-letra{position:absolute;left:-4px;top:-4px;min-width:17px;height:17px;border-radius:999px;display:grid;place-items:center;font-size:9.5px;font-weight:900;color:#fff;box-shadow:0 0 0 2px rgb(var(--lienzo,250 248 242))}
-    #axt-lab .axl-poke .axl-orden{position:absolute;right:-4px;bottom:-4px;min-width:17px;height:17px;border-radius:999px;display:grid;place-items:center;font-size:9.5px;font-weight:900;color:#fff;background:#4338CA;box-shadow:0 0 0 2px rgb(var(--lienzo,250 248 242))}
-    #axt-lab .axl-poke .axl-sinimg{font-size:8.5px;font-weight:900;text-align:center;line-height:1.05;padding:2px}
-    #axt-lab .axl-nombres{margin:8px 0 0;font-size:11.5px;font-weight:800;line-height:1.45}
-    #axt-lab .axl-ronda{display:grid;grid-template-columns:auto minmax(0,1fr);gap:11px;align-items:start;padding:11px 0;border-top:1px dashed rgba(127,127,127,.28)}
-    #axt-lab .axl-ronda:first-of-type{border-top:0;padding-top:2px}
-    #axt-lab .axl-num{width:30px;height:30px;border-radius:999px;display:grid;place-items:center;font-size:12px;font-weight:900;color:#fff;background:linear-gradient(135deg,#4338CA,#DB2777);box-shadow:0 4px 10px -4px #7C3AED}
-    #axt-lab .axl-vs{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 8px;min-width:0}
-    #axt-lab .axl-vs+.axl-vs{margin-top:7px}
-    #axt-lab .axl-vs>div{min-width:0}
-    #axt-lab .axl-vs .axl-et{display:block;margin-bottom:1px}
-    #axt-lab .axl-vs.axl-resp{padding:6px 8px;border-radius:12px;background:rgba(124,58,237,.08)}
-    #axt-lab .axl-der{display:grid;justify-items:end;gap:1px}
-    #axt-lab .axl-et{font-size:9.5px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;opacity:.55}
-    #axt-lab .axl-pct{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:900;color:#fff;min-width:44px;text-align:center}
-    #axt-lab .axl-flecha{font-size:11px;font-weight:900;opacity:.8}
-    #axt-lab .axl-mini{display:inline-flex;padding-right:7px}
-    #axt-lab .axl-mini img,#axt-lab .axl-mini .axl-bola{width:30px;height:30px;margin-right:-4px;image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25))}
-    #axt-lab .axl-mini .axl-bola{display:inline-block;border-radius:999px;transform:scale(.55);border:2px solid rgba(255,255,255,.7)}
-    #axt-lab .axl-mejor{position:relative;overflow:hidden;background:linear-gradient(135deg,rgba(124,58,237,.14),rgba(219,39,119,.12));border-color:rgba(124,58,237,.45)}
-    #axt-lab .axl-mejor::after{content:"🏆";position:absolute;right:-6px;top:-14px;font-size:84px;opacity:.09;transform:rotate(14deg);pointer-events:none}
-    #axt-lab .axl-cifras{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
-    #axt-lab .axl-cifra{border-radius:15px;padding:9px 6px;text-align:center;background:rgba(127,127,127,.11)}
-    #axt-lab .axl-cifra b{display:block;font-size:21px;font-weight:900;line-height:1.1}
-    #axt-lab .axl-cifra small{display:block;margin-top:2px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;opacity:.65}
-    #axt-lab .axl-peor{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;padding:8px 10px;border-radius:14px;background:rgba(239,68,68,.09);font-size:11.5px;font-weight:800}
-    #axt-lab .axl-scroll{overflow-x:auto;margin:0 -4px;padding:4px}
-    #axt-lab .axl-matriz{display:grid;gap:5px;min-width:max-content}
-    #axt-lab .axl-cel{border:0;border-radius:11px;padding:9px 4px;min-width:48px;text-align:center;font-size:12px;font-weight:900;color:#fff;cursor:pointer;transition:transform .15s,box-shadow .15s;font-family:inherit}
-    #axt-lab .axl-cel:hover{transform:scale(1.08);box-shadow:0 5px 14px -5px rgba(0,0,0,.55)}
-    #axt-lab .axl-cel.axl-sel{box-shadow:0 0 0 3px rgb(var(--lienzo,250 248 242)),0 0 0 5px #7C3AED}
-    #axt-lab .axl-eje{font-size:10px;font-weight:900;display:flex;align-items:center;justify-content:center;gap:3px;opacity:.85;white-space:nowrap}
-    #axt-lab .axl-eje .axl-mini img,#axt-lab .axl-eje .axl-mini .axl-bola{width:22px;height:22px;margin-right:-7px}
-    #axt-lab .axl-leyenda{display:flex;align-items:center;gap:6px;margin-top:9px;font-size:10px;font-weight:800;opacity:.7}
-    #axt-lab .axl-leyenda i{flex:1;max-width:140px;height:7px;border-radius:999px;background:linear-gradient(90deg,hsl(0,68%,44%),hsl(42,80%,40%),hsl(142,68%,44%))}
-    #axt-lab .axl-bandos{display:grid;gap:8px;margin:10px 0}
-    #axt-lab .axl-bando{display:flex;align-items:center;gap:8px;padding:8px;border-radius:14px}
-    #axt-lab .axl-bando.axl-yo{background:rgba(34,197,94,.1)}
-    #axt-lab .axl-bando.axl-el{background:rgba(239,68,68,.1)}
-    #axt-lab .axl-bando>b{width:38px;flex-shrink:0;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;opacity:.7}
-    #axt-lab .axl-fila6{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;flex:1;min-width:0}
-    #axt-lab .axl-pk{display:grid;justify-items:center;gap:4px;transition:filter .3s,opacity .3s}
-    #axt-lab .axl-pk .axl-poke{width:100%;max-width:44px;height:auto;aspect-ratio:1}
-    #axt-lab .axl-pk .axl-poke img{width:92%;height:92%}
-    #axt-lab .axl-pk.axl-ko{filter:grayscale(1);opacity:.35}
-    #axt-lab .axl-pk.axl-activo .axl-poke{outline:2.5px solid #7C3AED;outline-offset:1px}
-    #axt-lab .axl-hp{width:100%;max-width:44px;height:5px;border-radius:999px;background:rgba(127,127,127,.25);overflow:hidden}
-    #axt-lab .axl-hp>span{display:block;height:100%;border-radius:999px;transition:width .35s ease,background .35s}
-    #axt-lab .axl-log{display:grid;gap:5px;max-height:min(380px,55dvh);overflow-y:auto;padding:2px;scroll-behavior:smooth}
-    #axt-lab .axl-ev{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:13px;font-size:12px;font-weight:700;animation:axl-entra .25s ease both;min-width:0}
-    #axt-lab .axl-log [hidden]{display:none}
-    #axt-lab .axl-ev.axl-yo{background:rgba(34,197,94,.1);border-left:3px solid #22C55E}
-    #axt-lab .axl-ev.axl-el{background:rgba(239,68,68,.1);border-left:3px solid #EF4444}
-    #axt-lab .axl-ev.axl-info{justify-content:center;background:rgba(127,127,127,.1);font-weight:800;font-size:11.5px}
-    #axt-lab .axl-ev.axl-cae{background:rgba(127,127,127,.18)}
-    #axt-lab .axl-ev img{width:34px;height:34px;image-rendering:pixelated;object-fit:contain;flex-shrink:0}
-    #axt-lab .axl-ev.axl-info img{width:28px;height:28px}
-    #axt-lab .axl-ev .axl-txt{min-width:0;flex:1.5;line-height:1.4}
-    #axt-lab .axl-tipo{display:inline-block;padding:1px 7px;border-radius:999px;font-size:9px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.03em;vertical-align:1px;text-shadow:0 1px 1px rgba(0,0,0,.3)}
-    #axt-lab .axl-ef{display:inline-block;padding:1px 6px;border-radius:999px;font-size:9px;font-weight:900;vertical-align:1px}
-    #axt-lab .axl-ef.axl-mas{background:rgba(245,158,11,.22);color:#B45309}
-    #axt-lab .axl-ef.axl-menos{background:rgba(127,127,127,.2)}
-    #axt-lab .axl-vida{flex:1;min-width:56px;max-width:110px;display:grid;gap:2px;text-align:right;font-size:10px;font-weight:900}
-    #axt-lab .axl-vida>i{display:block;height:7px;border-radius:999px;background:rgba(127,127,127,.25);overflow:hidden}
-    #axt-lab .axl-vida>i>span{display:block;height:100%;border-radius:999px}
-    #axt-lab .axl-fin{padding:13px;border-radius:15px;text-align:center;font-size:15px;font-weight:900;color:#fff;animation:axl-entra .3s ease both,axl-late .7s ease .3s 2}
-    #axt-lab .axl-fila{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
-    #axt-lab .axl-botones{display:flex;gap:6px}
-    #axt-lab .axl-suave{border:1.5px solid rgba(127,127,127,.3);background:rgba(127,127,127,.06);color:inherit;border-radius:12px;padding:6px 11px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit}
-    #axt-lab .axl-suave:hover:not(:disabled){background:rgba(127,127,127,.14)}
-    #axt-lab .axl-suave:disabled{opacity:.45;cursor:default}
-    #axt-lab .axl-nota{margin:9px 0 0;font-size:10.5px;font-weight:600;opacity:.68;line-height:1.45}
-    #axt-lab .axl-vacio{display:grid;justify-items:center;gap:6px;padding:14px 0 2px;text-align:center}
-    #axt-lab .axl-vacio .axl-grande{font-size:42px;animation:axl-flota 3s ease-in-out infinite}
-    #axt-lab .axl-pasos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;width:100%;margin-top:6px}
-    #axt-lab .axl-pasos div{border-radius:14px;padding:9px 6px;background:rgba(127,127,127,.09);font-size:10.5px;font-weight:700;line-height:1.35}
-    #axt-lab .axl-pasos b{display:block;font-size:18px;margin-bottom:2px}
-  `;
-  // rojo (pierde) → ámbar (50%) → verde (gana), con colores vivos y texto blanco legible
-  const colorPct = g => { g = Math.max(0, Math.min(1, g)); const h = Math.round(g < 0.5 ? g * 2 * 42 : 42 + (g - 0.5) * 2 * 100); return `hsl(${h},${h > 30 && h < 80 ? 80 : 68}%,${h > 30 && h < 80 ? 40 : 44}%)`; };
-  const escL = x => String(x ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const nombreL = l => l.nombre || `Rival ${l.tipos.map(bonito).join('/')}`;
-  const pctL = x => Math.round(x * 100) + '%';
-  const tierL = l => (l.src && l.src.stats ? tierTorre(l.src) : null);
-  function pokeHTML(l, { grande = false, orden = null } = {}) {
-    const t = tierL(l), tipo = l.tipos[0];
-    const img = l.sprite ? `<img src="${escL(l.sprite)}" alt="${escL(nombreL(l))}" loading="lazy">` : `<span class="axl-sinimg">${l.tipos.map(t => escL(bonito(t))).join('<br>')}</span>`;
-    return `<span class="axl-poke${grande ? ' axl-gr' : ''}" title="${escL(nombreL(l))} · ${escL(l.tipos.map(bonito).join('/'))}" style="box-shadow:inset 0 -3px 0 ${COLOR_TIPO[tipo] || '#888'}">${img}${t ? `<span class="axl-letra" style="background:${t.color}">${t.letra}</span>` : ''}${orden ? `<span class="axl-orden">${orden}</span>` : ''}</span>`;
-  }
-  const miniHTML = (eq, n = 6) => `<span class="axl-mini">${eq.slice(0, n).map(l => l.sprite ? `<img src="${escL(l.sprite)}" alt="" title="${escL(nombreL(l))}" loading="lazy">` : `<span class="axl-bola" title="${escL(nombreL(l))}" style="background:${COLOR_TIPO[l.tipos[0]] || '#888'}"></span>`).join('')}</span>`;
-  const mismoEquipo = (a, b) => a.map(nombreL).sort().join() === b.map(nombreL).sort().join();
-
-  // Combates de prueba contra equipos fijos (con su orden sorteado en cada combate, como en el juego)
-  function simsContra(equipos, n, semilla) {
-    const azar = rng(semilla);
-    return Array.from({ length: n }, (_, i) => ({ rivs: barajar(equipos[i % equipos.length], azar), perm: barajar([0, 1, 2, 3, 4, 5], azar) }));
-  }
-  // Busca por pasos (generador) un equipo de 6 sin especies repetidas que maximice f: uno a uno y luego cambios de uno en uno
-  function* buscarEquipoPasos(cands, f, inicial) {
-    const choca = (eq, c) => eq.includes(c) || eq.some(x => nombreL(x) === nombreL(c));
-    let eq = [];
-    for (const c of inicial || []) if (c && !choca(eq, c) && eq.length < 6) eq.push(c);
-    while (eq.length < Math.min(6, cands.length)) {
-      let mejor = null;
-      for (const c of cands) { if (choca(eq, c)) continue; const v = f([...eq, c]); yield; if (!mejor || v > mejor.v) mejor = { c, v }; }
-      if (!mejor) break;
-      eq.push(mejor.c);
-    }
-    let v0 = f(eq);
-    for (let vuelta = 0; vuelta < 3; vuelta++) {
-      let mejoro = false;
-      for (let i = 0; i < eq.length; i++) {
-        let mejor = null;
-        const resto = eq.filter((_, k) => k !== i);
-        for (const c of cands) {
-          if (c === eq[i] || choca(resto, c)) continue;
-          const v = f(eq.map((x, k) => (k === i ? c : x)));
-          yield;
-          if (v > v0 + 0.003 && (!mejor || v > mejor.v)) mejor = { c, v };
-        }
-        if (mejor) { eq = eq.map((x, k) => (k === i ? mejor.c : x)); v0 = mejor.v; mejoro = true; }
-      }
-      if (!mejoro) break;
-    }
-    return { eq, v: v0 };
-  }
-  const ganaVs = (eqL, sims) => notaEquipo(eqL, sims).g;
-
-  // Un combate contado golpe a golpe, con las mismas reglas que la simulación: en fila, el que gana sigue con la vida
-  // que le queda, en cada duelo pega primero el más rápido, Slaking descansa un turno de cada dos y «As en la Manga»
-  // aguanta un golpe una vez. La vida va en fracción (1 = entera) y cada golpe quita su daño medio (con los críticos).
-  function combateDetalle(A, B) {
-    const ev = [];
-    const pa = A.map((l, k) => ({ l, id: 'yo-' + k, lado: 'yo', hp: 1, aguanta: !!l.aguanta }));
-    const pb = B.map((l, k) => ({ l, id: 'el-' + k, lado: 'el', hp: 1, aguanta: !!l.aguanta }));
-    let i = 0, j = 0;
-    ev.push({ t: 'sale', p: pa[0] }, { t: 'sale', p: pb[0] });
-    while (i < pa.length && j < pb.length) {
-      const a = pa[i], b = pb[j];
-      a.descansa = b.descansa = false;
-      const primeroA = a.l.spe > b.l.spe || (a.l.spe === b.l.spe && a.hp >= b.hp);
-      const orden = primeroA ? [[a, b], [b, a]] : [[b, a], [a, b]];
-      for (let turno = 0; a.hp > 0 && b.hp > 0 && turno < 400; turno++) {
-        for (const [x, y] of orden) {
-          if (x.hp <= 0 || y.hp <= 0) continue;
-          if (x.l.num === HOLGAZAN && x.descansa) { x.descansa = false; ev.push({ t: 'descansa', p: x }); continue; }
-          const at = tipoAtaque(x.l, y.l), d = golpe(x.l, y.l);
-          let hp = y.hp - d, aguanto = false;
-          if (hp <= 0 && y.aguanta) { hp = 0.01; y.aguanta = false; aguanto = true; }
-          const antes = y.hp;
-          y.hp = Math.max(0, hp);
-          ev.push({ t: 'golpe', de: x, a: y, tipo: at.t, e: at.e, d: antes - y.hp, hp: y.hp, aguanto });
-          if (x.l.num === HOLGAZAN) x.descansa = true;
-          if (y.hp <= 0) ev.push({ t: 'cae', p: y });
-        }
-      }
-      a.aguanta = b.aguanta = false;
-      if (a.hp <= 0 && ++i < pa.length) ev.push({ t: 'sale', p: pa[i] });
-      if (b.hp <= 0 && ++j < pb.length) ev.push({ t: 'sale', p: pb[j] });
-    }
-    ev.push({ t: 'fin', gana: j >= pb.length, quedan: pa.length - i, suyos: pb.length - j });
-    return { ev, pa, pb };
-  }
-
-  let lab = null, labTimer = null;
-  const escLab = e => { if (e.key === 'Escape') cerrarLab(); };
-  function abrirLab() {
-    if (!memoTorre || !memoTorre.eq) return;
-    if (!document.getElementById('axt-lab-css')) { const st = document.createElement('style'); st.id = 'axt-lab-css'; st.textContent = LAB_CSS; document.head.appendChild(st); }
-    let d = document.getElementById('axt-lab');
-    if (!d) {
-      d = document.createElement('div');
-      d.id = 'axt-lab';
-      d.setAttribute('data-ax-ignore', '1');
-      d.innerHTML = `
-        <div class="axl-hoja" role="dialog" aria-modal="true" aria-label="Laboratorio de la Torre">
-          <div class="axl-cab">
-            <button type="button" class="axl-x" aria-label="Cerrar">✕</button>
-            <h2><span>🧪</span> Laboratorio de la Torre</h2>
-            <p>Liga de autojuego: tu equipo contra los equipos que mejor lo ganan, ronda a ronda, hasta dar con el que menos sufre.</p>
-          </div>
-          <div class="axl-cuerpo"></div>
-        </div>`;
-      d.addEventListener('click', e => { if (e.target === d) cerrarLab(); });
-      d.querySelector('.axl-x').addEventListener('click', cerrarLab);
-      const hoja = d.querySelector('.axl-hoja');
-      hoja.addEventListener('scroll', () => hoja.classList.toggle('axl-bajado', hoja.scrollTop > 40), { passive: true });
-      document.body.appendChild(d);
-      lab = lab || { rondasN: 5, rondas: [], corriendo: false };
-      lab.pintado = { rondas: 0, res: null, combate: null };
-      lab.overflow = document.body.style.overflow;
-      document.body.style.overflow = 'hidden';
-      document.addEventListener('keydown', escLab);
-    }
-    pintarLab();
-  }
-  function cerrarLab() {
-    const d = document.getElementById('axt-lab');
-    if (d) d.remove();
-    clearInterval(labTimer);
-    document.removeEventListener('keydown', escLab);
-    if (lab) document.body.style.overflow = lab.overflow || '';
-  }
-  // Barra y texto de progreso sin repintar todo
-  function progresoLab(txt, p) {
-    lab.estadoTxt = txt; lab.progreso = p;
-    const d = document.getElementById('axt-lab');
-    const barra = d && d.querySelector('.axl-barra > span'), est = d && d.querySelector('.axl-estado');
-    if (barra) barra.style.width = Math.round(p * 100) + '%';
-    if (est) est.textContent = txt;
-  }
-
-  async function correrLiga() {
-    const est = estadoTorre();
-    if (!est || !memoTorre || !memoTorre.eq || lab.corriendo) return;
-    const M = memoTorre;
-    Object.assign(lab, { corriendo: true, rondas: [], resultado: null, sel: null, combate: null, progreso: 0, estadoTxt: 'Preparando a los luchadores…', error: null });
-    lab.pintado = { rondas: 0, res: null, combate: null };
-    pintarLab();
-    const pausa = () => new Promise(r => setTimeout(r, 40));
-    try {
-      await pausa();
-      const unicos = candidatosUnicos(est);
-      // los tuyos: el equipo del panel y los mejores sueltos
-      const misCands = [...new Set([...M.eq, ...M.sueltos.slice(0, 18).map(x => x.c)].map(c => luchadorT(c)))];
-      // el universo rival: los vistos en «Retar» (S y A en la clásica) y lo que tienes tú (los demás tendrán algo parecido)
-      const univ = [];
-      for (const l of [...M.pool.filter(p => p.k[0] === 'V').map(p => p.l), ...unicos.map(c => luchadorT(c))]) {
-        if (!univ.some(u => nombreL(u) === nombreL(l) && u.hp === l.hp && u.atk === l.atk && u.esp === l.esp)) univ.push(l);
-      }
-      const simsBase = M.sims.slice(0, 220);
-      const R = lab.rondasN;
-      const tuyos = [], contras = [];
-      let actual = M.eq.map(c => luchadorT(c));
-      tuyos.push(actual);
-      for (let r = 1; r <= R; r++) {
-        // 1) el contraequipo: lo que más gana a tu equipo actual
-        progresoLab(`Ronda ${r} de ${R} · buscando el equipo que más gana al tuyo…`, (r - 1) / (R + 0.4));
-        await pausa();
-        const simsA = simsContra([actual], 140, 100 + r);
-        const fuerzaVs = l => actual.reduce((x, m) => x + ventaja(l, m), 0);
-        const candR = [...univ].sort((a, b) => fuerzaVs(b) - fuerzaVs(a)).slice(0, 22);
-        const contra = (await correrPasos(buscarEquipoPasos(candR, eq => valorN(notaEquipo(eq, simsA))))).eq;
-        contras.push(contra);
-        // 2) tu mejor respuesta: contra lo de siempre y contra el peor de los contraequipos que han ido saliendo
-        progresoLab(`Ronda ${r} de ${R} · buscando tu mejor respuesta…`, (r - 0.5) / (R + 0.4));
-        await pausa();
-        const simsC = contras.map((B, k) => simsContra([B], 70, 300 + k));
-        const f = eq => {
-          let peor = Infinity;
-          for (const s of simsC) peor = Math.min(peor, valorN(notaEquipo(eq, s)));
-          return 0.35 * valorN(notaEquipo(eq, simsBase)) + 0.65 * peor;
-        };
-        const resp = (await correrPasos(buscarEquipoPasos(misCands, f, actual))).eq;
-        const sR = simsContra([contra], 160, 500 + r);
-        lab.rondas.push({ r, tuyo: actual, contra, gAntes: ganaVs(actual, sR), respuesta: resp, gDespues: ganaVs(resp, sR), igual: mismoEquipo(actual, resp) });
-        actual = resp;
-        if (!tuyos.some(t => mismoEquipo(t, resp))) tuyos.push(resp);
-        pintarLab();
-      }
-      // 3) todos contra todos: cada equipo tuyo contra lo de siempre y contra cada contraequipo
-      progresoLab('Enfrentando todos contra todos…', (R + 0.2) / (R + 0.4));
-      await pausa();
-      const simsTodos = M.sims.slice(0, 400), simsK = contras.map((B, k) => simsContra([B], 160, 700 + k));
-      const matriz = [];
-      for (const A of tuyos) { matriz.push({ base: ganaVs(A, simsTodos), vs: [] }); await pausa(); for (const s of simsK) { matriz[matriz.length - 1].vs.push(ganaVs(A, s)); } await pausa(); }
-      const puntua = m => 0.35 * m.base + 0.65 * Math.min(...m.vs);
-      // el del panel se queda salvo que otro sea claramente más robusto
-      let iMejor = 0;
-      matriz.forEach((m, i) => { if (puntua(m) > puntua(matriz[iMejor]) + (iMejor === 0 ? 0.01 : 0)) iMejor = i; });
-      // el orden: el que más gana en fila (por si el juego lo respeta)
-      progresoLab('Buscando el mejor orden de salida…', (R + 0.3) / (R + 0.4));
-      const orden = await correrPasos(mejorOrdenPasos(tuyos[iMejor], M.sims.slice(0, 200)));
-      tuyos[iMejor] = orden.map(k => tuyos[iMejor][k]);
-      const m = matriz[iMejor], kPeor = m.vs.indexOf(Math.min(...m.vs));
-      lab.resultado = { tuyos, contras, matriz, iMejor, mejor: tuyos[iMejor], base: m.base, peor: m.vs[kPeor], kPeor, esElDelPanel: iMejor === 0 };
-      lab.corriendo = false;
-      lab.estadoTxt = `¡Liga terminada! ${R} rondas, ${tuyos.length} equipos tuyos contra ${contras.length} contraequipos.`;
-      lab.progreso = 1;
-      verCombate(iMejor, kPeor);
-      return;
-    } catch (e) {
-      console.warn('[axt lab]', e);
-      lab.error = '⚠️ Algo ha fallado: ' + (e && e.message);
-    }
-    lab.corriendo = false;
-    pintarLab();
-  }
-
-  function verCombate(i, j) {
-    const R = lab.resultado;
-    if (!R) return;
-    const azar = rng(1 + Math.floor(Math.random() * 2147483000));
-    const rival = j === 'base' ? memoTorre.sims[Math.floor(azar() * memoTorre.sims.length)].rivs : R.contras[j];
-    const primera = !lab.combate;
-    lab.sel = { i, j };
-    lab.combate = combateDetalle(barajar(R.tuyos[i], azar), barajar(rival, azar));
-    pintarLab();
-    const c = document.querySelector('#axt-lab .axl-combate');
-    if (c && !primera) c.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }
-
-  function htmlCombate(C) {
-    const bando = (ps, lado) => `<div class="axl-bando axl-${lado}"><b>${lado === 'yo' ? 'Tú' : 'Rival'}</b><div class="axl-fila6">${ps.map((p, k) => `<span class="axl-pk" data-p="${p.id}">${pokeHTML(p.l, { orden: k + 1 })}<span class="axl-hp"><span style="width:100%;background:${colorPct(1)}"></span></span></span>`).join('')}</div></div>`;
-    const img = l => (l.sprite ? `<img src="${escL(l.sprite)}" alt="">` : '');
-    const filas = C.ev.map(e => {
-      if (e.t === 'sale') return `<div class="axl-ev axl-info" hidden data-sale="${e.p.id}">${img(e.p.l)}<span>${e.p.lado === 'yo' ? '¡Adelante,' : 'El rival saca a'} <b>${escL(nombreL(e.p.l))}</b>${e.p.lado === 'yo' ? '!' : ''}</span></div>`;
-      if (e.t === 'cae') return `<div class="axl-ev axl-info axl-cae" hidden data-ko="${e.p.id}">💥 <span><b>${escL(nombreL(e.p.l))}</b> ${e.p.lado === 'yo' ? '(tuyo)' : 'del rival'} se debilita</span></div>`;
-      if (e.t === 'descansa') return `<div class="axl-ev axl-${e.p.lado}" hidden>${img(e.p.l)}<span class="axl-txt">😴 <b>${escL(nombreL(e.p.l))}</b> está holgazaneando</span></div>`;
-      if (e.t === 'fin') return `<div class="axl-fin" hidden style="background:${e.gana ? 'linear-gradient(135deg,#15803D,#22C55E)' : 'linear-gradient(135deg,#B91C1C,#EF4444)'}">${e.gana ? `🏆 ¡Gana tu equipo! ${e.quedan === 1 ? 'Te queda 1 en pie' : `Te quedan ${e.quedan} en pie`}` : `😵 Gana el rival · ${e.suyos === 1 ? 'le queda 1' : `le quedan ${e.suyos}`}`}</div>`;
-      const ef = e.e === 0 ? '<span class="axl-ef axl-menos">no le afecta · Forcejeo</span>' : e.e > 1 ? '<span class="axl-ef axl-mas">¡muy eficaz!</span>' : e.e < 1 ? '<span class="axl-ef axl-menos">poco eficaz</span>' : '';
-      return `<div class="axl-ev axl-${e.de.lado}" hidden data-hp="${e.a.id}:${e.hp.toFixed(3)}">${img(e.de.l)}<span class="axl-txt"><b>${escL(nombreL(e.de.l))}</b> ataca a ${escL(nombreL(e.a.l))} <span class="axl-tipo" style="background:${COLOR_TIPO[e.tipo] || '#888'}">${escL(bonito(e.tipo || 'normal'))}</span> ${ef}${e.aguanto ? ' <span class="axl-ef axl-mas">¡aguanta con 1 PS!</span>' : ''}<br><span style="opacity:.65">le quita un ${Math.max(1, Math.round(e.d * 100))}% de la vida</span></span><span class="axl-vida" title="Vida que le queda a ${escL(nombreL(e.a.l))}">${e.hp > 0 ? `le queda ${Math.max(1, Math.round(e.hp * 100))}%` : 'K.O.'}<i><span style="width:${Math.round(e.hp * 100)}%;background:${colorPct(e.hp)}"></span></i></span></div>`;
-    }).join('');
-    return `<div class="axl-bandos">${bando(C.pa, 'yo')}${bando(C.pb, 'el')}</div><div class="axl-log">${filas}</div>`;
-  }
-  // Se van enseñando los golpes uno a uno (y las barras de vida de arriba bajan a la vez)
-  function reproducirCombate(rapido) {
-    clearInterval(labTimer);
-    const d = document.getElementById('axt-lab');
-    const log = d && d.querySelector('.axl-log');
-    if (!log) return;
-    const evs = [...log.children];
-    let n = 0;
-    const fin = () => { clearInterval(labTimer); const s = d.querySelector('[data-accion="saltar"]'); if (s) s.disabled = true; };
-    const uno = () => {
-      const e = evs[n++];
-      if (!e) { fin(); return false; }
-      e.hidden = false;
-      if (e.dataset.hp) {
-        const [id, hp] = e.dataset.hp.split(':');
-        const bar = d.querySelector(`.axl-pk[data-p="${id}"] .axl-hp > span`);
-        if (bar) { bar.style.width = Math.round(+hp * 100) + '%'; bar.style.background = colorPct(+hp); }
-      }
-      if (e.dataset.ko) { const pk = d.querySelector(`.axl-pk[data-p="${e.dataset.ko}"]`); if (pk) { pk.classList.add('axl-ko'); pk.classList.remove('axl-activo'); } }
-      if (e.dataset.sale) {
-        const lado = e.dataset.sale.split('-')[0];
-        for (const pk of d.querySelectorAll(`.axl-pk[data-p^="${lado}-"]`)) pk.classList.toggle('axl-activo', pk.dataset.p === e.dataset.sale);
-      }
-      if (!rapido) log.scrollTop = log.scrollHeight;
-      return true;
-    };
-    if (rapido) { while (uno()); log.style.scrollBehavior = "auto"; log.scrollTop = log.scrollHeight; return; }
-    uno(); uno();
-    labTimer = setInterval(uno, 280);
-  }
-
-  function pintarLab() {
-    const d = document.getElementById('axt-lab');
-    if (!d || !lab) return;
-    const cuerpo = d.querySelector('.axl-cuerpo'), hoja = d.querySelector('.axl-hoja');
-    const R = lab.resultado, P = lab.pintado;
-    const nuevo = cond => (cond ? ' axl-nuevo' : '');
-    const chips = [[3, 'rápida'], [5, 'normal'], [8, 'a fondo']].map(([n, t]) => `<button type="button" class="axl-chip" data-rondas="${n}" aria-pressed="${lab.rondasN === n}" ${lab.corriendo ? 'disabled' : ''}>${n} rondas <small>· ${t}</small></button>`).join('');
-    const intro = !lab.rondas.length && !lab.corriendo ? `
-      <div class="axl-vacio">
-        <span class="axl-grande">⚗️</span>
-        <div class="axl-pasos">
-          <div><b>🛡️</b>Tu mejor equipo sale a la pista</div>
-          <div><b>🗡️</b>Se monta el equipo rival que más le gana</div>
-          <div><b>🔁</b>Buscas respuesta… y vuelta a empezar</div>
-        </div>
-      </div>` : '';
-    const rondas = lab.rondas.map((r, k) => `
-      <div class="axl-ronda${nuevo(k >= P.rondas)}">
-        <span class="axl-num">${r.r}</span>
-        <div style="min-width:0">
-          ${k ? '' : `<div class="axl-vs"><div><span class="axl-et">⭐ Tu equipo (el del panel)</span>${miniHTML(r.tuyo)}</div><span></span></div>`}
-          <div class="axl-vs"><div><span class="axl-et">🗡️ ${k ? 'El que más gana a tu última respuesta' : 'El que más le gana'}</span>${miniHTML(r.contra)}</div><div class="axl-der"><span class="axl-pct" style="background:${colorPct(r.gAntes)}">${pctL(r.gAntes)}</span><span class="axl-et">ganas tú</span></div></div>
-          <div class="axl-vs axl-resp"><div><span class="axl-et">🛡️ ${r.igual ? 'Tu respuesta: no hace falta cambiar nada' : 'Tu respuesta'}</span>${r.igual ? '' : miniHTML(r.respuesta)}</div><div class="axl-der"><span class="axl-pct" style="background:${colorPct(r.gDespues)}">${pctL(r.gDespues)}</span>${r.igual ? '' : `<span class="axl-flecha" style="color:${r.gDespues >= r.gAntes ? '#16A34A' : '#DC2626'}">${r.gDespues >= r.gAntes ? '▲' : '▼'} ${Math.abs(Math.round((r.gDespues - r.gAntes) * 100))} puntos</span>`}</div></div>
-        </div>
-      </div>`).join('');
-    let resultado = '';
-    if (R) {
-      const esNuevo = P.res !== R;
-      const cab = `<span></span><span class="axl-eje">🌍 Todos</span>${R.contras.map((B, k) => `<span class="axl-eje" title="Contraequipo de la ronda ${k + 1}">🗡️ ${k + 1}</span>`).join('')}`;
-      const celda = (i, j, g) => `<button type="button" class="axl-cel${lab.sel && lab.sel.i === i && lab.sel.j === j ? ' axl-sel' : ''}" data-i="${i}" data-j="${j}" style="background:${colorPct(g)}" title="Ver un combate de ejemplo">${pctL(g)}</button>`;
-      const filas = R.matriz.map((m, i) => `<span class="axl-eje" style="justify-content:flex-start;${i === R.iMejor ? 'background:rgba(124,58,237,.16);border-radius:10px;padding:0 4px' : ''}">${i === R.iMejor ? '🏆' : i === 0 ? '⭐' : '🛡️'}${miniHTML(R.tuyos[i], 6)}</span>${celda(i, 'base', m.base)}${m.vs.map((g, k) => celda(i, k, g)).join('')}`).join('');
-      const mejorIds = R.mejor.map(l => (l.cid != null ? String(l.cid) : null));
-      const est = estadoTorre();
-      const yaGuardado = ((est && est.miEquipo) || []).map(x => String(x.ownedId)).join() === mejorIds.join();
-      resultado = `
-        <div class="axl-card axl-mejor${nuevo(esNuevo)}">
-          <p class="axl-tit">🏆 Tu equipo más robusto</p>
-          <div class="axl-equipo">${R.mejor.map((l, k) => pokeHTML(l, { grande: true, orden: k + 1 })).join('')}</div>
-          <p class="axl-nombres">${R.mejor.map(l => escL(nombreL(l))).join(' · ')}</p>
-          <div class="axl-cifras">
-            <div class="axl-cifra"><b style="color:${colorPct(R.base)}">${pctL(R.base)}</b><small>gana de media</small></div>
-            <div class="axl-cifra"><b style="color:${colorPct(R.peor)}">${pctL(R.peor)}</b><small>en el peor caso</small></div>
-            <div class="axl-cifra"><b>${R.tuyos.length}×${R.contras.length}</b><small>equipos cruzados</small></div>
-          </div>
-          <div class="axl-peor"><span>😈 Su peor enemigo:</span>${miniHTML(R.contras[R.kPeor])}<span class="axl-pct" style="background:${colorPct(R.peor)}">${pctL(R.peor)}</span></div>
-          <p class="axl-nota">${R.esElDelPanel ? '✔ Es el mismo que ya te recomendaba el panel: aguanta bien incluso contra equipos montados para ganarle.' : `Es distinto del que recomendaba el panel (⭐ en la tabla): aquel gana un <b>${pctL(R.matriz[0].base)}</b> de media pero solo un <b>${pctL(Math.min(...R.matriz[0].vs))}</b> contra su peor enemigo; este, <b>${pctL(R.base)}</b> y <b>${pctL(R.peor)}</b>. Si en la Torre te toca mucho el mismo tipo de equipo, este aguanta mejor; si los rivales son variados, el del panel gana más.`}</p>
-          <button type="button" class="axl-go axl-verde" data-accion="poner" ${yaGuardado || mejorIds.includes(null) ? 'disabled' : ''}>${yaGuardado ? '✔ Ya es tu equipo guardado, en este orden' : '🤖 Poner este equipo en este orden y guardarlo'}</button>
-        </div>
-        <div class="axl-card${nuevo(esNuevo)}">
-          <p class="axl-tit">📊 Todos contra todos</p>
-          <div class="axl-scroll"><div class="axl-matriz" style="grid-template-columns:auto repeat(${R.contras.length + 1},minmax(48px,1fr))">${cab}${filas}</div></div>
-          <div class="axl-leyenda">pierde<i></i>gana</div>
-          <p class="axl-nota">Filas: tus equipos (⭐ el del panel, 🛡️ las respuestas de cada ronda, 🏆 el elegido). Columnas: 🌍 contra todo lo que se ve en la Torre y 🗡️ contra el contraequipo de cada ronda. <b>Toca una casilla</b> para ver un combate de ejemplo.</p>
-        </div>
-        <div class="axl-card axl-combate${nuevo(P.combate !== lab.combate)}">
-          <div class="axl-fila"><p class="axl-tit" style="margin:0">⚔️ Combate de ejemplo</p><div class="axl-botones"><button type="button" class="axl-suave" data-accion="saltar">⏩ Saltar</button><button type="button" class="axl-suave" data-accion="otro">🎲 Otro</button></div></div>
-          ${lab.combate ? htmlCombate(lab.combate) : ''}
-          <p class="axl-nota">${lab.sel && lab.sel.j === 'base' ? 'Contra un equipo sacado de lo que se ve en la Torre.' : `Contra el contraequipo de la ronda ${lab.sel ? lab.sel.j + 1 : ''}.`} El orden de salida se sortea, como en el juego. Cada golpe quita su daño medio (los críticos van repartidos): es un combate «típico», no uno con suerte.</p>
-        </div>`;
-    }
-    const scroll = hoja.scrollTop;
-    cuerpo.innerHTML = `
-      <div class="axl-card">
-        <p class="axl-tit">⚙️ Liga</p>
-        <div class="axl-chips">${chips}</div>
-        ${intro}
-        <button type="button" class="axl-go" data-accion="empezar" ${lab.corriendo ? 'disabled' : ''}>${lab.corriendo ? '<span class="axl-rueda"></span>Jugando la liga…' : R ? '🔁 Volver a jugarla' : '▶ Empezar la liga'}</button>
-        ${lab.corriendo || R ? `<div class="axl-barra"><span style="width:${Math.round((lab.progreso || 0) * 100)}%"></span></div><p class="axl-estado">${escL(lab.estadoTxt || '')}</p>` : ''}
-        ${lab.error ? `<p class="axl-estado" style="color:#DC2626">${escL(lab.error)}</p>` : ''}
-        <p class="axl-nota">Cada ronda se monta el equipo rival que más gana al tuyo, con Pokémon que existen de verdad (los S y A vistos en «Retar» y los que tienes tú), y luego tu mejor respuesta contra ese, contra los anteriores y contra lo de siempre. Gana el equipo con mejor mezcla de media (35%) y peor caso (65%).</p>
-      </div>
-      ${rondas ? `<div class="axl-card"><p class="axl-tit">🥊 Rondas</p>${rondas}</div>` : ''}
-      ${resultado}`;
-    hoja.scrollTop = scroll;
-    const combateNuevo = R && P.combate !== lab.combate;
-    P.rondas = lab.rondas.length; P.res = R || null; P.combate = lab.combate;
-    for (const b of cuerpo.querySelectorAll('[data-rondas]')) b.addEventListener('click', () => { lab.rondasN = +b.dataset.rondas; pintarLab(); });
-    const emp = cuerpo.querySelector('[data-accion="empezar"]');
-    if (emp) emp.addEventListener('click', () => correrLiga());
-    for (const c of cuerpo.querySelectorAll('.axl-cel')) c.addEventListener('click', () => verCombate(+c.dataset.i, c.dataset.j === 'base' ? 'base' : +c.dataset.j));
-    const otro = cuerpo.querySelector('[data-accion="otro"]');
-    if (otro) otro.addEventListener('click', () => lab.sel && verCombate(lab.sel.i, lab.sel.j));
-    const saltar = cuerpo.querySelector('[data-accion="saltar"]');
-    if (saltar) saltar.addEventListener('click', () => reproducirCombate(true));
-    const poner = cuerpo.querySelector('[data-accion="poner"]');
-    if (poner && R) poner.addEventListener('click', async () => {
-      poner.disabled = true;
-      poner.textContent = '⏳ Marcándolos en la lista…';
-      await ponerEquipoTorre(R.mejor.map(l => String(l.cid)));
-      const p = document.querySelector('#axt-torre .axt-poner-msg');
-      poner.textContent = p && p.textContent ? p.textContent : '✔ Hecho';
-      setTimeout(cerrarLab, 1500);
-    });
-    if (lab.combate) reproducirCombate(!combateNuevo);
-  }
   // Una ⭐ abajo a la derecha en los 6 recomendados (solo se señalan: elegirlos es cosa tuya)
   function estrellasTorre(ids) {
     for (const li of $$('main ul.grid > li')) {
@@ -1971,8 +1518,46 @@
 
   // Retar: probabilidad de ganar a cada rival con tu equipo guardado (3 suyos a la vista + 3 tapados del banco)
   const memoRival = new Map();
+  let retarPedido = false, calculandoRetar = false;
+  // Lo mínimo para predecir en «Retar» (rivales y combates de prueba), si aún no hay cálculo de «Mi equipo»
+  async function calcularRetar() {
+    if (calculandoRetar) return;
+    retarPedido = true;
+    const est = estadoTorre();
+    if (!est) return;
+    if (!memoTorre) {
+      calculandoRetar = true; programar();
+      try {
+        await pausaT();
+        const unicos = candidatosUnicos(est);
+        const { pool, vistos, equipos, bm } = poolTorre(est, unicos);
+        const sims = await correrPasos(simulacionesPasos(pool, 600, 7));
+        memoTorre = { firma: 'retar', pool, vistos, equipos, bm, sims, porSel: {}, t: Date.now() };
+      } catch (e) { console.warn('[axt torre]', e); }
+      calculandoRetar = false;
+    }
+    programar();
+  }
+  // Botón en «Retar» (antes de la primera tarjeta de rival o de «Retar a ciegas»)
+  function botonRetar(est) {
+    const ciegas = $$('main button').find(b => /Retar a ciegas/.test(b.textContent || ''));
+    const primera = (est.rivales || []).map(r => $$('main div.tarjeta').find(d => { const f = fibraDe(d); return f && String(f.key) === String(r.userId); })).find(Boolean);
+    const ancla = primera || ciegas;
+    let caja = document.getElementById('axt-retar');
+    if (retarPedido || !ancla || !equipoGuardado(est).length) { if (caja) caja.remove(); return; }
+    if (!caja) {
+      caja = document.createElement('div');
+      caja.id = 'axt-retar';
+      caja.className = 'axt-predic';
+      caja.setAttribute('data-ax-ignore', '1');
+      caja.innerHTML = '<button type="button" class="boton-suave w-full !py-2 text-xs">🔮 Calcular mis probabilidades contra estos rivales</button>';
+      caja.querySelector('button').addEventListener('click', e => { e.preventDefault(); e.currentTarget.disabled = true; e.currentTarget.textContent = '⏳ Calculando…'; calcularRetar(); });
+    }
+    if (caja.nextElementSibling !== ancla) ancla.insertAdjacentElement('beforebegin', caja);
+  }
   function prediccionesRivales(est) {
-    if (!memoTorre) return;
+    botonRetar(est);
+    if (!memoTorre || !retarPedido || calculandoRetar) return;
     const guardado = equipoGuardado(est);
     if (!guardado.length) return;
     const claveEq = guardado.map(l => l.nombre + l.item + l.hp).join(',');
@@ -2000,8 +1585,10 @@
     }
     // «Retar a ciegas»: contra un rival cualquiera del banco
     const ciegas = $$('main button').find(b => /Retar a ciegas/.test(b.textContent || ''));
+    const claveG = JSON.stringify((est.miEquipo || []).map(m => m.ownedId + '|' + m.itemId));
+    if (memoTorre.claveGuardado !== claveG || memoTorre.notaGuardado === undefined) { memoTorre.claveGuardado = claveG; memoTorre.notaGuardado = guardado.length ? notaEquipo(guardado, memoTorre.sims.slice(0, 400)) : null; }
     if (ciegas && memoTorre.notaGuardado) {
-      let linea = ciegas.parentElement.querySelector(':scope > .axt-predic');
+      let linea = ciegas.parentElement.querySelector(':scope > p.axt-predic');
       const txt = `🔮 Contra un rival cualquiera ganas ≈ ${pctT(memoTorre.notaGuardado.g)}`;
       if (!linea) { linea = document.createElement('p'); linea.className = 'axt-predic text-[11px] font-extrabold text-tinta-600'; linea.setAttribute('data-ax-ignore', '1'); ciegas.insertAdjacentElement('beforebegin', linea); }
       if (linea.textContent !== txt) linea.textContent = txt;
@@ -2014,22 +1601,9 @@
     guardarColeccion(est);
     insigniasTorre(est);
     // el cálculo del equipo hace falta también en «Retar» (para el banco de rivales); el panel solo sale en «Mi equipo»
+    // nada se calcula solo: el panel de «Mi equipo» y las probabilidades de «Retar» van con su botón
     if ($$('main ul.grid').some(u => u.querySelector(':scope > li > button'))) panelTorre(est);
-    else if (!memoTorre && !calculandoTorre) {
-      calculandoTorre = true;
-      setTimeout(() => {
-        try {
-          const unicos = candidatosUnicos(est);
-          const { pool, vistos, equipos, bm } = poolTorre(est, unicos);
-          const sims = simulaciones(pool, N_SIMS, 7);
-          const g = equipoGuardado(est);
-          memoTorre = { firma: 'retar', pool, vistos, equipos, bm, sims, porSel: {}, notaGuardado: g.length ? notaEquipo(g, sims) : null, claveGuardado: JSON.stringify((est.miEquipo || []).map(m => m.ownedId + '|' + m.itemId)) };
-        } catch (e) { console.warn('[axt torre]', e); }
-        calculandoTorre = false;
-        programar();
-      }, 60);
-    }
-    prediccionesRivales(est);
+    else prediccionesRivales(est);
   }
 
   /* ------------------------------------------------------------------ *
@@ -2053,8 +1627,12 @@
     716, 717, 718, 719, 720, 721, 772, 773, 785, 786, 787, 788, 789, 790, 791, 792, 800, 801, 802, 807, 808, 809,
     888, 889, 890, 891, 892, 893, 894, 895, 896, 897, 898, 905, 1001, 1002, 1003, 1004, 1007, 1008, 1014, 1015, 1016, 1017, 1024, 1025]);
   const esLegendario = c => /legend|m[ií]tic|singular/i.test(c.rareza || '') || LEGENDARIOS.has(numSrc(c.sprite));
+  let ultimaCole = '';
   function guardarColeccion(est) {
     if (est.modo !== 'clasico') return;
+    const rapida = est.candidatos.length + '|' + est.candidatos.reduce((x, c) => x + (c.stats ? c.stats.total : 0) + (c.itemId ? c.itemId.length : 0) + (c.id ? String(c.id).length : 0), 0);
+    if (rapida === ultimaCole) return;
+    ultimaCole = rapida;
     const lista = est.candidatos.filter(c => c.stats && c.tipo1).map(c => ({ id: c.id, nombre: c.nombre, especie: c.especie, tipo1: c.tipo1, tipo2: c.tipo2 || null, stats: c.stats, itemId: c.itemId || null, sprite: c.sprite, rareza: c.rareza || null }));
     const firma = hash32(JSON.stringify(lista));
     const g = lsGet(LS_COLE, null);
@@ -2217,13 +1795,13 @@
   }
   // Un trono se calcula en segundo plano (a trozos) y se guarda mientras no cambien tus Pokémon, lo visto en la Torre
   // ni el modelo. Devuelve el resultado, o null mientras se calcula.
-  function resTrono(cole, t) {
+  function resTrono(cole, t, pedir) {
     const vt = vistosTorre();
     const firma = cole.firma + '|' + firmaCal() + '|' + vt.lista.length;
     if (!memoTronos || memoTronos.firma !== firma) memoTronos = { firma, res: {}, calc: {} };
     const M = memoTronos;
     if (M.res[t]) return M.res[t];
-    if (!M.calc[t]) {
+    if (pedir && !M.calc[t]) {
       M.calc[t] = true;
       const recs = lsGet(LS_TRONOS, {});
       correrPasos(calcularTronoPasos(t, cole.lista, vt, recs[t])).then(r => {
@@ -2280,7 +1858,13 @@
     const t = tipoTrono(cs);
     if (!t) { pinta('<p class="text-[11px] font-semibold text-tinta-600">Vuelve a la lista y toca el trono para que sepa de qué tipo es.</p>'); return; }
     const r = resTrono(cole, t);
-    if (!r) { pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p><p class="text-[11px] font-semibold text-tinta-500">Calculando el mejor equipo de tipo ${bonito(t)}… (solo la primera vez)</p>`); return; }
+    if (!r) {
+      const calculando = memoTronos && memoTronos.calc[t];
+      pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p><p class="text-[11px] font-semibold text-tinta-500">Busca el mejor equipo de tipo ${bonito(t)} para quitar y defender el trono. Tarda unos segundos.</p><button type="button" class="axt-calc-trono boton-principal w-full !py-2 text-xs" ${calculando ? 'disabled' : ''}>${calculando ? `⏳ Calculando el mejor equipo de tipo ${bonito(t)}…` : `🧮 Calcular el mejor equipo de tipo ${bonito(t)}`}</button>`);
+      const bc = caja.querySelector('.axt-calc-trono');
+      if (bc && !bc.dataset.ok) { bc.dataset.ok = '1'; bc.addEventListener('click', e => { e.preventDefault(); resTrono(cole, t, true); caja.dataset.html = ''; fichaTrono(); }); }
+      return;
+    }
     if (!r.n) { pinta(`<p class="text-[11px] font-semibold text-tinta-600">No tienes ningún Pokémon de tipo ${bonito(t)} que no sea legendario.</p>`); return; }
     const firma = t + '|' + JSON.stringify(F.miembros) + '|' + (r.datos || '');
     if (caja.dataset.firma === firma) return;
@@ -2440,7 +2024,7 @@
   new MutationObserver(muts => {
     if (!enEquipo() && !enTorre() && !enTronos()) return;
     // se ignoran los cambios que hace este mismo script
-    if (muts.every(m => (m.target.nodeType === 1 && m.target.closest('#axt-lab')) || [...m.addedNodes].every(n => n.nodeType === 1 && (n.id === 'axt-lab' || n.id === 'axt-lab-css'))) || muts.every(m => [...m.addedNodes].every(n => n.nodeType === 1 && (n.classList.contains('axt-tier') || n.classList.contains('axt-ficha') || n.id === 'axt-equipo' || n.id === 'axt-torre' || n.id === 'axt-tronos' || n.id === 'axt-trono-ficha' || n.classList.contains('axt-trono') || n.classList.contains('axt-orden') || n.classList.contains('axt-predic') || n.classList.contains('axt-rec'))))) return;
+    if (muts.every(m => (m.target.nodeType === 1 && m.target.closest('[data-ax-ignore]')) || [...m.addedNodes].every(n => n.nodeType === 1 && (n.classList.contains('axt-tier') || n.classList.contains('axt-ficha') || n.id === 'axt-equipo' || n.id === 'axt-torre' || n.id === 'axt-tronos' || n.id === 'axt-trono-ficha' || n.classList.contains('axt-trono') || n.classList.contains('axt-orden') || n.classList.contains('axt-predic') || n.classList.contains('axt-rec') || n.hasAttribute('data-ax-ignore'))))) return;
     programar();
   }).observe(document.documentElement, { childList: true, subtree: true });
   // se espera a que la web termine de montarse (tocar el DOM antes provoca errores de hidratación de React)
@@ -2448,5 +2032,5 @@
   const arrancar = () => setTimeout(() => { listo = true; programar(); }, 1500);
   if (document.readyState === 'complete') arrancar(); else window.addEventListener('load', arrancar);
 
-  window.__axTiers = { analizar, stats, datos, mejoras, calibracion: () => ({ ...CAL, ...infoCal }), estadoTorre, luchadorT, notaEquipo, simulaciones, mejorEquipo, poolTorre, candidatosUnicos, tierTorre, calcularTronoPasos, correrPasos, vistosTorre, abrirLab, combateDetalle };
+  window.__axTiers = { analizar, stats, datos, mejoras, calibracion: () => ({ ...CAL, ...infoCal }), estadoTorre, luchadorT, notaEquipo, simulaciones, mejorEquipo, poolTorre, candidatosUnicos, tierTorre, calcularTronoPasos, correrPasos, vistosTorre };
 })();
