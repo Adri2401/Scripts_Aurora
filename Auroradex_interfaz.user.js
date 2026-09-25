@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.5.1
+// @version      1.5.2
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -585,8 +585,8 @@
     if (/hecho|parado|complet|terminad|agotad|conseguid|cobrad|recogid|reclamad|manana|sin (intentos|energia|tiradas|vidas|usos|turnos)|no quedan|ya has/.test(p)) return true;
     const m = p.match(/^(\d+)\s*(?:de|\/)\s*(\d+)/);
     if (!m) return false;
-    if (it.href === '/salon') return +m[1] === 0;                        // Salón: «N de 20» es lo que queda por comprar
-    return +m[2] > 0 && +m[1] >= +m[2];                                   // «30 de 30 hoy»: completo
+    // «6 de 6 hoy» (y el Salón, «18 de 20»): es lo que QUEDA por hacer hoy; hecho cuando queda 0
+    return +m[1] === 0;
   }
   // Pastilla de un acceso; los de varias regiones (Safari) guardan una por región: «/safari@kanto»
   const claveEstado = it => it.porRegion ? `${it.href}@${it.region}` : it.href;
