@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.5.0
+// @version      1.5.1
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -410,7 +410,9 @@
     // Lo de otras regiones («/safari@johto»…) se conserva del mismo día: el Menú solo enseña la región actual
     const previo = estadoDeHoy();
     if (previo) for (const k of Object.keys(previo.estado)) if (k.includes('@')) estado[k] = previo.estado[k];
-    for (const a of raiz.querySelectorAll('main a[href^="/"]')) {
+    let enlaces = [...raiz.querySelectorAll('main a[href^="/"]')];
+    if (!enlaces.some(a => a.querySelector('.pastilla'))) enlaces = [...raiz.querySelectorAll('a[href^="/"]')];
+    for (const a of enlaces) {
       const p = a.querySelector('.pastilla');
       if (!p) continue;
       const txt = p.textContent.replace(/\s+/g, ' ').trim();
@@ -420,6 +422,22 @@
     }
     if (Object.keys(estado).length) lsPut(ESTADO_KEY, { dia: hoy(), t: Date.now(), estado });
     return Object.keys(estado).length > 0;
+  }
+
+  /* ─── Páginas pedidas en segundo plano ───
+   * Con tope de tiempo: si la pestaña se duerme (o se va la red) a mitad de una petición, la promesa puede no acabar
+   * nunca, y como cada cosa se pide de una en una, el panel dejaba de actualizarse hasta recargar la página. Sin caché
+   * del navegador, para no leer un Menú viejo. Devuelve el HTML o null. */
+  async function pedirPagina(url, ms = 15000) {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    let reloj = null;
+    const tope = new Promise((_, mal) => { reloj = setTimeout(() => { if (ctl) ctl.abort(); mal(new Error('tiempo')); }, ms); });
+    try {
+      return await Promise.race([tope, (async () => {
+        const r = await fetch(url, { credentials: 'same-origin', cache: 'no-store', signal: ctl ? ctl.signal : undefined });
+        return r.ok ? await r.text() : null;
+      })()]);
+    } finally { clearTimeout(reloj); }
   }
 
   /* ─── El estado se refresca solo: se pide el Menú en segundo plano cada pocos minutos ─── */
@@ -433,9 +451,8 @@
     menuIntento = Date.now();
     menuPidiendo = true;
     try {
-      const r = await fetch('/menu', { credentials: 'same-origin' });
-      if (!r.ok) return;
-      const html = await r.text();
+      const html = await pedirPagina('/menu');
+      if (!html) return;
       const doc = new DOMParser().parseFromString(html, 'text/html');
       const propia = regionEnJSON(html);
       if (leerEstadoDe(doc, propia || regionActual(), !!propia)) repintarPanel();
@@ -500,8 +517,8 @@
     golfIntento = Date.now();
     golfPidiendo = true;
     try {
-      const r = await fetch('/golf', { credentials: 'same-origin' });
-      if (r.ok) guardarRetosGolf(contarRetosGolf(textoFlight(await r.text())));
+      const html = await pedirPagina('/golf');
+      if (html) guardarRetosGolf(contarRetosGolf(textoFlight(html)));
     } catch { /* sin red: se queda lo guardado */ }
     finally { golfPidiendo = false; }
   }
@@ -549,8 +566,8 @@
     solarIntento = Date.now();
     solarPidiendo = true;
     try {
-      const r = await fetch('/solar', { credentials: 'same-origin' });
-      if (r.ok) guardarSolar(leerSolar(new DOMParser().parseFromString(await r.text(), 'text/html')));
+      const html = await pedirPagina('/solar');
+      if (html) guardarSolar(leerSolar(new DOMParser().parseFromString(html, 'text/html')));
     } catch { /* sin red: se queda lo guardado */ }
     finally { solarPidiendo = false; }
   }
@@ -648,8 +665,8 @@
     subastaIntento = Date.now();
     subastaPidiendo = true;
     try {
-      const r = await fetch('/subasta', { credentials: 'same-origin' });
-      if (r.ok) guardarSubasta(parsearSubasta(new DOMParser().parseFromString(await r.text(), 'text/html')));
+      const html = await pedirPagina('/subasta');
+      if (html) guardarSubasta(parsearSubasta(new DOMParser().parseFromString(html, 'text/html')));
     } catch { /* sin red: se queda lo guardado */ }
     finally { subastaPidiendo = false; }
   }
@@ -693,8 +710,8 @@
     salonIntento = Date.now();
     salonPidiendo = true;
     try {
-      const r = await fetch('/salon', { credentials: 'same-origin' });
-      if (r.ok) guardarCupoSalon(parsearCupoSalon(new DOMParser().parseFromString(await r.text(), 'text/html')));
+      const html = await pedirPagina('/salon');
+      if (html) guardarCupoSalon(parsearCupoSalon(new DOMParser().parseFromString(html, 'text/html')));
     } catch { /* sin red: se queda lo guardado */ }
     finally { salonPidiendo = false; }
   }
@@ -872,6 +889,9 @@
     refrescarSolar();
     // Cada minuto: se pide el Menú si toca y se repinta (para que «hace N min» y las ✓ estén al día)
     setInterval(() => { refrescarMenu(); refrescarGolf(); refrescarSolar(); if (document.visibilityState === 'visible') repintarPanel(); }, 60000);
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refrescarMenu(); refrescarGolf(); refrescarSolar(); } });
+    const alVolver = () => { menuIntento = golfIntento = solarIntento = 0; refrescarMenu(); refrescarGolf(); refrescarSolar(); refrescarSalon(); };
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') alVolver(); });
+    window.addEventListener('online', alVolver);
+    window.addEventListener('pageshow', e => { if (e.persisted) alVolver(); });
   });
 })();

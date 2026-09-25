@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.7.0
+// @version      2.7.1
 // @description  Auto-explora y captura; ante shiny/legendario vibra, notifica y PARA la macro para captura manual. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1122,7 +1122,9 @@
       if (RE.adelante.test(dlgLbl)) {
         const who = modalTitle() || 'Entrenador';
         S.trainers++;
-        log('Entrenador:', who, '→ acepto el desafío');
+        // la exploración que trae un entrenador no cuenta para el huevo: se descuenta (una vez por exploración)
+        if (S.exploreEgg) { S.exploreEgg = false; S.sinceNursery = Math.max(0, S.sinceNursery - 1); }
+        log('Entrenador:', who, '→ acepto el desafío', nurseryOn() ? '(esta exploración no cuenta para el huevo)' : '');
         setMsg(`Entrenador: ${who}`);
       } else if (RE.saltar.test(dlgLbl)) {
         log('Combate: salto al resultado.');
@@ -1203,6 +1205,7 @@
     S.spent += n;
     S.explores++;
     S.sinceNursery++;
+    S.exploreEgg = true;
     S.lastExploreAt = S.lastActionAt = Date.now();
     S.lastProgress = Date.now();
     setMsg('Explorando…');

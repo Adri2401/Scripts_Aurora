@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Metro Batalla (pelear en bucle y ventaja de tipos)
 // @namespace    auroradex-metro
-// @version      1.2.3
+// @version      1.3.0
 // @description  Solo en /metro. Al elegir equipo analiza tus seis (debilidades, estadísticas, flojos) y recomienda el mejor orden (lo pones tú); en cada parada predice el combate. Pulsa «Pelear» en bucle con tope de paradas o de racha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -248,25 +248,36 @@
     if (!d) return null;
     const L = nivelForzado || p.nivel || 50, b = d.s;
     const st = i => Math.floor(2 * b[i] * L / 100) + 5;
-    return { nombre: p.nombre, num: p.num, lado, nivel: L, tipos: (p.tipos && p.tipos.length) ? p.tipos : d.t, hp: Math.floor(2 * b[0] * L / 100) + L + 10, atk: st(1), def: st(2), spa: st(3), spd: st(4), spe: st(5), bst: b.reduce((x, y) => x + y, 0) };
+    const esp = Math.floor(2 * Math.round((b[3] + b[4]) / 2) * L / 100) + 5;
+    return { nombre: p.nombre, num: p.num, lado, nivel: L, tipos: (p.tipos && p.tipos.length) ? p.tipos : d.t, hp: Math.floor(3 * b[0] * L / 100) + L + 14, atk: st(1), def: st(2), spa: st(3), spd: st(4), esp, fis: b[1] >= b[3], spe: st(5), bst: b.reduce((x, y) => x + y, 0) };
   }
-  // El juego ataca con su tipo más eficaz (si empatan, el primero) y, con Ataque = At. Esp., en especial
+  /* ---- Modelo del juego, sacado del log de un combate de la Torre (donde se ven las estadísticas exactas) ----
+   * PS = 3·base·Nv/100 + Nv + 14. El juego tiene una sola ESP (media de At. Esp. y Def. Esp.) para atacar y defender.
+   * Pega cuerpo a cuerpo (ATQ contra DEF) si su Ataque base es igual o mayor que su At. Esp. base; si no, a distancia
+   * (ESP contra ESP). Ataca con su tipo más eficaz (si empatan, el primero); si todos los suyos son poco eficaces y un
+   * ataque Normal no lo es tanto, usa ataques Normal (cuerpo a cuerpo, sin el ×1,5 de su tipo). Muy eficaz ×1,65 y poco
+   * eficaz ×0,6 por cada tipo del que recibe. Críticos: ~9% de los golpes, ×1,64 (de media, ×1,06). */
   function tipoDeAtaque(a, b) {
     let mejor = null;
-    for (const t of a.tipos) { const e = eficacia(t, b.tipos); if (!mejor || e > mejor.e) mejor = { t, e }; }
-    return mejor || { t: null, e: 1 };
+    for (const t of a.tipos) { const e = eficacia(t, b.tipos); if (!mejor || e > mejor.e) mejor = { t, e, propio: true }; }
+    if (!mejor) mejor = { t: 'normal', e: eficacia('normal', b.tipos), propio: true };
+    if (mejor.e < 1) { const en = eficacia('normal', b.tipos); if (en > mejor.e) return { t: 'normal', e: en, propio: a.tipos.includes('normal') }; }
+    return mejor;
   }
+  const eficaciaJuego = (t, tipos) => tipos.reduce((m, x) => { const v = (TABLA[t] || {})[x] ?? 1; return m * (v === 0 ? 0 : v > 1 ? 1.65 : v < 1 ? 0.6 : 1); }, 1);
+  const MEDIA_CRITICOS = 1 + 0.09 * 0.64;
   function dano(a, b) {
-    const { e } = tipoDeAtaque(a, b);
-    const fis = a.atk > a.spa, A = fis ? a.atk : a.spa, D = fis ? b.def : b.spd;
-    return (((2 * a.nivel / 5 + 2) * 80 * A / D) / 50 + 2) * 1.5 * e;
+    const at = tipoDeAtaque(a, b);
+    const fis = !at.propio || a.fis, A = fis ? a.atk : a.esp, D = fis ? b.def : b.esp;
+    return ((2 * a.nivel / 5 + 2) * 30.5 * A / D / 50 + 2) * (at.propio ? 1.5 : 1) * eficaciaJuego(at.t, b.tipos);
   }
 
   /* ---- Calibración: cuánto quita de verdad cada golpe comparado con el modelo (se aprende de los logs) ----
-   * Datos de partida sacados de un combate real: tus golpes quitan ~0,30 de lo que dice la fórmula y los del
-   * rival ~0,165 (tu equipo está más entrenado). Con 6 golpes o más vistos, manda lo aprendido. */
-  const LS_CALIB = 'axm-calibra';
-  const PRIOR = { mio: 0.30, rival: 0.165 };
+   * Datos de partida: con este modelo tus golpes encajan tal cual (×1) y los del rival del Metro quitan ~0,55 de lo que
+   * dice la fórmula (en los logs del Metro sus Pokémon pegan bastante menos). Con 6 golpes o más vistos, manda lo
+   * aprendido. (La clave es nueva: lo aprendido con el modelo anterior no vale para este.) */
+  const LS_CALIB = 'axm-calibra2';
+  const PRIOR = { mio: 1, rival: 0.55 };
   const mediana = a => { const x = [...a].sort((p, q) => p - q); return x[Math.floor(x.length / 2)]; };
   let FACT = { ...PRIOR };
   function calcularFactores() {
@@ -285,7 +296,7 @@
   // Parte de la vida del rival que quita cada golpe (Forcejeo: 1/16 si no le afecta ninguno de sus tipos)
   function golpe(a, b) {
     if (tipoDeAtaque(a, b).e === 0) return 1 / 16;
-    return dano(a, b) / b.hp * (FACT[a.lado] || 0.25);
+    return dano(a, b) * MEDIA_CRITICOS / b.hp * (FACT[a.lado] || 0.8);
   }
   // Un duelo con la vida en fracciones (1 = entera): quién gana y con cuánta vida
   // Única habilidad del juego: Slaking (nº 289) ataca un turno sí y otro no (empieza atacando)
