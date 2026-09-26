@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         Aurora Dex · Entrañas del Monte Plateado
+// @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      0.1.0
+// @version      1.0.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
-// @description  Solo en /entranas. Graba cada pantalla, cada elección y cada golpe de tus bajadas (y lo exporta), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pegan de verdad los tuyos con tus mejoras) y recomienda con ⭐ en cada decisión: prestado, bendición (o volver a tirar), puerta y orden del equipo, con un modelo de combate que cuenta las reglas de cada bioma. Enseña los mejores Pokémon de la Pokédex para cada bioma. Con ▶ baja solo, parándose ante lo que no conoce; nunca pulsa «Retirarse».
+// @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Dice hasta qué piso llegas de media y qué mejora del campamento rinde más por esquirla. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '0.1.0';
+  const VERSION = '1.0.0';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -269,24 +269,37 @@
   // Pide permiso de notificaciones (solo al arrancar algo largo: una macro, un bucle…)
   function kPedirPermiso() { try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* nada */ } }
 
+  // Lo aprendido de tus bajadas hasta ahora (se usa la primera vez; luego manda lo que aprende)
+  const SEMILLA = {"bendiciones":{"Vitalidad":{"desc":"+15% de PS máximos a todo el equipo.","of":1,"el":0,"ico":"❤️"},"Veterano":{"desc":"Todo el equipo sube 3 niveles ahora mismo.","of":6,"el":0,"ico":"⭐"},"Viento a Favor":{"desc":"+15% de Velocidad a todo el equipo.","of":3,"el":0,"ico":"💨"},"Afinidad: Tierra":{"desc":"+25% de Ataque y Especial a los de tipo Tierra.","of":2,"el":1,"ico":"🎯"},"Sanguijuela":{"desc":"Tras cada combate ganado, el equipo recupera un 15% de PS.","of":4,"el":4,"ico":"🩸"},"Furia":{"desc":"+12% de Ataque y de Especial a todo el equipo.","of":4,"el":1,"ico":"💥"},"Piel Dura":{"desc":"+15% de Defensa a todo el equipo.","of":2,"el":1,"ico":"🛡️"},"Aguante":{"desc":"En cada combate, el primero que fuera a caer aguanta con 1 PS.","of":3,"el":0,"ico":"🔰"},"Afinidad: Bicho":{"desc":"+25% de Ataque y Especial a los de tipo Bicho.","of":1,"el":0,"ico":"🎯"},"Reclutador":{"desc":"Los que reclutes llegan con los PS llenos y 2 niveles más.","of":1,"el":0,"ico":"🤝"},"Botín":{"desc":"+50% de esquirlas el resto de la partida.","of":1,"el":0,"ico":"💎"},"Brasas Vivas":{"desc":"Los descansos curan el doble.","of":1,"el":0,"ico":"🪵"}},"niveles":[[21,53,"elite"],[21,54,"elite"],[22,55,"elite"],[22,55,"elite"],[23,52,"combate"],[24,54,"combate"],[25,57,"guardian"],[25,56,"guardian"],[25,60,"guardian"],[26,59,"combate"],[28,66,"elite"],[29,65,"combate"],[30,69,"guardian"],[30,69,"guardian"],[30,70,"guardian"],[31,68,"combate"],[32,72,"combate"],[33,72,"combate"],[34,76,"combate"],[35,77,"guardian"],[35,78,"guardian"],[35,79,"guardian"],[36,82,"elite"],[36,83,"elite"],[40,89,"guardian"],[40,88,"guardian"],[40,90,"guardian"],[41,91,"elite"],[41,91,"elite"],[42,96,"elite"],[42,93,"elite"],[45,99,"guardian"],[45,99,"guardian"],[45,100,"guardian"],[47,100,"oculta"],[47,100,"oculta"],[48,99,"oculta"],[50,99,"guardian"],[50,98,"guardian"],[50,100,"guardian"],[51,100,"combate"],[53,100,"elite"],[53,100,"elite"],[55,100,"guardian"],[55,99,"guardian"],[55,99,"guardian"],[55,100,"guardian"],[55,98,"guardian"],[55,100,"guardian"],[2,16,"combate"],[3,14,"elite"]],"especies":{"glaciar":{"81":1,"82":1,"87":2,"91":2,"124":2,"131":1,"205":2,"208":1,"212":1,"215":1,"220":1,"221":1,"225":1,"238":1},"magma":{"4":1,"126":1,"148":2,"156":1,"218":1},"roca":{"27":1,"57":2,"111":1,"213":1,"214":1,"219":1},"lago":{"90":1,"118":1,"119":1,"222":1,"224":1},"bosque":{"1":1,"14":1,"44":1,"71":1,"152":1,"212":1,"214":1},"cripta":{"15":1,"29":1,"42":1,"70":1,"94":1,"103":1}},"movs":{"Picotazo Veneno":{"t":"veneno","c":"F","n":65},"Ventisca":{"t":"hielo","c":"E","n":3},"Hueso Palo":{"t":"tierra","c":"F","n":9},"Terremoto":{"t":"tierra","c":"F","n":20},"Hidropulso":{"t":"agua","c":"E","n":8},"Burbuja":{"t":"agua","c":"E","n":12},"Excavar":{"t":"tierra","c":"F","n":18},"Cola Férrea":{"t":"acero","c":"F","n":4},"Cascada":{"t":"agua","c":"F","n":16},"Enfado":{"t":"dragon","c":"F","n":1},"Garra Dragón":{"t":"dragon","c":"F","n":1},"Puño Fuego":{"t":"fuego","c":"F","n":1},"Placaje":{"t":"normal","c":"F","n":9},"Ataque Rápido":{"t":"normal","c":"F","n":18},"Golpe Cabeza":{"t":"normal","c":"F","n":17},"Rayo Solar":{"t":"planta","c":"E","n":3},"Drenadoras":{"t":"planta","c":"E","n":2},"Cabeza de Hierro":{"t":"acero","c":"F","n":1},"Garra Metal":{"t":"acero","c":"F","n":2},"Látigo Cepa":{"t":"planta","c":"F","n":4},"Hoja Afilada":{"t":"planta","c":"F","n":2},"Bola Sombra":{"t":"fantasma","c":"E","n":1},"Mal de Ojo":{"t":"fantasma","c":"E","n":1},"Aranazo":{"t":"normal","c":"F","n":13},"Psiquico":{"t":"psiquico","c":"E","n":2},"Confusion":{"t":"psiquico","c":"E","n":1},"Psicorrayo":{"t":"psiquico","c":"E","n":1},"Picotazo":{"t":"volador","c":"F","n":3},"Ataque Ala":{"t":"volador","c":"F","n":1},"Pájaro Osado":{"t":"volador","c":"F","n":1},"Canto Helado":{"t":"hielo","c":"E","n":1},"Pistola Agua":{"t":"agua","c":"E","n":5},"Picadura":{"t":"bicho","c":"F","n":10},"Tijera X":{"t":"bicho","c":"F","n":7},"Impactrueno":{"t":"electrico","c":"E","n":3},"Rayo":{"t":"electrico","c":"E","n":3},"Pedrada":{"t":"roca","c":"F","n":1},"Lanzarrocas":{"t":"roca","c":"F","n":1},"Mordisco":{"t":"siniestro","c":"F","n":1},"Rayo Hielo":{"t":"hielo","c":"E","n":2},"Roca Afilada":{"t":"roca","c":"F","n":1}},"usa":{"Nidoqueen":["Aranazo","Ataque Rápido","Canto Helado","Excavar","Golpe Cabeza","Hueso Palo","Picadura","Picotazo Veneno","Placaje","Terremoto","Tijera X","Ventisca"],"Jynx":["Rayo Hielo","Ventisca"],"Steelix":["Terremoto"],"Dewgong":["Burbuja","Hidropulso","Pistola Agua"],"Scizor":["Cabeza de Hierro","Cola Férrea","Garra Metal"],"Cloyster":["Aranazo","Ataque Rápido","Cascada","Golpe Cabeza"],"Forretress":["Cola Férrea","Picadura","Tijera X"],"Dragonair":["Enfado","Garra Dragón"],"Magmar":["Puño Fuego"],"Primeape":["Placaje"],"Heracross":["Ataque Rápido","Golpe Cabeza","Placaje"],"Rhyhorn":["Hueso Palo","Lanzarrocas","Pedrada","Roca Afilada"],"Shuckle":["Ataque Rápido","Placaje"],"Shellder":["Cascada"],"Corsola":["Burbuja"],"Seaking":["Cascada"],"Goldeen":["Cascada"],"Octillery":["Cascada"],"Kakuna":["Golpe Cabeza"],"Gloom":["Drenadoras","Rayo Solar"],"Chikorita":["Rayo Solar"],"Victreebel":["Hoja Afilada","Látigo Cepa"],"Bulbasaur":["Drenadoras","Rayo Solar"],"Weepinbell":["Hoja Afilada","Látigo Cepa"],"Gengar":["Bola Sombra","Mal de Ojo"],"Beedrill":["Aranazo","Ataque Rápido"],"Nidoran♀":["Golpe Cabeza"],"Exeggutor":["Confusion","Psicorrayo","Psiquico"],"Golbat":["Ataque Ala","Picotazo","Picotazo Veneno","Pájaro Osado"],"Piloswine":["Excavar","Hueso Palo","Terremoto"],"Swinub":["Terremoto"],"Lapras":["Aranazo","Ataque Rápido","Burbuja","Golpe Cabeza","Hidropulso","Placaje"],"Magneton":["Impactrueno","Rayo"],"Sneasel":["Mordisco"]},"puertas":{"combate":{"n":"Combate","i":"⚔️","esq":12},"elite":{"n":"Élite","i":"💀","esq":22},"guardian":{"n":"Guardián","i":"👑","esq":34},"descanso":{"n":"Descanso","i":"🔥","esq":5},"misterio":{"n":"Misterio","i":"❓","esq":5,"sale":{"herido":1,"manantial":1}},"tesoro":{"n":"Tesoro","i":"🎁","esq":23,"sale":{"cofre":3,"cofre+":1}},"oculta":{"n":"¿?","i":"🌫️","sale":{"cofre":1,"combate":2,"hoguera":1}}},"esqMult":2.4,"k":{"mio-F":[1.072,125],"mio-E":[0.968,17],"riv-F":[0.941,76],"riv-E":[0.713,28]},"multMio":1.16,"mejoras":[{"i":"👀","n":"Buen ojo","lv":2,"max":2,"desc":"Eliges tu prestado entre 3","coste":null},{"i":"📈","n":"Entrenamiento previo","lv":3,"max":3,"desc":"9 niveles más","coste":null},{"i":"🧿","n":"Amuleto de salida","lv":1,"max":1,"desc":"Eliges una bendición antes del primer piso","coste":null},{"i":"🎲","n":"Segunda oportunidad","lv":1,"max":1,"desc":"Puedes volver a tirar las bendiciones una vez por bioma","coste":null},{"i":"🪶","n":"Pluma de Fénix","lv":1,"max":1,"desc":"Una vez por partida, si caes, el equipo se levanta al 60%","coste":null},{"i":"🎒","n":"Mochila grande","lv":1,"max":1,"desc":"Una cuarta plaza en el equipo (de reserva)","coste":null},{"i":"🪜","n":"Cuerda de bajada","lv":0,"max":4,"desc":"Puedes empezar en el piso 11","coste":80},{"i":"⚒️","n":"Temple de Plata","lv":4,"max":5,"desc":"+20% a todas las estadísticas","coste":1100},{"i":"🌿","n":"Zurrón del curandero","lv":2,"max":3,"desc":"Un 15% de PS tras cada combate ganado","coste":660},{"i":"⛏️","n":"Pico de minero","lv":4,"max":4,"desc":"+60% de esquirlas","coste":null},{"i":"🎖️","n":"Maestro de reclutas","lv":1,"max":3,"desc":"Con 4 niveles más","coste":275},{"i":"🩸","n":"Sangre de la veta","lv":0,"max":5,"desc":"Del piso 46 hacia abajo, tu equipo se hincha un 0,7% por piso","coste":1400},{"i":"🎒","n":"Mochila doble","lv":0,"max":1,"desc":"Un hueco más en el equipo: cinco en vez de cuatro","coste":2200},{"i":"🔥","n":"Fuelle del herrero","lv":0,"max":3,"desc":"Las hogueras curan un 10% más","coste":900}],"bajadas":[{"piso":55,"esq":908,"prestado":"Nidoqueen"}],"hinchazon":[[45,1.0],[47,1.041],[48,1.078],[50,1.159],[51,1.201],[53,1.28],[55,1.36],[55,1.359],[55,1.359],[40,1.0],[42,1.0],[36,1.0]]};
+
   const DEX_DATOS = '45.49.49.65.65.45:planta/veneno:Bulbasaur,60.62.63.80.80.60:planta/veneno:Ivysaur,80.82.83.100.100.80:planta/veneno:Venusaur,39.52.43.60.50.65:fuego:Charmander,58.64.58.80.65.80:fuego:Charmeleon,78.84.78.109.85.100:fuego/volador:Charizard,44.48.65.50.64.43:agua:Squirtle,59.63.80.65.80.58:agua:Wartortle,79.83.100.85.105.78:agua:Blastoise,45.30.35.20.20.45:bicho:Caterpie,50.20.55.25.25.30:bicho:Metapod,60.45.50.90.80.70:bicho/volador:Butterfree,40.35.30.20.20.50:bicho/veneno:Weedle,45.25.50.25.25.35:bicho/veneno:Kakuna,65.90.40.45.80.75:bicho/veneno:Beedrill,40.45.40.35.35.56:normal/volador:Pidgey,63.60.55.50.50.71:normal/volador:Pidgeotto,83.80.75.70.70.101:normal/volador:Pidgeot,30.56.35.25.35.72:normal:Rattata,55.81.60.50.70.97:normal:Raticate,40.60.30.31.31.70:normal/volador:Spearow,65.90.65.61.61.100:normal/volador:Fearow,35.60.44.40.54.55:veneno:Ekans,60.95.69.65.79.80:veneno:Arbok,35.55.40.50.50.90:electrico:Pikachu,60.90.55.90.80.110:electrico:Raichu,50.75.85.20.30.40:tierra:Sandshrew,75.100.110.45.55.65:tierra:Sandslash,55.47.52.40.40.41:veneno:Nidoran♀,70.62.67.55.55.56:veneno:Nidorina,90.92.87.75.85.76:veneno/tierra:Nidoqueen,46.57.40.40.40.50:veneno:Nidoran♂,61.72.57.55.55.65:veneno:Nidorino,81.102.77.85.75.85:veneno/tierra:Nidoking,70.45.48.60.65.35:hada:Clefairy,95.70.73.95.90.60:hada:Clefable,38.41.40.50.65.65:fuego:Vulpix,73.76.75.81.100.100:fuego:Ninetales,115.45.20.45.25.20:normal/hada:Jigglypuff,140.70.45.85.50.45:normal/hada:Wigglytuff,40.45.35.30.40.55:veneno/volador:Zubat,75.80.70.65.75.90:veneno/volador:Golbat,45.50.55.75.65.30:planta/veneno:Oddish,60.65.70.85.75.40:planta/veneno:Gloom,75.80.85.110.90.50:planta/veneno:Vileplume,35.70.55.45.55.25:bicho/planta:Paras,60.95.80.60.80.30:bicho/planta:Parasect,60.55.50.40.55.45:bicho/veneno:Venonat,70.65.60.90.75.90:bicho/veneno:Venomoth,10.55.25.35.45.95:tierra:Diglett,35.100.50.50.70.120:tierra:Dugtrio,40.45.35.40.40.90:normal:Meowth,65.70.60.65.65.115:normal:Persian,50.52.48.65.50.55:agua:Psyduck,80.82.78.95.80.85:agua:Golduck,40.80.35.35.45.70:lucha:Mankey,65.105.60.60.70.95:lucha:Primeape,55.70.45.70.50.60:fuego:Growlithe,90.110.80.100.80.95:fuego:Arcanine,40.50.40.40.40.90:agua:Poliwag,65.65.65.50.50.90:agua:Poliwhirl,90.95.95.70.90.70:agua/lucha:Poliwrath,25.20.15.105.55.90:psiquico:Abra,40.35.30.120.70.105:psiquico:Kadabra,55.50.45.135.95.120:psiquico:Alakazam,70.80.50.35.35.35:lucha:Machop,80.100.70.50.60.45:lucha:Machoke,90.130.80.65.85.55:lucha:Machamp,50.75.35.70.30.40:planta/veneno:Bellsprout,65.90.50.85.45.55:planta/veneno:Weepinbell,80.105.65.100.70.70:planta/veneno:Victreebel,40.40.35.50.100.70:agua/veneno:Tentacool,80.70.65.80.120.100:agua/veneno:Tentacruel,40.80.100.30.30.20:roca/tierra:Geodude,55.95.115.45.45.35:roca/tierra:Graveler,80.120.130.55.65.45:roca/tierra:Golem,50.85.55.65.65.90:fuego:Ponyta,65.100.70.80.80.105:fuego:Rapidash,90.65.65.40.40.15:agua/psiquico:Slowpoke,95.75.110.100.80.30:agua/psiquico:Slowbro,25.35.70.95.55.45:electrico/acero:Magnemite,50.60.95.120.70.70:electrico/acero:Magneton,52.90.55.58.62.60:normal/volador:Farfetch’d,35.85.45.35.35.75:normal/volador:Doduo,60.110.70.60.60.110:normal/volador:Dodrio,65.45.55.45.70.45:agua:Seel,90.70.80.70.95.70:agua/hielo:Dewgong,80.80.50.40.50.25:veneno:Grimer,105.105.75.65.100.50:veneno:Muk,30.65.100.45.25.40:agua:Shellder,50.95.180.85.45.70:agua/hielo:Cloyster,30.35.30.100.35.80:fantasma/veneno:Gastly,45.50.45.115.55.95:fantasma/veneno:Haunter,60.65.60.130.75.110:fantasma/veneno:Gengar,35.45.160.30.45.70:roca/tierra:Onix,60.48.45.43.90.42:psiquico:Drowzee,85.73.70.73.115.67:psiquico:Hypno,30.105.90.25.25.50:agua:Krabby,55.130.115.50.50.75:agua:Kingler,40.30.50.55.55.100:electrico:Voltorb,60.50.70.80.80.150:electrico:Electrode,60.40.80.60.45.40:planta/psiquico:Exeggcute,95.95.85.125.75.55:planta/psiquico:Exeggutor,50.50.95.40.50.35:tierra:Cubone,60.80.110.50.80.45:tierra:Marowak,50.120.53.35.110.87:lucha:Hitmonlee,50.105.79.35.110.76:lucha:Hitmonchan,90.55.75.60.75.30:normal:Lickitung,40.65.95.60.45.35:veneno:Koffing,65.90.120.85.70.60:veneno:Weezing,80.85.95.30.30.25:tierra/roca:Rhyhorn,105.130.120.45.45.40:tierra/roca:Rhydon,250.5.5.35.105.50:normal:Chansey,65.55.115.100.40.60:planta:Tangela,105.95.80.40.80.90:normal:Kangaskhan,30.40.70.70.25.60:agua:Horsea,55.65.95.95.45.85:agua:Seadra,45.67.60.35.50.63:agua:Goldeen,80.92.65.65.80.68:agua:Seaking,30.45.55.70.55.85:agua:Staryu,60.75.85.100.85.115:agua/psiquico:Starmie,40.45.65.100.120.90:psiquico/hada:Mr. Mime,70.110.80.55.80.105:bicho/volador:Scyther,65.50.35.115.95.95:hielo/psiquico:Jynx,65.83.57.95.85.105:electrico:Electabuzz,65.95.57.100.85.93:fuego:Magmar,65.125.100.55.70.85:bicho:Pinsir,75.100.95.40.70.110:normal:Tauros,20.10.55.15.20.80:agua:Magikarp,95.125.79.60.100.81:agua/volador:Gyarados,130.85.80.85.95.60:agua/hielo:Lapras,48.48.48.48.48.48:normal:Ditto,55.55.50.45.65.55:normal:Eevee,130.65.60.110.95.65:agua:Vaporeon,65.65.60.110.95.130:electrico:Jolteon,65.130.60.95.110.65:fuego:Flareon,65.60.70.85.75.40:normal:Porygon,35.40.100.90.55.35:roca/agua:Omanyte,70.60.125.115.70.55:roca/agua:Omastar,30.80.90.55.45.55:roca/agua:Kabuto,60.115.105.65.70.80:roca/agua:Kabutops,80.105.65.60.75.130:roca/volador:Aerodactyl,160.110.65.65.110.30:normal:Snorlax,90.85.100.95.125.85:hielo/volador:Articuno*,90.90.85.125.90.100:electrico/volador:Zapdos*,90.100.90.125.85.90:fuego/volador:Moltres*,41.64.45.50.50.50:dragon:Dratini,61.84.65.70.70.70:dragon:Dragonair,91.134.95.100.100.80:dragon/volador:Dragonite,106.110.90.154.90.130:psiquico:Mewtwo*,100.100.100.100.100.100:psiquico:Mew*,45.49.65.49.65.45:planta:Chikorita,60.62.80.63.80.60:planta:Bayleef,80.82.100.83.100.80:planta:Meganium,39.52.43.60.50.65:fuego:Cyndaquil,58.64.58.80.65.80:fuego:Quilava,78.84.78.109.85.100:fuego:Typhlosion,50.65.64.44.48.43:agua:Totodile,65.80.80.59.63.58:agua:Croconaw,85.105.100.79.83.78:agua:Feraligatr,35.46.34.35.45.20:normal:Sentret,85.76.64.45.55.90:normal:Furret,60.30.30.36.56.50:normal/volador:Hoothoot,100.50.50.86.96.70:normal/volador:Noctowl,40.20.30.40.80.55:bicho/volador:Ledyba,55.35.50.55.110.85:bicho/volador:Ledian,40.60.40.40.40.30:bicho/veneno:Spinarak,70.90.70.60.70.40:bicho/veneno:Ariados,85.90.80.70.80.130:veneno/volador:Crobat,75.38.38.56.56.67:agua/electrico:Chinchou,125.58.58.76.76.67:agua/electrico:Lanturn,20.40.15.35.35.60:electrico:Pichu,50.25.28.45.55.15:hada:Cleffa,90.30.15.40.20.15:normal/hada:Igglybuff,35.20.65.40.65.20:hada:Togepi,55.40.85.80.105.40:hada/volador:Togetic,40.50.45.70.45.70:psiquico/volador:Natu,65.75.70.95.70.95:psiquico/volador:Xatu,55.40.40.65.45.35:electrico:Mareep,70.55.55.80.60.45:electrico:Flaaffy,90.75.85.115.90.55:electrico:Ampharos,75.80.95.90.100.50:planta:Bellossom,70.20.50.20.50.40:agua/hada:Marill,100.50.80.60.80.50:agua/hada:Azumarill,70.100.115.30.65.30:roca:Sudowoodo,90.75.75.90.100.70:agua:Politoed,35.35.40.35.55.50:planta/volador:Hoppip,55.45.50.45.65.80:planta/volador:Skiploom,75.55.70.55.95.110:planta/volador:Jumpluff,55.70.55.40.55.85:normal:Aipom,30.30.30.30.30.30:planta:Sunkern,75.75.55.105.85.30:planta:Sunflora,65.65.45.75.45.95:bicho/volador:Yanma,55.45.45.25.25.15:agua/tierra:Wooper,95.85.85.65.65.35:agua/tierra:Quagsire,65.65.60.130.95.110:psiquico:Espeon,95.65.110.60.130.65:siniestro:Umbreon,60.85.42.85.42.91:siniestro/volador:Murkrow,95.75.80.100.110.30:agua/psiquico:Slowking,60.60.60.85.85.85:fantasma:Misdreavus,48.72.48.72.48.48:psiquico:Unown,190.33.58.33.58.33:psiquico:Wobbuffet,70.80.65.90.65.85:normal/psiquico:Girafarig,50.65.90.35.35.15:bicho:Pineco,75.90.140.60.60.40:bicho/acero:Forretress,100.70.70.65.65.45:normal:Dunsparce,65.75.105.35.65.85:tierra/volador:Gligar,75.85.200.55.65.30:acero/tierra:Steelix,60.80.50.40.40.30:hada:Snubbull,90.120.75.60.60.45:hada:Granbull,65.95.85.55.55.85:agua/veneno:Qwilfish,70.130.100.55.80.65:bicho/acero:Scizor,20.10.230.10.230.5:bicho/roca:Shuckle,80.125.75.40.95.85:bicho/lucha:Heracross,55.95.55.35.75.115:siniestro/hielo:Sneasel,60.80.50.50.50.40:normal:Teddiursa,90.130.75.75.75.55:normal:Ursaring,40.40.40.70.40.20:fuego:Slugma,60.50.120.90.80.30:fuego/roca:Magcargo,50.50.40.30.30.50:hielo/tierra:Swinub,100.100.80.60.60.50:hielo/tierra:Piloswine,65.55.95.65.95.35:agua/roca:Corsola,35.65.35.65.35.65:agua:Remoraid,75.105.75.105.75.45:agua:Octillery,45.55.45.65.45.75:hielo/volador:Delibird,85.40.70.80.140.70:agua/volador:Mantine,65.80.140.40.70.70:acero/volador:Skarmory,45.60.30.80.50.65:siniestro/fuego:Houndour,75.90.50.110.80.95:siniestro/fuego:Houndoom,75.95.95.95.95.85:agua/dragon:Kingdra,90.60.60.40.40.40:tierra:Phanpy,90.120.120.60.60.50:tierra:Donphan,85.80.90.105.95.60:normal:Porygon2,73.95.62.85.65.85:normal:Stantler,55.20.35.20.45.75:normal:Smeargle,35.35.35.35.35.35:lucha:Tyrogue,50.95.95.35.110.70:lucha:Hitmontop,45.30.15.85.65.65:hielo/psiquico:Smoochum,45.63.37.65.55.95:electrico:Elekid,45.75.37.70.55.83:fuego:Magby,95.80.105.40.70.100:normal:Miltank,255.10.10.75.135.55:normal:Blissey,90.85.75.115.100.115:electrico:Raikou*,115.115.85.90.75.100:fuego:Entei*,100.75.115.90.115.85:agua:Suicune*,50.64.50.45.50.41:roca/tierra:Larvitar,70.84.70.65.70.51:roca/tierra:Pupitar,100.134.110.95.100.61:roca/siniestro:Tyranitar,106.90.130.90.154.110:psiquico/volador:Lugia*,106.130.90.110.154.90:fuego/volador:Ho-Oh*,100.100.100.100.100.100:psiquico/planta:Celebi*,40.45.35.65.55.70:planta:Treecko,50.65.45.85.65.95:planta:Grovyle,70.85.65.105.85.120:planta:Sceptile,45.60.40.70.50.45:fuego:Torchic,60.85.60.85.60.55:fuego/lucha:Combusken,80.120.70.110.70.80:fuego/lucha:Blaziken,50.70.50.50.50.40:agua:Mudkip,70.85.70.60.70.50:agua/tierra:Marshtomp,100.110.90.85.90.60:agua/tierra:Swampert,35.55.35.30.30.35:siniestro:Poochyena,70.90.70.60.60.70:siniestro:Mightyena,38.30.41.30.41.60:normal:Zigzagoon,78.70.61.50.61.100:normal:Linoone,45.45.35.20.30.20:bicho:Wurmple,50.35.55.25.25.15:bicho:Silcoon,60.70.50.100.50.65:bicho/volador:Beautifly,50.35.55.25.25.15:bicho:Cascoon,60.50.70.50.90.65:bicho/veneno:Dustox,40.30.30.40.50.30:agua/planta:Lotad,60.50.50.60.70.50:agua/planta:Lombre,80.70.70.90.100.70:agua/planta:Ludicolo,40.40.50.30.30.30:planta:Seedot,70.70.40.60.40.60:planta/siniestro:Nuzleaf,90.100.60.90.60.80:planta/siniestro:Shiftry,40.55.30.30.30.85:normal/volador:Taillow,60.85.60.75.50.125:normal/volador:Swellow,40.30.30.55.30.85:agua/volador:Wingull,60.50.100.95.70.65:agua/volador:Pelipper,28.25.25.45.35.40:psiquico/hada:Ralts,38.35.35.65.55.50:psiquico/hada:Kirlia,68.65.65.125.115.80:psiquico/hada:Gardevoir,40.30.32.50.52.65:bicho/agua:Surskit,70.60.62.100.82.80:bicho/volador:Masquerain,60.40.60.40.60.35:planta:Shroomish,60.130.80.60.60.70:planta/lucha:Breloom,60.60.60.35.35.30:normal:Slakoth,80.80.80.55.55.90:normal:Vigoroth,150.160.100.95.65.100:normal:Slaking,31.45.90.30.30.40:bicho/tierra:Nincada,61.90.45.50.50.160:bicho/volador:Ninjask,1.90.45.30.30.40:bicho/fantasma:Shedinja,64.51.23.51.23.28:normal:Whismur,84.71.43.71.43.48:normal:Loudred,104.91.63.91.73.68:normal:Exploud,72.60.30.20.30.25:lucha:Makuhita,144.120.60.40.60.50:lucha:Hariyama,50.20.40.20.40.20:normal/hada:Azurill,30.45.135.45.90.30:roca:Nosepass,50.45.45.35.35.50:normal:Skitty,70.65.65.55.55.90:normal:Delcatty,50.75.75.65.65.50:siniestro/fantasma:Sableye,50.85.85.55.55.50:acero/hada:Mawile,50.70.100.40.40.30:acero/roca:Aron,60.90.140.50.50.40:acero/roca:Lairon,70.110.180.60.60.50:acero/roca:Aggron,30.40.55.40.55.60:lucha/psiquico:Meditite,60.60.75.60.75.80:lucha/psiquico:Medicham,40.45.40.65.40.65:electrico:Electrike,70.75.60.105.60.105:electrico:Manectric,60.50.40.85.75.95:electrico:Plusle,60.40.50.75.85.95:electrico:Minun,65.73.75.47.85.85:bicho:Volbeat,65.47.75.73.85.85:bicho:Illumise,50.60.45.100.80.65:planta/veneno:Roselia,70.43.53.43.53.40:veneno:Gulpin,100.73.83.73.83.55:veneno:Swalot,45.90.20.65.20.65:agua/siniestro:Carvanha,70.120.40.95.40.95:agua/siniestro:Sharpedo,130.70.35.70.35.60:agua:Wailmer,170.90.45.90.45.60:agua:Wailord,60.60.40.65.45.35:fuego/tierra:Numel,70.100.70.105.75.40:fuego/tierra:Camerupt,70.85.140.85.70.20:fuego:Torkoal,60.25.35.70.80.60:psiquico:Spoink,80.45.65.90.110.80:psiquico:Grumpig,60.60.60.60.60.60:normal:Spinda,45.100.45.45.45.10:tierra:Trapinch,50.70.50.50.50.70:tierra/dragon:Vibrava,80.100.80.80.80.100:tierra/dragon:Flygon,50.85.40.85.40.35:planta:Cacnea,70.115.60.115.60.55:planta/siniestro:Cacturne,45.40.60.40.75.50:normal/volador:Swablu,75.70.90.70.105.80:dragon/volador:Altaria,73.115.60.60.60.90:normal:Zangoose,73.100.60.100.60.65:veneno:Seviper,90.55.65.95.85.70:roca/psiquico:Lunatone,90.95.85.55.65.70:roca/psiquico:Solrock,50.48.43.46.41.60:agua/tierra:Barboach,110.78.73.76.71.60:agua/tierra:Whiscash,43.80.65.50.35.35:agua:Corphish,63.120.85.90.55.55:agua/siniestro:Crawdaunt,40.40.55.40.70.55:tierra/psiquico:Baltoy,60.70.105.70.120.75:tierra/psiquico:Claydol,66.41.77.61.87.23:roca/planta:Lileep,86.81.97.81.107.43:roca/planta:Cradily,45.95.50.40.50.75:roca/bicho:Anorith,75.125.100.70.80.45:roca/bicho:Armaldo,20.15.20.10.55.80:agua:Feebas,95.60.79.100.125.81:agua:Milotic,70.70.70.70.70.70:normal:Castform,60.90.70.60.120.40:normal:Kecleon,44.75.35.63.33.45:fantasma:Shuppet,64.115.65.83.63.65:fantasma:Banette,20.40.90.30.90.25:fantasma:Duskull,40.70.130.60.130.25:fantasma:Dusclops,99.68.83.72.87.51:planta/volador:Tropius,75.50.80.95.90.65:psiquico:Chimecho,65.130.60.75.60.75:siniestro:Absol,95.23.48.23.48.23:psiquico:Wynaut,50.50.50.50.50.50:hielo:Snorunt,80.80.80.80.80.80:hielo:Glalie,70.40.50.55.50.25:hielo/agua:Spheal,90.60.70.75.70.45:hielo/agua:Sealeo,110.80.90.95.90.65:hielo/agua:Walrein,35.64.85.74.55.32:agua:Clamperl,55.104.105.94.75.52:agua:Huntail,55.84.105.114.75.52:agua:Gorebyss,100.90.130.45.65.55:agua/roca:Relicanth,43.30.55.40.65.97:agua:Luvdisc,45.75.60.40.30.50:dragon:Bagon,65.95.100.60.50.50:dragon:Shelgon,95.135.80.110.80.100:dragon/volador:Salamence,40.55.80.35.60.30:acero/psiquico:Beldum,60.75.100.55.80.50:acero/psiquico:Metang,80.135.130.95.90.70:acero/psiquico:Metagross,80.100.200.50.100.50:roca:Regirock*,80.50.100.100.200.50:hielo:Regice*,80.75.150.75.150.50:acero:Registeel*,80.80.90.110.130.110:dragon/psiquico:Latias*,80.90.80.130.110.110:dragon/psiquico:Latios*,100.100.90.150.140.90:agua:Kyogre*,100.150.140.100.90.90:tierra:Groudon*,105.150.90.150.90.95:dragon/volador:Rayquaza*,100.100.100.100.100.100:acero/psiquico:Jirachi*,50.150.50.150.50.150:psiquico:Deoxys*,55.68.64.45.55.31:planta:Turtwig,75.89.85.55.65.36:planta:Grotle,95.109.105.75.85.56:planta/tierra:Torterra,44.58.44.58.44.61:fuego:Chimchar,64.78.52.78.52.81:fuego/lucha:Monferno,76.104.71.104.71.108:fuego/lucha:Infernape,53.51.53.61.56.40:agua:Piplup,64.66.68.81.76.50:agua:Prinplup,84.86.88.111.101.60:agua/acero:Empoleon,40.55.30.30.30.60:normal/volador:Starly,55.75.50.40.40.80:normal/volador:Staravia,85.120.70.50.60.100:normal/volador:Staraptor,59.45.40.35.40.31:normal:Bidoof,79.85.60.55.60.71:normal/agua:Bibarel,37.25.41.25.41.25:bicho:Kricketot,77.85.51.55.51.65:bicho:Kricketune,45.65.34.40.34.45:electrico:Shinx,60.85.49.60.49.60:electrico:Luxio,80.120.79.95.79.70:electrico:Luxray,40.30.35.50.70.55:planta/veneno:Budew,60.70.65.125.105.90:planta/veneno:Roserade,67.125.40.30.30.58:roca:Cranidos,97.165.60.65.50.58:roca:Rampardos,30.42.118.42.88.30:roca/acero:Shieldon,60.52.168.47.138.30:roca/acero:Bastiodon,40.29.45.29.45.36:bicho:Burmy,60.59.85.79.105.36:bicho/planta:Wormadam,70.94.50.94.50.66:bicho/volador:Mothim,30.30.42.30.42.70:bicho/volador:Combee,70.80.102.80.102.40:bicho/volador:Vespiquen,60.45.70.45.90.95:electrico:Pachirisu,55.65.35.60.30.85:agua:Buizel,85.105.55.85.50.115:agua:Floatzel,45.35.45.62.53.35:planta:Cherubi,70.60.70.87.78.85:planta:Cherrim,76.48.48.57.62.34:agua:Shellos,111.83.68.92.82.39:agua/tierra:Gastrodon,75.100.66.60.66.115:normal:Ambipom,90.50.34.60.44.70:fantasma/volador:Drifloon,150.80.44.90.54.80:fantasma/volador:Drifblim,55.66.44.44.56.85:normal:Buneary,65.76.84.54.96.105:normal:Lopunny,60.60.60.105.105.105:fantasma:Mismagius,100.125.52.105.52.71:siniestro/volador:Honchkrow,49.55.42.42.37.85:normal:Glameow,71.82.64.64.59.112:normal:Purugly,45.30.50.65.50.45:psiquico:Chingling,63.63.47.41.41.74:veneno/siniestro:Stunky,103.93.67.71.61.84:veneno/siniestro:Skuntank,57.24.86.24.86.23:acero/psiquico:Bronzor,67.89.116.79.116.33:acero/psiquico:Bronzong,50.80.95.10.45.10:roca:Bonsly,20.25.45.70.90.60:psiquico/hada:Mime Jr.,100.5.5.15.65.30:normal:Happiny,76.65.45.92.42.91:normal/volador:Chatot,50.92.108.92.108.35:fantasma/siniestro:Spiritomb,58.70.45.40.45.42:dragon/tierra:Gible,68.90.65.50.55.82:dragon/tierra:Gabite,108.130.95.80.85.102:dragon/tierra:Garchomp,135.85.40.40.85.5:normal:Munchlax,40.70.40.35.40.60:lucha:Riolu,70.110.70.115.70.90:lucha/acero:Lucario,68.72.78.38.42.32:tierra:Hippopotas,108.112.118.68.72.47:tierra:Hippowdon,40.50.90.30.55.65:veneno/bicho:Skorupi,70.90.110.60.75.95:veneno/siniestro:Drapion,48.61.40.61.40.50:veneno/lucha:Croagunk,83.106.65.86.65.85:veneno/lucha:Toxicroak,74.100.72.90.72.46:planta:Carnivine,49.49.56.49.61.66:agua:Finneon,69.69.76.69.86.91:agua:Lumineon,45.20.50.60.120.50:agua/volador:Mantyke,60.62.50.62.60.40:planta/hielo:Snover,90.92.75.92.85.60:planta/hielo:Abomasnow,70.120.65.45.85.125:siniestro/hielo:Weavile,70.70.115.130.90.60:electrico/acero:Magnezone,110.85.95.80.95.50:normal:Lickilicky,115.140.130.55.55.40:tierra/roca:Rhyperior,100.100.125.110.50.50:planta:Tangrowth,75.123.67.95.85.95:electrico:Electivire,75.95.67.125.95.83:fuego:Magmortar,85.50.95.120.115.80:hada/volador:Togekiss,86.76.86.116.56.95:bicho/volador:Yanmega,65.110.130.60.65.95:planta:Leafeon,65.60.110.130.95.65:hielo:Glaceon,75.95.125.45.75.95:tierra/volador:Gliscor,110.130.80.70.60.80:hielo/tierra:Mamoswine,85.80.70.135.75.90:normal:Porygon-Z,68.125.65.65.115.80:psiquico/lucha:Gallade,60.55.145.75.150.40:roca/acero:Probopass,45.100.135.65.135.45:fantasma:Dusknoir,70.80.70.80.70.110:hielo/fantasma:Froslass,50.50.77.95.77.91:electrico/fantasma:Rotom,75.75.130.75.130.95:psiquico:Uxie*,80.105.105.105.105.80:psiquico:Mesprit*,75.125.70.125.70.115:psiquico:Azelf*,100.120.120.150.100.90:acero/dragon:Dialga*,90.120.100.150.120.100:agua/dragon:Palkia*,91.90.106.130.106.77:fuego/acero:Heatran*,110.160.110.80.110.100:normal:Regigigas*,150.100.120.100.120.90:fantasma/dragon:Giratina*,120.70.110.75.120.85:psiquico:Cresselia*,80.80.80.80.80.80:agua:Phione*,100.100.100.100.100.100:agua:Manaphy*,70.90.90.135.90.125:siniestro:Darkrai*,100.100.100.100.100.100:planta:Shaymin*,120.120.120.120.120.120:normal:Arceus*,100.100.100.100.100.100:psiquico/fuego:Victini*,45.45.55.45.55.63:planta:Snivy,60.60.75.60.75.83:planta:Servine,75.75.95.75.95.113:planta:Serperior,65.63.45.45.45.45:fuego:Tepig,90.93.55.70.55.55:fuego/lucha:Pignite,110.123.65.100.65.65:fuego/lucha:Emboar,55.55.45.63.45.45:agua:Oshawott,75.75.60.83.60.60:agua:Dewott,95.100.85.108.70.70:agua:Samurott,45.55.39.35.39.42:normal:Patrat,60.85.69.60.69.77:normal:Watchog,45.60.45.25.45.55:normal:Lillipup,65.80.65.35.65.60:normal:Herdier,85.110.90.45.90.80:normal:Stoutland,41.50.37.50.37.66:siniestro:Purrloin,64.88.50.88.50.106:siniestro:Liepard,50.53.48.53.48.64:planta:Pansage,75.98.63.98.63.101:planta:Simisage,50.53.48.53.48.64:fuego:Pansear,75.98.63.98.63.101:fuego:Simisear,50.53.48.53.48.64:agua:Panpour,75.98.63.98.63.101:agua:Simipour,76.25.45.67.55.24:psiquico:Munna,116.55.85.107.95.29:psiquico:Musharna,50.55.50.36.30.43:normal/volador:Pidove,62.77.62.50.42.65:normal/volador:Tranquill,80.115.80.65.55.93:normal/volador:Unfezant,45.60.32.50.32.76:electrico:Blitzle,75.100.63.80.63.116:electrico:Zebstrika,55.75.85.25.25.15:roca:Roggenrola,70.105.105.50.40.20:roca:Boldore,85.135.130.60.80.25:roca:Gigalith,65.45.43.55.43.72:psiquico/volador:Woobat,67.57.55.77.55.114:psiquico/volador:Swoobat,60.85.40.30.45.68:tierra:Drilbur,110.135.60.50.65.88:tierra/acero:Excadrill,103.60.86.60.86.50:normal:Audino,75.80.55.25.35.35:lucha:Timburr,85.105.85.40.50.40:lucha:Gurdurr,105.140.95.55.65.45:lucha:Conkeldurr,50.50.40.50.40.64:agua:Tympole,75.65.55.65.55.69:agua/tierra:Palpitoad,105.95.75.85.75.74:agua/tierra:Seismitoad,120.100.85.30.85.45:lucha:Throh,75.125.75.30.75.85:lucha:Sawk,45.53.70.40.60.42:bicho/planta:Sewaddle,55.63.90.50.80.42:bicho/planta:Swadloon,75.103.80.70.80.92:bicho/planta:Leavanny,30.45.59.30.39.57:bicho/veneno:Venipede,40.55.99.40.79.47:bicho/veneno:Whirlipede,60.100.89.55.69.112:bicho/veneno:Scolipede,40.27.60.37.50.66:planta/hada:Cottonee,60.67.85.77.75.116:planta/hada:Whimsicott,45.35.50.70.50.30:planta:Petilil,70.60.75.110.75.90:planta:Lilligant,70.92.65.80.55.98:agua:Basculin,50.72.35.35.35.65:tierra/siniestro:Sandile,60.82.45.45.45.74:tierra/siniestro:Krokorok,95.117.80.65.70.92:tierra/siniestro:Krookodile,70.90.45.15.45.50:fuego:Darumaka,105.140.55.30.55.95:fuego:Darmanitan,75.86.67.106.67.60:planta:Maractus,50.65.85.35.35.55:bicho/roca:Dwebble,70.105.125.65.75.45:bicho/roca:Crustle,50.75.70.35.70.48:siniestro/lucha:Scraggy,65.90.115.45.115.58:siniestro/lucha:Scrafty,72.58.80.103.80.97:psiquico/volador:Sigilyph,38.30.85.55.65.30:fantasma:Yamask,58.50.145.95.105.30:fantasma:Cofagrigus,54.78.103.53.45.22:agua/roca:Tirtouga,74.108.133.83.65.32:agua/roca:Carracosta,55.112.45.74.45.70:roca/volador:Archen,75.140.65.112.65.110:roca/volador:Archeops,50.50.62.40.62.65:veneno:Trubbish,80.95.82.60.82.75:veneno:Garbodor,40.65.40.80.40.65:siniestro:Zorua,60.105.60.120.60.105:siniestro:Zoroark,55.50.40.40.40.75:normal:Minccino,75.95.60.65.60.115:normal:Cinccino,45.30.50.55.65.45:psiquico:Gothita,60.45.70.75.85.55:psiquico:Gothorita,70.55.95.95.110.65:psiquico:Gothitelle,45.30.40.105.50.20:psiquico:Solosis,65.40.50.125.60.30:psiquico:Duosion,110.65.75.125.85.30:psiquico:Reuniclus,62.44.50.44.50.55:agua/volador:Ducklett,75.87.63.87.63.98:agua/volador:Swanna,36.50.50.65.60.44:hielo:Vanillite,51.65.65.80.75.59:hielo:Vanillish,71.95.85.110.95.79:hielo:Vanilluxe,60.60.50.40.50.75:normal/planta:Deerling,80.100.70.60.70.95:normal/planta:Sawsbuck,55.75.60.75.60.103:electrico/volador:Emolga,50.75.45.40.45.60:bicho:Karrablast,70.135.105.60.105.20:bicho/acero:Escavalier,69.55.45.55.55.15:planta/veneno:Foongus,114.85.70.85.80.30:planta/veneno:Amoonguss,55.40.50.65.85.40:agua/fantasma:Frillish,100.60.70.85.105.60:agua/fantasma:Jellicent,165.75.80.40.45.65:agua:Alomomola,50.47.50.57.50.65:bicho/electrico:Joltik,70.77.60.97.60.108:bicho/electrico:Galvantula,44.50.91.24.86.10:planta/acero:Ferroseed,74.94.131.54.116.20:planta/acero:Ferrothorn,40.55.70.45.60.30:acero:Klink,60.80.95.70.85.50:acero:Klang,60.100.115.70.85.90:acero:Klinklang,35.55.40.45.40.60:electrico:Tynamo,65.85.70.75.70.40:electrico:Eelektrik,85.115.80.105.80.50:electrico:Eelektross,55.55.55.85.55.30:psiquico:Elgyem,75.75.75.125.95.40:psiquico:Beheeyem,50.30.55.65.55.20:fantasma/fuego:Litwick,60.40.60.95.60.55:fantasma/fuego:Lampent,60.55.90.145.90.80:fantasma/fuego:Chandelure,46.87.60.30.40.57:dragon:Axew,66.117.70.40.50.67:dragon:Fraxure,76.147.90.60.70.97:dragon:Haxorus,55.70.40.60.40.40:hielo:Cubchoo,95.130.80.70.80.50:hielo:Beartic,80.50.50.95.135.105:hielo:Cryogonal,50.40.85.40.65.25:bicho:Shelmet,80.70.40.100.60.145:bicho:Accelgor,109.66.84.81.99.32:tierra/electrico:Stunfisk,45.85.50.55.50.65:lucha:Mienfoo,65.125.60.95.60.105:lucha:Mienshao,77.120.90.60.90.48:dragon:Druddigon,59.74.50.35.50.35:tierra/fantasma:Golett,89.124.80.55.80.55:tierra/fantasma:Golurk,45.85.70.40.40.60:siniestro/acero:Pawniard,65.125.100.60.70.70:siniestro/acero:Bisharp,95.110.95.40.95.55:normal:Bouffalant,70.83.50.37.50.60:normal/volador:Rufflet,100.123.75.57.75.80:normal/volador:Braviary,70.55.75.45.65.60:siniestro/volador:Vullaby,110.65.105.55.95.80:siniestro/volador:Mandibuzz,85.97.66.105.66.65:fuego:Heatmor,58.109.112.48.48.109:bicho/acero:Durant,52.65.50.45.50.38:siniestro/dragon:Deino,72.85.70.65.70.58:siniestro/dragon:Zweilous,92.105.90.125.90.98:siniestro/dragon:Hydreigon,55.85.55.50.55.60:bicho/fuego:Larvesta,85.60.65.135.105.100:bicho/fuego:Volcarona,91.90.129.90.72.108:acero/lucha:Cobalion*,91.129.90.72.90.108:roca/lucha:Terrakion*,91.90.72.90.129.108:planta/lucha:Virizion*,79.115.70.125.80.111:volador:Tornadus*,79.115.70.125.80.111:electrico/volador:Thundurus*,100.120.100.150.120.90:dragon/fuego:Reshiram*,100.150.120.120.100.90:dragon/electrico:Zekrom*,89.125.90.115.80.101:tierra/volador:Landorus*,125.130.90.130.90.95:dragon/hielo:Kyurem*,91.72.90.129.90.108:agua/lucha:Keldeo*,100.77.77.128.128.90:normal/psiquico:Meloetta*,71.120.95.120.95.99:bicho/acero:Genesect*';
 
-  /* ------------------------------------------------------------------ *
-   *  ENTRAÑAS DEL MONTE PLATEADO (/entranas)
-   *  Bajada sin fondo: un prestado, reclutas, bendiciones y puertas. 6 biomas de 5 pisos (el 5º, guardián) y desde el
-   *  31 vuelta a empezar, más fuerte. Este script:
-   *   · GRABA cada pantalla, lo que eliges y cada golpe de cada combate (para aprender y para exportarlo).
-   *   · APRENDE de lo grabado: nivel de los rivales por piso, qué especies salen en cada bioma y cuánto pegan de verdad
-   *     los tuyos y los rivales (tus mejoras 💎 cambian las cuentas).
-   *   · RECOMIENDA en cada decisión (prestado, bendición, puerta, reclutar) con un modelo de combate con las reglas de
-   *     cada bioma, y lo marca con ⭐ en la propia pantalla.
-   *   · BAJA SOLO si quieres (▶), parándose ante cualquier pantalla que no conozca. Nunca pulsa «Retirarse».
-   * ------------------------------------------------------------------ */
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   *  ENTRAÑAS DEL MONTE PLATEADO · asistente con aprendizaje (/entranas)
+   *
+   *  Cómo está hecho (de abajo arriba):
+   *   1. LECTOR       lee cada pantalla del juego y la convierte en datos (tipo de pantalla, opciones, equipo, piso…).
+   *   2. SABER        base de conocimiento que crece sola: cada especie, movimiento, bendición, puerta, evento, objeto,
+   *                   mejora y bioma que aparece se apunta con sus números. Arranca con lo aprendido de tus bajadas
+   *                   (SEMILLA) y se guarda en el navegador. Lo nuevo (Pokémon, bendiciones, mejoras, biomas…) entra
+   *                   solo: sus efectos se leen del propio texto del juego.
+   *   3. APRENDER     de cada combate: nivel de los rivales por piso, especies de cada bioma, qué movimientos usa cada
+   *                   uno y cuánto pegan de verdad (ajuste por lado y tipo de ataque); de cada puerta: qué sale y
+   *                   cuántas esquirlas da.
+   *   4. MODELO       combate por turnos con las fórmulas del juego + lo aprendido + reglas del bioma + bendiciones.
+   *   5. SIMULADOR    juega pisos (y bajadas enteras) con dados, para mirar hacia delante.
+   *   6. IA           en cada decisión prueba cada opción y la juega muchas veces unos pisos hacia delante (Monte
+   *                   Carlo): se queda con la que más lejos llega (o más esquirlas da, según la prioridad).
+   *   7. MEJORAS      simula bajadas enteras con y sin cada mejora del campamento: cuánto rinde cada esquirla.
+   *   8. PILOTO       juega solo con las decisiones de la IA; se para ante lo que no conoce. Nunca «Retirarse».
+   *   9. PANEL        pestañas: Ahora · Saber · Mejoras · Historial · Datos.
+   *  El diario completo (cada pantalla, cada pulsación, cada golpe) se guarda aparte (IndexedDB) y se exporta.
+   * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const pausa = (a, b) => sleep(a + Math.random() * (b - a));
   const texto = el => (el && el.textContent || '').replace(/\s+/g, ' ').trim();
-  const norm = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  const norm = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const enEntranas = () => /^\/entranas(\/|$)/.test(location.pathname);
   const PANEL_ID = 'axe-panel';
   const ajeno = el => !!(el.closest('#' + PANEL_ID) || el.closest('#k-avisos') || el.closest('[data-ax-ignore]'));
@@ -295,8 +308,11 @@
   const lsPut = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
   const numSprite = img => { const m = img && (img.getAttribute('src') || '').match(/\/sprites\/(?:[a-z-]+\/)*(\d+)\.(?:png|gif|webp)/); return m ? +m[1] : null; };
   const pct = x => Math.round(x * 100) + '%';
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const media = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
+  const quitaIco = t => String(t || '').replace(/^[^\p{L}\p{N}¿¡]+/u, '').trim();
 
-  /* ─── Tipos (tabla completa; el juego: muy eficaz ×1,65 y poco eficaz ×0,6 por cada tipo) ─── */
+  /* ─── Tipos (el juego: muy eficaz ×1,65 y poco eficaz ×0,6 por cada tipo). Un tipo nuevo cuenta como neutro. ─── */
   const TABLA = {
     normal: { roca: .5, acero: .5, fantasma: 0 },
     fuego: { planta: 2, hielo: 2, bicho: 2, acero: 2, fuego: .5, agua: .5, roca: .5, dragon: .5 },
@@ -317,11 +333,12 @@
     acero: { hielo: 2, roca: 2, hada: 2, fuego: .5, agua: .5, electrico: .5, acero: .5 },
     hada: { lucha: 2, dragon: 2, siniestro: 2, fuego: .5, veneno: .5, acero: .5 },
   };
-  const TIPOS = Object.keys(TABLA);
   const eficacia = (t, tipos) => tipos.reduce((m, x) => { const v = (TABLA[t] || {})[x] ?? 1; return m * (v === 0 ? 0 : v > 1 ? 1.65 : v < 1 ? 0.6 : 1); }, 1);
-  const tipoDe = t => { const n = norm(t); return TABLA[n] ? n : null; };
+  // Nombre de tipo tal como sale en el juego → clave («Psíquico» → psiquico). Un tipo que no esté en la tabla se acepta igual.
+  const tipoDe = t => { const n = norm(t).replace(/[^a-z]/g, ''); return n && n.length <= 10 && (TABLA[n] || TIPOS_VISTOS.has(n)) ? n : null; };
+  const TIPOS_VISTOS = new Set(Object.keys(TABLA));
 
-  /* ─── Pokédex 1-649 (PokéAPI): estadísticas base PS.ATQ.DEF.ATE.DFE.VEL : tipos : nombre (* = legendario/singular) ─── */
+  /* ─── Pokédex 1-649 (PokéAPI): base PS.ATQ.DEF.ATE.DFE.VEL : tipos : nombre (* legendario/singular) ─── */
   const DEX = {}, DEX_NOMBRE = {};
   DEX_DATOS.split(',').forEach((x, i) => {
     const [s, t, n] = x.split(':');
@@ -329,173 +346,223 @@
     DEX[i + 1] = { num: i + 1, s: s.split('.').map(Number), t: t.split('/'), nombre, leg };
     DEX_NOMBRE[norm(nombre)] = i + 1;
   });
-  const numDeNombre = n => DEX_NOMBRE[norm(n)] || null;
 
-  /* ─── Biomas (del propio juego) y lo que se supone que sale en cada uno (se corrige con lo que se va viendo) ─── */
-  const BIOMAS = [
-    { id: 'roca', nombre: 'Galerías de Roca', ico: '🪨', efecto: 'Sin sorpresas.', tipos: ['roca', 'tierra'] },
-    { id: 'lago', nombre: 'Lago Subterráneo', ico: '💧', efecto: 'Tus Agua van un 20% más fuertes en todo.', tipos: ['agua'] },
-    { id: 'bosque', nombre: 'Bosque de Raíces', ico: '🌿', efecto: 'Los salvajes salen de dos en dos.', tipos: ['planta', 'bicho'] },
-    { id: 'cripta', nombre: 'Cripta de Niebla', ico: '🌫️', efecto: 'No se ve qué hay tras cada puerta.', tipos: ['fantasma', 'psiquico', 'siniestro'] },
-    { id: 'glaciar', nombre: 'Glaciar de Acero', ico: '❄️', efecto: 'Al acabar cada piso, los que no son Hielo pierden un 8% de PS.', tipos: ['hielo', 'acero'] },
-    { id: 'magma', nombre: 'Cámara de Magma', ico: '🌋', efecto: 'Los rivales pegan un 15% más; tus Fuego, también.', tipos: ['fuego'] },
+  /* ══════════ 2 · SABER (base de conocimiento) ══════════ */
+  const LS_KB = 'axe-kb2', LS_CONF = 'axe-conf2', SS_AUTO = 'axe-auto';
+  const ESQUEMA = 2;
+  function kbNueva() {
+    const s = SEMILLA, kb = { v: ESQUEMA, creada: Date.now(), especies: {}, movs: {}, usa: {}, bendiciones: {}, puertas: {}, eventos: {}, objetos: {}, mejoras: {}, biomas: {},
+      niveles: [], k: {}, multMio: { n: 20, s: 20 * Math.log(s.multMio) }, subida: { n: 10, s: 25 }, bajadas: [], pantallasNuevas: {}, esqMult: s.esqMult, vistas: 0 };
+    for (const [n, b] of Object.entries(s.bendiciones)) kb.bendiciones[n] = { ico: b.ico, desc: b.desc, ofrecida: b.of, elegida: b.el, visto: Date.now() };
+    for (const [bioma, esp] of Object.entries(s.especies)) for (const [num, c] of Object.entries(esp)) {
+      const d = DEX[num]; if (!d) continue;
+      const e = kb.especies[num] = kb.especies[num] || { num: +num, nombre: d.nombre, tipos: d.t, biomas: {}, vistos: 0, movs: {} };
+      e.biomas[bioma] = (e.biomas[bioma] || 0) + c; e.vistos += c;
+    }
+    for (const [n, m] of Object.entries(s.movs)) kb.movs[n] = { tipo: m.t, cat: m.c, n: m.n };
+    for (const [quien, movs] of Object.entries(s.usa)) { const num = DEX_NOMBRE[norm(quien)]; if (num && kb.especies[num]) movs.forEach(m => { kb.especies[num].movs[m] = 1; }); }
+    for (const [c, p] of Object.entries(s.puertas)) kb.puertas[c] = { nombre: p.n, ico: p.i, vista: 1, elegida: 1, esq: p.esq != null ? { n: 3, s: 3 * p.esq / s.esqMult } : { n: 0, s: 0 }, sale: { ...(p.sale || {}) } };
+    for (const m of s.mejoras) kb.mejoras[m.n] = { ico: m.i, desc: m.desc, nivel: m.lv, max: m.max, coste: m.coste, visto: Date.now() };
+    kb.niveles = s.niveles.slice();
+    kb.hinchazon = (s.hinchazon || []).slice();
+    for (const [c, [v, n]] of Object.entries(s.k)) kb.k[c] = { n: Math.min(n, 30), s: Math.min(n, 30) * Math.log(v) };
+    kb.bajadas = s.bajadas.map(b => ({ ...b, t: 0, semilla: true }));
+    return kb;
+  }
+  let kb = lsGet(LS_KB, null);
+  if (!kb || kb.v !== ESQUEMA) kb = kbNueva();
+  let tGuardar = null;
+  const guardaKb = () => { clearTimeout(tGuardar); tGuardar = setTimeout(() => { if (!lsPut(LS_KB, kb)) { kb.niveles = kb.niveles.slice(-300); lsPut(LS_KB, kb); } }, 400); };
+  const conf = Object.assign({ prioridad: 'pisos', empezarGratis: true, usarPases: false, reordenar: true, velocidad: 'normal', esfuerzo: 'normal', comprar: false }, lsGet(LS_CONF, {}));
+  const guardaConf = () => lsPut(LS_CONF, conf);
+  const media2 = x => x && x.n ? Math.exp(x.s / x.n) : 1;
+
+  /* ─── Diario (IndexedDB; si no hay, localStorage con tope) ─── */
+  const DIARIO = (() => {
+    let db = null, cola = [];
+    const abrir = () => new Promise(ok => {
+      try {
+        const r = indexedDB.open('axe-entranas', 1);
+        r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('diario', { autoIncrement: true }); d.createObjectStore('html', { keyPath: 'clave' }); };
+        r.onsuccess = () => { db = r.result; ok(db); };
+        r.onerror = () => ok(null);
+      } catch { ok(null); }
+    });
+    const listo = abrir().then(d => { if (d && cola.length) { const c = cola; cola = []; c.forEach(x => poner(x)); } return d; });
+    function poner(x) {
+      if (!db) { cola.push(x); if (!('indexedDB' in window)) { const l = lsGet('axe-diario', []); l.push(x); lsPut('axe-diario', l.slice(-1500)); } return; }
+      try { db.transaction('diario', 'readwrite').objectStore('diario').add(x); } catch { /* lleno */ }
+    }
+    function html(clave, h) { listo.then(d => { if (!d) return; try { d.transaction('html', 'readwrite').objectStore('html').put({ clave, t: Date.now(), html: h }); } catch { /* nada */ } }); }
+    function todo(store) {
+      return listo.then(d => new Promise(ok => {
+        if (!d) return ok(store === 'diario' ? lsGet('axe-diario', []) : []);
+        const out = [], req = d.transaction(store).objectStore(store).openCursor();
+        req.onsuccess = () => { const c = req.result; if (c) { out.push(c.value); c.continue(); } else ok(out); };
+        req.onerror = () => ok(out);
+      }));
+    }
+    function borrar() { return listo.then(d => { if (d) { d.transaction('diario', 'readwrite').objectStore('diario').clear(); d.transaction('html', 'readwrite').objectStore('html').clear(); } localStorage.removeItem('axe-diario'); }); }
+    function contar() { return listo.then(d => new Promise(ok => { if (!d) return ok(lsGet('axe-diario', []).length); const r = d.transaction('diario').objectStore('diario').count(); r.onsuccess = () => ok(r.result); r.onerror = () => ok(0); })); }
+    return { poner, html, todo, borrar, contar };
+  })();
+  let bajadaId = lsGet('axe-bajada', null);
+  const apunta = x => DIARIO.poner({ t: Date.now(), bajada: bajadaId, ...x });
+
+  /* ─── Biomas: los seis conocidos; uno nuevo se apunta con su nombre y su efecto (leído de la cabecera) ─── */
+  const BIOMAS_BASE = [
+    { nombre: 'Galerías de Roca', ico: '🪨', efecto: 'Sin sorpresas: la roca de siempre.' },
+    { nombre: 'Lago Subterráneo', ico: '💧', efecto: 'Corriente: tus Pokémon de tipo Agua van un 20% más fuertes en todo.' },
+    { nombre: 'Bosque de Raíces', ico: '🌿', efecto: 'Espesura: los salvajes salen de dos en dos.' },
+    { nombre: 'Cripta de Niebla', ico: '🌫️', efecto: 'Niebla: no se ve qué hay detrás de cada puerta hasta abrirla.' },
+    { nombre: 'Glaciar de Acero', ico: '❄️', efecto: 'Frío: al acabar cada piso, los que no son de tipo Hielo pierden un 8% de PS.' },
+    { nombre: 'Cámara de Magma', ico: '🌋', efecto: 'Calor: los rivales pegan un 15% más fuerte. Tus Pokémon de tipo Fuego, también.' },
   ];
-  const biomaDePiso = p => BIOMAS[Math.floor((Math.max(1, p) - 1) / 5) % 6];
-  const vueltaDePiso = p => Math.floor((Math.max(1, p) - 1) / 30) + 1;
-  const biomaPorNombre = n => BIOMAS.find(b => norm(n).includes(norm(b.nombre))) || null;
+  const ID_BIOMA = { 'galerias de roca': 'roca', 'lago subterraneo': 'lago', 'bosque de raices': 'bosque', 'cripta de niebla': 'cripta', 'glaciar de acero': 'glaciar', 'camara de magma': 'magma' };
+  const idBioma = nombre => ID_BIOMA[norm(nombre)] || norm(nombre).replace(/[^a-z]+/g, '-');
+  BIOMAS_BASE.forEach((b, i) => { const id = idBioma(b.nombre); if (!kb.biomas[id]) kb.biomas[id] = { ...b, orden: i }; });
+  const listaBiomas = () => Object.entries(kb.biomas).sort((a, b) => a[1].orden - b[1].orden).map(([id, b]) => ({ id, ...b, reglas: reglasBioma(b.efecto) }));
+  const biomaDePiso = p => { const L = listaBiomas(); return L[Math.floor((Math.max(1, p) - 1) / 5) % L.length]; };
+  const vueltaDePiso = p => Math.floor((Math.max(1, p) - 1) / (5 * listaBiomas().length)) + 1;
+  // Reglas del bioma leídas de su texto (así un bioma nuevo con un efecto parecido se entiende solo)
+  function reglasBioma(t) {
+    const n = norm(t), r = {};
+    let m;
+    if ((m = n.match(/tus pokemon de tipo ([a-z]+) van un (\d+)% mas fuertes/))) r.tipoMio = { t: m[1], x: 1 + m[2] / 100 };
+    if ((m = n.match(/rivales pegan un (\d+)% mas/))) r.rivalDano = 1 + m[1] / 100;
+    if ((m = n.match(/tus pokemon de tipo ([a-z]+), tambien/))) r.danoMio = { t: m[1], x: r.rivalDano || 1.15 };
+    if ((m = n.match(/los que no son de tipo ([a-z]+) pierden un (\d+)% de ps/))) r.desgaste = { salvo: m[1], p: m[2] / 100 };
+    if (/de dos en dos/.test(n)) r.dobles = true;
+    if (/no se ve/.test(n)) r.niebla = true;
+    return r;
+  }
 
-  /* ------------------------------------------------------------------ *
-   *  APRENDIZAJE (se guarda en el navegador y va en el export)
-   *  · niveles: [piso, nivel del rival, tipo de puerta] · especies[bioma][num] = veces vistas
-   *  · k.mio / k.rival: daño real ÷ daño previsto (media geométrica), de cada golpe sin crítico del registro
-   * ------------------------------------------------------------------ */
-  const LS_APR = 'axe-aprende', LS_REG = 'axe-registro', LS_PANT = 'axe-pantallas', LS_CONF = 'axe-conf', SS_AUTO = 'axe-auto';
-  const apr = Object.assign({ niveles: [], especies: {}, k: { mio: { n: 0, s: 0 }, rival: { n: 0, s: 0 } }, bajadas: [] }, lsGet(LS_APR, {}));
-  const guardaApr = () => lsPut(LS_APR, apr);
-  const K_DEF = { mio: 1.1, rival: 1 };            // primeras cuentas con tu combate del piso 2-3: los tuyos pegan un 7-14% más
-  const kDe = lado => { const x = apr.k[lado]; return x && x.n >= 3 ? Math.exp(x.s / x.n) : K_DEF[lado]; };
-  function nivelRival(piso, puerta = 'combate') {
-    const pts = apr.niveles.filter(x => (x[2] || 'combate') === puerta || puerta === 'combate');
-    if (pts.length >= 4) {             // recta por mínimos cuadrados (nivel = a + b·piso)
-      const n = pts.length, sx = pts.reduce((s, p) => s + p[0], 0), sy = pts.reduce((s, p) => s + p[1], 0);
-      const sxx = pts.reduce((s, p) => s + p[0] * p[0], 0), sxy = pts.reduce((s, p) => s + p[0] * p[1], 0);
-      const b = (n * sxx - sx * sx) ? (n * sxy - sx * sy) / (n * sxx - sx * sx) : 1.5, a = (sy - b * sx) / n;
-      const L = a + b * piso;
-      return Math.max(2, Math.round(puerta === 'elite' ? L + 3 : puerta === 'guardian' ? L + 4 : L));
+  /* ─── Efectos de bendiciones y mejoras, leídos de su texto ─── */
+  const ESTAD = [['ps maximos', 'hp'], ['ps', 'hp'], ['ataque', 'atk'], ['especial', 'esp'], ['defensa', 'def'], ['velocidad', 'spe']];
+  function efectoDe(desc) {
+    const n = norm(desc), e = {};
+    let m;
+    if ((m = n.match(/\+(\d+(?:[.,]\d+)?)% (?:de )?([a-z ,]+?) a (todo el equipo|los de tipo ([a-z]+))/))) {
+      const x = 1 + parseFloat(m[1].replace(',', '.')) / 100;
+      e.stats = {}; for (const [k, c] of ESTAD) if (new RegExp('\\b' + k + '\\b').test(m[2]) && !e.stats[c]) e.stats[c] = x;
+      if (m[4]) e.tipo = m[4];
     }
-    const L = 11 + 1.5 * piso;
-    return Math.round(puerta === 'elite' ? L + 3 : puerta === 'guardian' ? L + 4 : L);
+    if ((m = n.match(/\+(\d+)% a todas las estadisticas/))) e.todas = 1 + m[1] / 100;
+    if ((m = n.match(/sube (\d+) niveles/))) e.niveles = +m[1];
+    if ((m = n.match(/recupera un (\d+)% de ps/)) || (m = n.match(/un (\d+)% de ps tras cada combate ganado/))) e.curaVictoria = m[1] / 100;
+    if (/aguanta con 1 ps/.test(n)) e.aguante = true;
+    if (/descansos curan el doble/.test(n)) e.descansoX = 2;
+    if ((m = n.match(/hogueras curan un (\d+)% mas/))) e.descansoMas = m[1] / 100;
+    if ((m = n.match(/\+(\d+)% de esquirlas/))) e.esquirlas = m[1] / 100;
+    if ((m = n.match(/reclutes llegan con los ps llenos y (\d+) niveles mas/))) { e.reclutaNiv = +m[1]; e.reclutaLlenos = true; }
+    else if ((m = n.match(/^con (\d+) niveles mas/))) e.reclutaNiv = +m[1];
+    else if ((m = n.match(/^(\d+) niveles mas/))) e.prestadoNiv = +m[1];
+    if ((m = n.match(/empezar en el piso (\d+)/))) e.inicio = +m[1];
+    if (/cuarta plaza|un hueco mas en el equipo/.test(n)) e.plazas = 1;
+    if ((m = n.match(/del piso (\d+) hacia abajo, tu equipo se hincha un (\d+(?:[.,]\d+)?)% por piso/))) e.hincha = { desde: +m[1], p: parseFloat(m[2].replace(',', '.')) / 100 };
+    if ((m = n.match(/se levanta al (\d+)%/))) e.pluma = m[1] / 100;
+    if (/volver a tirar/.test(n)) e.reroll = true;
+    if (/prestado entre (\d+)/.test(n)) e.prestadoOpciones = true;
+    if (/bendicion antes del primer piso/.test(n)) e.bendicionInicial = true;
+    return Object.keys(e).length ? e : null;
   }
-
-  /* ------------------------------------------------------------------ *
-   *  MODELO DE COMBATE (el de Tiers, con niveles): PS = 3·base·Nv/100 + Nv + 14 · resto = 2·base·Nv/100 + 5 · una
-   *  sola «Especial» (media de At. Esp. y Def. Esp.) · pega con su tipo más eficaz, físico si su Ataque ≥ At. Esp. ·
-   *  daño = ((2·Nv/5+2)·30,5·A/D/50 + 2) · 1,5 si es de su tipo · eficacia · k (lo aprendido) · críticos ~9% ×1,64.
-   *  Bioma: Lago (Agua tuyos ×1,2 en todo), Magma (rivales ×1,15 de daño y tus Fuego también), Glaciar (los tuyos que
-   *  no son Hielo, −8% de PS por piso), Bosque (salvajes de dos en dos).
-   * ------------------------------------------------------------------ */
-  function stats(b, L) {
-    const st = x => Math.floor(2 * x * L / 100) + 5;
-    return { hp: Math.floor(3 * b[0] * L / 100) + L + 14, atk: st(b[1]), def: st(b[2]), esp: st(Math.round((b[3] + b[4]) / 2)), spe: st(b[5]), fis: b[1] >= b[3] };
-  }
-  // Un luchador. mods: { hp, atk, def, esp, spe } multiplicadores; vida: fracción de PS con la que empieza
-  function luchador(num, L, o = {}) {
-    const d = DEX[num];
-    const base = d ? d.s : [60, 60, 60, 60, 60, 60];
-    const st = stats(base, L), m = o.mods || {};
-    const tipos = o.tipos && o.tipos.length ? o.tipos : d ? d.t : ['normal'];
-    const x = { num, nombre: o.nombre || (d ? d.nombre : '?'), L, tipos, mio: !!o.mio, fis: st.fis,
-      hp: Math.round((o.hpMax || st.hp) * (m.hp || 1)), atk: st.atk * (m.atk || 1), def: st.def * (m.def || 1), esp: st.esp * (m.esp || 1), spe: st.spe * (m.spe || 1) };
-    x.vida = o.vida ?? 1;
-    return x;
-  }
-  function conBioma(x, bioma) {
-    if (!bioma) return x;
-    if (bioma.id === 'lago' && x.mio && x.tipos.includes('agua')) return { ...x, hp: x.hp * 1.2, atk: x.atk * 1.2, def: x.def * 1.2, esp: x.esp * 1.2, spe: x.spe * 1.2 };
-    if (bioma.id === 'glaciar' && x.mio && !x.tipos.includes('hielo')) return { ...x, vida: x.vida * 0.92 };
-    return x;
-  }
-  function danoPS(a, b, bioma) {
-    let m = null;
-    for (const t of a.tipos) { const e = eficacia(t, b.tipos); if (!m || e > m.e) m = { t, e, propio: true }; }
-    if (m.e < 1) { const en = eficacia('normal', b.tipos); if (en > m.e) m = { t: 'normal', e: en, propio: a.tipos.includes('normal') }; }
-    if (m.e === 0) return b.hp / 16;
-    const fis = !m.propio || a.fis, A = fis ? a.atk : a.esp, D = fis ? b.def : b.esp;
-    let d = ((2 * a.L / 5 + 2) * 30.5 * A / D / 50 + 2) * (m.propio ? 1.5 : 1) * m.e * kDe(a.mio ? 'mio' : 'rival');
-    if (bioma && bioma.id === 'magma' && (!a.mio || a.tipos.includes('fuego'))) d *= 1.15;
-    return d;
-  }
-  const golpe = (a, b, bioma) => danoPS(a, b, bioma) * (1 + 0.09 * 0.64) / b.hp;
-  const HOLGAZAN = 289;
-  // Combate en fila (pelean los tres primeros que sigan en pie; el que gana sigue con lo que le queda)
-  function fila(mios, rivales, bioma) {
-    const A = mios.filter(x => x.vida > 0).slice(0, 3).map(x => ({ l: x, v: x.vida })), B = rivales.map(x => ({ l: x, v: 1 }));
-    const g = (x, y) => golpe(x, y, bioma) * (x.num === HOLGAZAN ? 0.5 : 1);
-    let i = 0, j = 0;
-    for (let n = 0; i < A.length && j < B.length && n < 400; n++) {
-      const a = A[i], b = B[j];
-      if (a.l.spe >= b.l.spe) { b.v -= g(a.l, b.l); if (b.v <= 0) { j++; continue; } a.v -= g(b.l, a.l); if (a.v <= 0) i++; }
-      else { a.v -= g(b.l, a.l); if (a.v <= 0) { i++; continue; } b.v -= g(a.l, b.l); if (b.v <= 0) j++; }
+  // Bendiciones activas (con sus ×N) → efectos sumados
+  function efectosActivos(lista) {
+    const ef = { stats: {}, porTipo: {}, curaVictoria: 0, aguante: false, descansoX: 1, esquirlas: 0, reclutaNiv: 0, reclutaLlenos: false };
+    for (const b of lista) {
+      const e = efectoDe(b.desc || (kb.bendiciones[b.nombre] || {}).desc || '');
+      if (!e) continue;
+      for (let i = 0; i < (b.veces || 1); i++) {
+        if (e.stats) { const dest = e.tipo ? (ef.porTipo[e.tipo] = ef.porTipo[e.tipo] || {}) : ef.stats; for (const [c, x] of Object.entries(e.stats)) dest[c] = (dest[c] || 1) + (x - 1); }
+        if (e.curaVictoria) ef.curaVictoria += e.curaVictoria;
+        if (e.aguante) ef.aguante = true;
+        if (e.descansoX) ef.descansoX *= e.descansoX;
+        if (e.esquirlas) ef.esquirlas += e.esquirlas;
+        if (e.reclutaNiv) ef.reclutaNiv += e.reclutaNiv;
+        if (e.reclutaLlenos) ef.reclutaLlenos = true;
+      }
     }
-    const gana = j >= B.length;
-    const perdida = A.reduce((s, x, k) => s + (x.l.vida - (k < i ? 0 : Math.max(0, x.v))), 0);
-    return { gana, perdida };
+    return ef;
+  }
+  // Mejoras del campamento (la descripción dice el efecto al máximo: el actual es nivel/máximo de eso)
+  function efectosMejoras(extra = null) {
+    const ef = { curaVictoria: 0, esquirlas: 0, reclutaNiv: 0, prestadoNiv: 0, descansoMas: 0, plazas: 0, inicio: 1, hincha: null, pluma: 0 };
+    for (const [n, m] of Object.entries(kb.mejoras)) {
+      const nivel = m.nivel + (extra === n ? 1 : 0);
+      if (!nivel) continue;
+      const e = efectoDe(m.desc); if (!e) continue;
+      const f = nivel / (m.max || 1);
+      if (e.curaVictoria) ef.curaVictoria += e.curaVictoria * f;
+      if (e.esquirlas) ef.esquirlas += e.esquirlas * f;
+      if (e.reclutaNiv) ef.reclutaNiv += e.reclutaNiv * f;
+      if (e.prestadoNiv) ef.prestadoNiv += e.prestadoNiv * f;
+      if (e.descansoMas) ef.descansoMas += e.descansoMas * f;
+      if (e.plazas) ef.plazas += Math.round(nivel);
+      if (e.inicio) ef.inicio = Math.max(ef.inicio, 1 + Math.round((e.inicio - 1) * f));
+      if (e.hincha) ef.hincha = { desde: e.hincha.desde, p: e.hincha.p * f };
+      if (e.pluma) ef.pluma = e.pluma;
+      if (e.todas) ef.todas = 1 + (e.todas - 1) * f;
+    }
+    return ef;
   }
 
-  /* ─── Rivales esperados: especies vistas en ese bioma (si hay bastantes) o, si no, sus tipos con 4 repartos ─── */
-  const PERFILES = [[60, 65, 60, 55, 55, 60], [50, 80, 50, 45, 50, 75], [80, 60, 80, 55, 70, 40], [55, 50, 55, 80, 70, 65]];
-  function bancoRivales(bioma, L) {
-    const vistas = Object.entries(apr.especies[bioma.id] || {}).filter(([n]) => DEX[n]);
-    if (vistas.length >= 5) return vistas.flatMap(([n, c]) => Array(Math.min(4, c)).fill(0).map(() => luchador(+n, L)));
-    const tipos = [...bioma.tipos, ...bioma.tipos.map(t => t + '/' + (t === 'roca' ? 'tierra' : 'volador'))];
-    return tipos.flatMap(t => PERFILES.map(p => { const x = luchador(0, L, { tipos: t.split('/') }); const st = stats(p, L); return { ...x, ...st, tipos: t.split('/'), mio: false, vida: 1 }; }));
-  }
-  // Grupos de rivales de una puerta (reproducibles): combate 1 (2 en el Bosque), élite 2, guardián 3
-  function gruposRivales(piso, puerta, n = 40, Lfijo = null) {
-    const bioma = biomaDePiso(piso), L = Lfijo || nivelRival(piso, puerta), banco = bancoRivales(bioma, L);
-    const cuantos = puerta === 'guardian' ? 3 : puerta === 'elite' ? 2 : bioma.id === 'bosque' ? 2 : 1;
-    let s = 7 + piso * 13; const azar = () => (s = (s * 16807) % 2147483647) / 2147483647;
-    return Array.from({ length: n }, () => Array.from({ length: cuantos }, () => banco[Math.floor(azar() * banco.length)]));
-  }
-  // Probabilidad de ganar una puerta y PS que cuesta (media)
-  function evaluarPuerta(equipo, piso, puerta) {
-    const bioma = biomaDePiso(piso), mios = equipo.map(x => conBioma(x, bioma));
-    const grupos = gruposRivales(piso, puerta);
-    let g = 0, p = 0;
-    for (const gr of grupos) { const r = fila(mios, gr, bioma); if (r.gana) g++; p += r.perdida; }
-    return { gana: g / grupos.length, coste: p / grupos.length };
-  }
-  // Fuerza de un equipo para lo que viene: media de ganar la élite del piso siguiente y el guardián de su bioma
-  function fuerza(equipo, piso) {
-    const sig = piso + 1, guard = Math.ceil(piso / 5) * 5 + (piso % 5 === 0 ? 5 : 0);
-    return 0.5 * evaluarPuerta(equipo, sig, 'elite').gana + 0.5 * evaluarPuerta(equipo, guard, 'guardian').gana;
-  }
-
-  /* ------------------------------------------------------------------ *
-   *  LEER LA PANTALLA
-   * ------------------------------------------------------------------ */
+  /* ══════════ 1 · LECTOR (cada pantalla → datos) ══════════ */
   const raiz = () => document.querySelector('main main') || document.querySelector('main');
   const seccionCon = re => $$('main section').find(s => !ajeno(s) && re.test(texto(s.querySelector('p') || s)));
+  const tiposEn = el => $$('span', el).filter(s => !s.children.length && /rounded-pill|pastilla/.test(s.className)).map(s => tipoDe(texto(s))).filter(Boolean);
+  const numDe = (img, nombre) => numSprite(img) || DEX_NOMBRE[norm(nombre)] || null;
   let ultimaCab = null;
   function cabecera() {
     const p = $$('main p').find(x => !ajeno(x) && /^piso \d+$/i.test(texto(x)));
     if (!p) return null;
-    ultimaCab = null;
-    const sec = p.closest('section');
+    const sec = p.closest('section'), ps = $$('p', sec);
     const piso = +texto(p).match(/\d+/)[0];
-    const bioma = biomaPorNombre(texto(sec.querySelector('p'))) || biomaDePiso(piso);
-    const esq = texto(sec).match(/💎\s*(\d+) en esta bajada/);
-    ultimaCab = { piso, bioma, vuelta: vueltaDePiso(piso), esquirlas: esq ? +esq[1] : null, pluma: /pluma lista/i.test(texto(sec)) };
+    const t0 = texto(ps[0]), vuelta = +((t0.match(/vuelta (\d+)/i) || [])[1] || 1);
+    const nombre = quitaIco(t0.replace(/·\s*vuelta \d+/i, '')).trim();
+    const efecto = texto(ps.find(x => x !== ps[0] && x !== p && !/💎|🪶/.test(texto(x))) || null);
+    const id = idBioma(nombre);
+    if (nombre && !kb.biomas[id]) { kb.biomas[id] = { nombre, ico: (t0.match(/^\S+/) || ['❔'])[0], efecto, orden: Object.keys(kb.biomas).length, nuevo: true }; guardaKb(); log(`🆕 Bioma nuevo: ${nombre} (${efecto}).`); }
+    else if (nombre && efecto && kb.biomas[id].efecto !== efecto) { kb.biomas[id].efecto = efecto; guardaKb(); }
+    const st = texto(sec), esq = st.match(/💎\s*(\d+) en esta bajada/);
+    ultimaCab = { piso, vuelta, bioma: { id, ...kb.biomas[id], reglas: reglasBioma(kb.biomas[id].efecto) }, esquirlas: esq ? +esq[1] : null, pluma: /pluma lista/i.test(st) };
     return ultimaCab;
   }
-  const tiposEn = el => $$('span', el).filter(s => !s.children.length).map(s => tipoDe(texto(s))).filter(Boolean);
-  function equipoActual() {
-    const sec = seccionCon(/^tu equipo/i);
-    if (!sec) return [];
-    return $$('li[data-id]', sec).map(li => {
-      const img = li.querySelector('img'), num = numSprite(img) || numDeNombre(img && img.alt);
-      const t = texto(li), L = +((t.match(/Nv\.\s*(\d+)/) || [])[1] || 20), ps = t.match(/(\d+)\s*\/\s*(\d+)\s*$/) || t.match(/(\d+)\s*\/\s*(\d+)/);
-      const hpMax = ps ? +ps[2] : null, hp = ps ? +ps[1] : hpMax;
-      const l = luchador(num, L, { mio: true, hpMax, tipos: tiposEn(li), nombre: img && img.alt });
-      l.vida = hpMax ? hp / hpMax : 1; l.id = li.dataset.id; l.li = li;
-      return l;
-    });
+  // Una tarjeta de Pokémon (equipo, candidato, prestado…): nombre, especie, nivel, tipos, PS
+  function leerPoke(el) {
+    const img = el.querySelector('img'), t = texto(el);
+    const nombre = img ? img.alt : quitaIco(t).split(' Nv')[0];
+    const L = +((t.match(/Nv\.\s*(\d+)/) || [])[1] || 0);
+    const ps = t.match(/(\d+)\s*\/\s*(\d+)(?:\s*PS)?\s*$/) || t.match(/(\d+)\s*\/\s*(\d+)\s*PS/) || t.match(/(\d+)\s*\/\s*(\d+)/);
+    const psSolo = !ps && t.match(/(\d+)\s*PS/);
+    return { nombre, num: numDe(img, nombre), L, tipos: tiposEn(el), hp: ps ? +ps[1] : psSolo ? +psSolo[1] : null, hpMax: ps ? +ps[2] : psSolo ? +psSolo[1] : null };
   }
-  const bendicionesTengo = () => { const s = seccionCon(/^bendiciones$/i); return s ? $$('span[title]', s).map(x => ({ nombre: texto(x).replace(/^\S+\s/, ''), desc: x.title })) : []; };
-  // Tipo de pantalla y sus opciones
+  function equipoLeido() {
+    const sec = seccionCon(/^tu equipo/i);
+    if (!sec) return null;
+    const cap = texto(sec.querySelector('p')).match(/(\d+)\s*\/\s*(\d+)/);
+    const miembros = $$('li[data-id]', sec).map(li => ({ ...leerPoke(li), id: li.dataset.id, li, asa: li.querySelector('[role="button"][aria-label^="Mover"]') }));
+    return { miembros, plazas: cap ? +cap[2] : 4, arrastre: /arrastra/i.test(texto(sec)) };
+  }
+  function bendicionesActivas() {
+    const s = seccionCon(/^bendiciones$/i);
+    if (!s) return [];
+    return $$('span[title]', s).map(x => { const t = quitaIco(texto(x)), m = t.match(/^(.*?)\s*×(\d+)$/); return { nombre: m ? m[1] : t, veces: m ? +m[2] : 1, desc: x.title }; });
+  }
   function pantalla() {
     if (!enEntranas()) return null;
     const modal = $$('div.fixed.inset-0').find(d => !ajeno(d) && visible(d));
     if (modal) {
-      const b = $$('button', modal).find(x => /^seguir$|^continuar$|^vale$|^aceptar$/i.test(texto(x)));
-      return { tipo: 'aviso', texto: texto(modal), boton: b || null, raiz: modal };
+      const b = $$('button', modal).find(x => /^(seguir|continuar|vale|aceptar|entendido)$/i.test(texto(x)));
+      const ico = texto(modal.querySelector('span.text-5xl, span[aria-hidden]'));
+      const titulo = texto(modal.querySelector('p.font-display') || modal.querySelector('p'));
+      const cuerpo = $$('p', modal).filter(p => texto(p) !== titulo).map(texto).join(' ');
+      return { tipo: 'aviso', ico, titulo, cuerpo, boton: b || null, clase: claseAviso(titulo, cuerpo), cab: cabecera() || ultimaCab };
     }
     const cab = cabecera();
+    const saltar = $$('main button').find(b => !ajeno(b) && visible(b) && /saltar al resultado/i.test(texto(b)));
+    if (saltar) return { tipo: 'animacion', boton: saltar, cab: cab || ultimaCab };
     const secP = seccionCon(/elige tu prestado/i);
-    if (secP) return { tipo: 'prestado', cab, opciones: $$('button', secP).map(b => {
-      const img = b.querySelector('img'), t = texto(b);
-      return { b, num: numSprite(img) || numDeNombre(img && img.alt), nombre: img ? img.alt : t, L: +((t.match(/Nv\.\s*(\d+)/) || [])[1] || 20), hpMax: +((t.match(/(\d+)\s*PS/) || [])[1] || 0) || null, tipos: tiposEn(b) };
-    }) };
+    if (secP) return { tipo: 'prestado', cab, opciones: $$('button', secP).map(b => ({ b, ...leerPoke(b) })) };
     const secB = seccionCon(/elige una bendici/i);
     if (secB) {
       const ops = $$('button', secB).filter(b => b.querySelector('span.block'));
@@ -506,25 +573,67 @@
     if (hP) {
       const sec = hP.closest('section');
       return { tipo: 'puerta', cab, opciones: $$('button', sec).map(b => {
-        const sp = $$('span.block', b).filter(x => !x.hasAttribute('aria-hidden')), nombre = texto(sp[0]) || texto(b);
-        const n = norm(nombre), clase = /guardian/.test(n) ? 'guardian' : /elite/.test(n) ? 'elite' : /descanso/.test(n) ? 'descanso' : /combate/.test(n) ? 'combate' : /misterio/.test(n) ? 'misterio' : 'oculta';
-        return { b, nombre, desc: texto(sp[1]), clase, ico: texto(b.querySelector('span[aria-hidden]')) };
+        const sp = $$('span.block', b).filter(x => !x.hasAttribute('aria-hidden'));
+        const nombre = texto(sp[0]) || texto(b), ico = texto(b.querySelector('span[aria-hidden]'));
+        return { b, nombre, desc: texto(sp[1]), ico, clase: clasePuerta(nombre, ico) };
       }) };
     }
-    const reclutar = $$('main button').find(b => !ajeno(b) && visible(b) && /reclut/i.test(texto(b)));
-    if (reclutar) return { tipo: 'reclutar', cab, botones: $$('main button').filter(b => !ajeno(b) && visible(b)), boton: reclutar };
-    const seguir = $$('main button.boton-principal').find(b => !ajeno(b) && visible(b) && /^seguir$/i.test(texto(b)));
+    const secR = seccionCon(/te lo llevas/i);
+    if (secR) {
+      const cand = leerPoke(secR.querySelector('div') || secR);
+      const quien = $$('p', secR).find(p => /a quien dejas atras/i.test(norm(texto(p))));
+      if (quien) {
+        const caja = quien.parentElement;
+        return { tipo: 'sustituir', cab, cand, miembros: $$('button', caja).filter(b => b.querySelector('img')).map(b => ({ b, ...leerPoke(b) })),
+          cancelar: $$('button', secR).find(b => /^cancelar$/i.test(texto(b))) || null };
+      }
+      return { tipo: 'reclutar', cab, cand, si: $$('button', secR).find(b => /^reclut/i.test(texto(b))) || null, no: $$('button', secR).find(b => /^dejar/i.test(texto(b))) || null };
+    }
+    const seguir = $$('main button').find(b => !ajeno(b) && visible(b) && /^seguir$/i.test(texto(b)));
     if (seguir && $$('main button').some(b => /repasar/i.test(texto(b)))) return { tipo: 'combate', boton: seguir, cab: cab || ultimaCab };
     const bajar = $$('main button').find(b => !ajeno(b) && visible(b) && /bajar/i.test(texto(b)) && /⛰/.test(texto(b)));
-    if (bajar) return { tipo: 'lobby', boton: bajar, gratis: /gratis/i.test(texto(bajar)) };
-    const mejoras = $$('main nav button[aria-pressed="true"]').find(b => /mejoras/i.test(texto(b)));
-    if (mejoras) return { tipo: 'mejoras' };
-    return { tipo: 'otra', cab };
+    if (bajar) return { tipo: 'lobby', boton: bajar, gratis: /gratis/i.test(texto(bajar)), pases: +((texto(bajar).match(/\((\d+)\)/) || [])[1] || 0), mejoras: leerMejoras() };
+    return { tipo: 'desconocida', cab };
   }
-
-  /* ------------------------------------------------------------------ *
-   *  COMBATE: leer el registro (quién pega a quién, con qué, cuánto y si fue crítico) y aprender de él
-   * ------------------------------------------------------------------ */
+  function clasePuerta(nombre, ico) {
+    const n = norm(nombre);
+    if (/guardian/.test(n)) return 'guardian';
+    if (/elite/.test(n)) return 'elite';
+    if (/descanso/.test(n)) return 'descanso';
+    if (/combate/.test(n)) return 'combate';
+    if (/misterio/.test(n)) return 'misterio';
+    if (/tesoro/.test(n)) return 'tesoro';
+    if (/^¿\?$|niebla/.test(n) || ico === '🌫️') return 'oculta';
+    return 'p-' + n.replace(/[^a-z]+/g, '-');      // una puerta nueva: se aprende sola
+  }
+  // Qué es cada aviso (para aprender qué sale detrás de cada puerta)
+  function claseAviso(titulo, cuerpo) {
+    const t = norm(titulo + ' ' + cuerpo);
+    if (/baja contigo solo|te lo prestan/.test(t)) return 'prestado';
+    if (/ se une/.test(t)) return 'recluta';
+    if (/se queda atras/.test(t)) return 'deja';
+    if (/el guardian deja algo/.test(t)) return 'objeto';
+    if (/una hoguera/.test(t)) return 'hoguera';
+    if (/un cofre/.test(t)) return /algo mas que brilla/.test(t) ? 'cofre+' : 'cofre';
+    if (/manantial/.test(t)) return 'manantial';
+    if (/herido/.test(t)) return 'herido';
+    if (/no has podido pasar/.test(t)) return 'derrota';
+    if (/pluma de fenix/.test(t)) return 'pluma';
+    if (/caes en el piso/.test(t)) return 'fin';
+    if (Object.keys(kb.bendiciones).some(b => norm(titulo) === norm(b))) return 'bendicion';
+    return 'e-' + norm(quitaIco(titulo)).replace(/[^a-z]+/g, '-').slice(0, 30);
+  }
+  // Pestaña «Mejoras» del campamento (si está abierta)
+  function leerMejoras() {
+    const t = $$('main p').find(p => !ajeno(p) && /^el campamento$/i.test(texto(p)));
+    if (!t) return null;
+    const caja = t.closest('div.space-y-2') || t.parentElement.parentElement;
+    return $$('li', caja).map(li => {
+      const ps = $$('p', li), cab = texto(ps[0]), m = cab.match(/^(.*?)\s*(\d+)\s*\/\s*(\d+)$/);
+      const b = li.querySelector('button'), coste = b ? +((texto(b).match(/(\d+)/) || [])[1] || 0) : null;
+      return { nombre: m ? m[1].trim() : cab, nivel: m ? +m[2] : 0, max: m ? +m[3] : 1, desc: texto(ps[1]), ico: texto(li.querySelector('[aria-hidden]')), coste, boton: b && !b.disabled ? b : null, alMax: /al maximo/i.test(norm(texto(li))) };
+    }).filter(x => x.nombre);
+  }
   function leerCombate() {
     const caja = $$('main .tarjeta').find(t => !ajeno(t) && /overflow-y-auto/.test(t.className));
     if (!caja) return null;
@@ -536,284 +645,735 @@
       if (el.tagName === 'P') {
         if ((m = t.match(/^(.+?) \(Nv\.(\d+)\) sale al paso de (.+?) \(Nv\.(\d+)\)/))) { mio = { nombre: m[1], L: +m[2] }; rival = { nombre: m[3], L: +m[4] }; }
         else if ((m = t.match(/el rival saca a (.+?) \(Nv\.(\d+)\)/i))) rival = { nombre: m[1], L: +m[2] };
-        else if ((m = t.match(/^(?:sacas a |sale )(.+?) \(Nv\.(\d+)\)/i))) mio = { nombre: m[1], L: +m[2] };
+        else if ((m = t.match(/^(?:relevas con |sacas a |sale |entra )(.+?) \(Nv\.(\d+)\)/i))) mio = { nombre: m[1], L: +m[2] };
+        else if ((m = t.match(/^(.+?) \(Nv\.(\d+)\) (?:sale|entra)/))) mio = { nombre: m[1], L: +m[2] };
         lineas.push({ t });
         continue;
       }
       const movEl = el.querySelector('span.truncate span.truncate') || el.querySelector('span.truncate');
-      const sp = [texto(movEl), texto(el.querySelector('span.block.truncate'))];
-      const dmg = +((t.match(/−\s*(\d+)\s*PS/) || t.match(/-\s*(\d+)\s*PS/) || [])[1] || 0);
-      const quien = (sp[1] || '').split('·')[0].trim();
-      const tipoMov = tipoDe(((sp[1] || '').match(/\(([^)]+)\)\s*$/) || [])[1] || '');
+      const quienEl = el.querySelector('span.block.truncate');
+      const dmg = +((t.match(/[−-]\s*(\d+)\s*PS/) || [])[1] || 0);
+      const q = texto(quienEl);
       const deMio = /border-hoja/.test(el.className);
-      lineas.push({ mov: sp[0] || '', quien, tipo: tipoMov, fis: /FÍS/.test(t), dmg, crit: /crítico/i.test(t), efic: /muy eficaz/i.test(t) ? 'muy' : /poco eficaz|no es muy/i.test(t) ? 'poco' : /no afecta/i.test(t) ? 'nada' : '',
-        lado: deMio ? 'mio' : 'rival', a: deMio ? mio : rival, d: deMio ? rival : mio });
+      lineas.push({ mov: texto(movEl), quien: q.split('·')[0].trim(), tipo: tipoDe(((q.match(/\(([^)]+)\)\s*$/) || [])[1]) || ''), fis: /FÍS/.test(t), dmg, crit: /crítico/i.test(t),
+        efic: /no es muy eficaz|poco eficaz/i.test(t) ? 'poco' : /muy eficaz/i.test(t) ? 'muy' : /no afecta|no le afecta/i.test(t) ? 'nada' : '', lado: deMio ? 'mio' : 'rival', a: deMio ? mio : rival, d: deMio ? rival : mio });
     }
-    // rivales de la tarjeta de arriba (nombre, nivel, tipos, PS máx) y cuántos eran
-    const tarj = $$('main h3').filter(h => !ajeno(h)).map(h => { const c = h.closest('div.rounded-card') || h.parentElement.parentElement; const t = texto(c); return { nombre: texto(h), L: +((t.match(/Nv\.(\d+)/) || [])[1] || 0), tipos: tiposEn(c), ps: t.match(/(\d+)\/(\d+) PS/) }; });
-    const titulo = texto($$('main p').find(p => !ajeno(p) && /rival|salvaje|guardi|paso/i.test(texto(p)) && p.closest('main main')) || null);
-    return { lineas, tarjetas: tarj, titulo };
+    // tarjetas: nombre, nivel (solo el número de «Nv.54»), tipos y PS máximos
+    const tarjetas = $$('main h3').filter(h => !ajeno(h)).map(h => {
+      const c = h.closest('div.rounded-card') || h.parentElement.parentElement;
+      const nv = $$('span', c).map(texto).find(x => /^Nv\.\d+$/.test(x));
+      const ps = texto(c).match(/(\d+)\/(\d+) PS/);
+      return { nombre: texto(h), L: nv ? +nv.slice(3) : 0, tipos: tiposEn(c), hpMax: ps ? +ps[2] : null, hp: ps ? +ps[1] : null };
+    });
+    const titulo = texto($$('main p').find(p => !ajeno(p) && p.closest('main main') && /rival|salvaje|guardi|paso|!/.test(texto(p)) && !p.closest('.tarjeta')) || null);
+    return { lineas, tarjetas, titulo };
   }
-  // Aprende de un combate: niveles de los rivales, especies del bioma y k de daño (golpes sin crítico y con efecto)
+
+  /* ══════════ 3 · APRENDER ══════════ */
+  // Especie: se crea sola la primera vez (también si no está en la Pokédex: tipos del juego y estadísticas estimadas)
+  function especie(nombre, num, tipos) {
+    const clave = num || 'n:' + norm(nombre);
+    let e = kb.especies[clave];
+    if (!e) {
+      const d = DEX[num];
+      e = kb.especies[clave] = { num: num || null, nombre, tipos: tipos && tipos.length ? tipos : d ? d.t : ['normal'], biomas: {}, vistos: 0, movs: {}, nueva: !d };
+      if (!d) log(`🆕 Pokémon nuevo en la base: ${nombre} (${e.tipos.join('/')}).`);
+    }
+    if (tipos && tipos.length && !e.tiposJuego) { e.tipos = tipos; e.tiposJuego = true; tipos.forEach(t => TIPOS_VISTOS.add(t)); }
+    return e;
+  }
+  // Base de una especie: Pokédex; si es nueva, la que se deduce de sus PS vistos (PS = 3·b·Nv/100 + Nv + 14) y el resto de media
+  function baseDe(e) {
+    if (e.num && DEX[e.num]) return DEX[e.num].s;
+    const obs = (e.psObs || []).filter(x => !x[2]);
+    const bHp = obs.length ? media(obs.map(([L, hp]) => (hp - L - 14) * 100 / (3 * L))) : 75;
+    return [clamp(Math.round(bHp), 20, 255), 85, 80, 80, 80, 75];
+  }
   function aprenderCombate(c, cab, puerta) {
     if (!c || !cab) return;
     const b = cab.bioma.id;
     const vistos = new Set();
-    for (const l of c.lineas) {
-      if (!l.t) continue;
-      let m;
-      if ((m = l.t.match(/sale al paso de (.+?) \(Nv\.(\d+)\)/)) || (m = l.t.match(/el rival saca a (.+?) \(Nv\.(\d+)\)/i))) {
-        const n = numDeNombre(m[1]);
-        if (!vistos.has(m[1])) { vistos.add(m[1]); apr.niveles.push([cab.piso, +m[2], puerta || 'combate']); if (n) { apr.especies[b] = apr.especies[b] || {}; apr.especies[b][n] = (apr.especies[b][n] || 0) + 1; } }
+    for (const t of c.tarjetas) {
+      const num = DEX_NOMBRE[norm(t.nombre)] || null, e = especie(t.nombre, num, t.tipos);
+      if (t.hpMax && t.L && !esMio(t.nombre)) {
+        e.psObs = (e.psObs || []).slice(-8); e.psObs.push([t.L, t.hpMax, 0]);
+        // cuánto se «hinchan» los rivales en este piso (PS de verdad ÷ los de su fórmula)
+        if (num && DEX[num]) { const f = Math.floor(3 * DEX[num].s[0] * t.L / 100) + t.L + 14; const r = t.hpMax / f; if (r > 0.95 && r < 5) { kb.hinchazon = (kb.hinchazon || []).slice(-200); kb.hinchazon.push([cab.piso, Math.round(r * 1000) / 1000]); } }
       }
     }
     for (const l of c.lineas) {
-      if (l.t || !l.dmg || l.crit || !l.a || !l.d || !l.tipo) continue;
-      const na = numDeNombre(l.a.nombre), nd = numDeNombre(l.d.nombre);
-      if (!na || !nd) continue;
-      const A = luchador(na, l.a.L, { mio: l.lado === 'mio' }), D = luchador(nd, l.d.L, { mio: l.lado !== 'mio' });
-      const propio = A.tipos.includes(l.tipo), Aa = l.fis ? A.atk : A.esp, Dd = l.fis ? D.def : D.esp;
-      let prev = ((2 * A.L / 5 + 2) * 30.5 * Aa / Dd / 50 + 2) * (propio ? 1.5 : 1) * eficacia(l.tipo, D.tipos);
-      if (cab.bioma.id === 'magma' && (l.lado === 'rival' || A.tipos.includes('fuego'))) prev *= 1.15;
-      if (cab.bioma.id === 'lago' && l.lado === 'mio' && A.tipos.includes('agua')) prev *= 1.2;
-      if (prev < 3 || l.dmg < 3) continue;                  // golpes muy pequeños: el redondeo pesa demasiado
-      const r = Math.log(l.dmg / prev);
-      if (Math.abs(r) > 1) continue;                        // algo raro (bendición, objeto…): no se cuenta
-      const k = apr.k[l.lado]; k.n++; k.s += r;
+      let m;
+      if (l.t && ((m = l.t.match(/sale al paso de (.+?) \(Nv\.(\d+)\)/)) || (m = l.t.match(/el rival saca a (.+?) \(Nv\.(\d+)\)/i)))) {
+        if (vistos.has(m[1])) continue;
+        vistos.add(m[1]);
+        kb.niveles.push([cab.piso, +m[2], puerta || 'combate']);
+        const num = DEX_NOMBRE[norm(m[1])] || null, e = especie(m[1], num);
+        e.biomas[b] = (e.biomas[b] || 0) + 1; e.vistos++;
+        e.nivel = [Math.min(e.nivel ? e.nivel[0] : 999, +m[2]), Math.max(e.nivel ? e.nivel[1] : 0, +m[2])];
+      }
+      if (l.mov) {
+        const mv = kb.movs[l.mov] = kb.movs[l.mov] || { tipo: l.tipo, cat: l.fis ? 'F' : 'E', n: 0 };
+        mv.n++;
+        if (l.a) { const num = DEX_NOMBRE[norm(l.a.nombre)] || null; especie(l.a.nombre, num).movs[l.mov] = 1; }
+      }
     }
-    if (apr.niveles.length > 400) apr.niveles = apr.niveles.slice(-400);
-    guardaApr();
+    // ajuste del daño: golpes sin crítico, contando tus mejoras (lo que ya se ve en tus PS) y tus bendiciones activas
+    const ef = efectosActivos(bendicionesActivas().length ? bendicionesActivas() : ultimasBendiciones);
+    for (const l of c.lineas) {
+      if (!l.mov || !l.dmg || l.crit || !l.a || !l.d || !l.tipo) continue;
+      const A = luchadorDeNombre(l.a.nombre, l.a.L, l.lado === 'mio', ef, cab.piso), D = luchadorDeNombre(l.d.nombre, l.d.L, l.lado !== 'mio', ef, cab.piso);
+      if (!A || !D) continue;
+      const prev = danoBase(A, D, l.tipo, l.fis, cab.bioma.reglas);
+      if (prev < 4 || l.dmg < 4) continue;
+      const r = Math.log(l.dmg / prev);
+      if (Math.abs(r) > 1.2) continue;
+      const clave = (l.lado === 'mio' ? 'mio-' : 'riv-') + (l.fis ? 'F' : 'E');
+      const k = kb.k[clave] = kb.k[clave] || { n: 0, s: 0 };
+      k.n++; k.s += r;
+      if (k.n > 400) { k.s *= 400 / k.n; k.n = 400; }        // olvida despacio (si cambian tus mejoras, se nota)
+    }
+    if (kb.niveles.length > 600) kb.niveles = kb.niveles.slice(-600);
+    guardaKb();
+  }
+  let equipoNombres = new Set(), ultimasBendiciones = [];
+  const esMio = nombre => equipoNombres.has(nombre);
+  // Lo que se ve de tu equipo: PS máximos reales → cuánto te suben las mejoras (×1,16 con Temple 4/5)
+  function aprenderEquipo(eq) {
+    if (!eq) return;
+    equipoNombres = new Set(eq.miembros.map(m => m.nombre));
+    for (const m of eq.miembros) {
+      const e = especie(m.nombre, m.num, m.tipos);
+      if (!m.hpMax || !m.L) continue;
+      const b = baseDe(e), f = Math.floor(3 * b[0] * m.L / 100) + m.L + 14;
+      const ef = efectosActivos(bendicionesActivas()), x = (ef.stats.hp || 1) * ((ef.porTipo[e.tipos[0]] || {}).hp || 1);
+      const r = m.hpMax / (f * x);
+      if (e.num && DEX[e.num] && r > 0.8 && r < 2) { kb.multMio.n++; kb.multMio.s += Math.log(r); if (kb.multMio.n > 200) { kb.multMio.s *= 200 / kb.multMio.n; kb.multMio.n = 200; } }
+    }
+  }
+  // Qué sale detrás de cada puerta y cuántas esquirlas da (se reparte entre el aviso que sigue y el cambio de esquirlas)
+  let puertaPendiente = null;
+  function aprenderPuerta(clase, P) {
+    const p = kb.puertas[clase] = kb.puertas[clase] || { nombre: P ? P.nombre : clase, ico: P ? P.ico : '🚪', vista: 0, elegida: 0, esq: { n: 0, s: 0 }, sale: {} };
+    p.elegida++;
+    puertaPendiente = { clase, piso: ultimaCab && ultimaCab.piso, esq: ultimaCab && ultimaCab.esquirlas, t: Date.now(), resultado: null };
+  }
+  function cerrarPuerta(cab, resultado) {
+    const pp = puertaPendiente;
+    if (!pp) return;
+    const p = kb.puertas[pp.clase];
+    if (resultado && !pp.resultado) { pp.resultado = resultado; p.sale[resultado] = (p.sale[resultado] || 0) + 1; }
+    if (cab && cab.piso > pp.piso && cab.esquirlas != null && pp.esq != null) {
+      const mult = multEsquirlas(efectosActivos(ultimasBendiciones), efectosMejoras());
+      const d = (cab.esquirlas - pp.esq) / mult;
+      if (d >= 0 && d < 200) { p.esq.n++; p.esq.s += d; kb.esqMult = mult; }
+      if (!pp.resultado && ['misterio', 'tesoro', 'oculta'].includes(pp.clase)) p.sale.nada = (p.sale.nada || 0) + 1;
+      puertaPendiente = null;
+    }
+    guardaKb();
   }
 
-  /* ------------------------------------------------------------------ *
-   *  DECISIONES
-   * ------------------------------------------------------------------ */
-  const conf = Object.assign({ prioridad: 'pisos', empezarGratis: true }, lsGet(LS_CONF, {}));
-  const guardaConf = () => lsPut(LS_CONF, conf);
-  // Prestado: el que más fuerza da para los próximos biomas (a su nivel y PS reales)
-  function decidirPrestado(P) {
-    const piso = (P.cab && P.cab.piso) || 1;
-    const ops = P.opciones.map(o => {
-      const l = luchador(o.num, o.L, { mio: true, hpMax: o.hpMax, tipos: o.tipos, nombre: o.nombre });
-      // media ponderada de los tres primeros biomas (las bajadas suelen acabar antes de que importe el resto)
-      const v = [[piso + 1, 0.4], [piso + 6, 0.35], [piso + 11, 0.25]].reduce((s, [p, w]) => s + w * (0.5 * evaluarPuerta([l], p, 'combate').gana + 0.5 * evaluarPuerta([l], p, 'elite').gana), 0);
-      return { ...o, v };
-    }).sort((a, b) => b.v - a.v);
-    return { mejor: ops[0], lista: ops, texto: ops.map(o => `${o.nombre} ${pct(o.v)}`).join(' · ') };
+  /* ══════════ 4 · MODELO DE COMBATE (fórmulas del juego + lo aprendido) ══════════
+   * Estadísticas: PS = 3·base·Nv/100 + Nv + 14 · resto = 2·base·Nv/100 + 5 · una sola «Especial» (media de At. Esp. y
+   * Def. Esp.). Los tuyos: × lo que te dan tus mejoras (medido en tus PS) × bendiciones. Daño = ((2·Nv/5+2)·30,5·A/D/50
+   * + 2) · 1,5 si es de su tipo · eficacia (×1,65 / ×0,6 por tipo) · ajuste aprendido (tuyos/rivales × físico/especial)
+   * · potencia aprendida de cada movimiento · reglas del bioma. Críticos ~9% ×1,64. Tirada de daño ±15%.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+  const multEsquirlas = (ef, mej) => (1 + (ef ? ef.esquirlas : 0)) * (1 + (mej ? mej.esquirlas : 0));
+  const kLado = c => kb.k[c] && kb.k[c].n >= 3 ? media2(kb.k[c]) : 1;
+  const multMio = () => media2(kb.multMio);
+  function stats(b, L) {
+    const st = x => Math.floor(2 * x * L / 100) + 5;
+    // físico si su Ataque base supera a su «Especial» (media de At. Esp. y Def. Esp.); si no, especial (comprobado en 218 de 218 golpes)
+    return { hp: Math.floor(3 * b[0] * L / 100) + L + 14, atk: st(b[1]), def: st(b[2]), esp: st(Math.round((b[3] + b[4]) / 2)), spe: st(b[5]), fis: b[1] > Math.round((b[3] + b[4]) / 2) };
   }
-  // Bendición: se lee su efecto y se simula («+15% de Velocidad a todo el equipo», «+25% de Ataque y Especial a los de
-  // tipo Tierra», «sube 3 niveles»…). Lo que no es de estadísticas lleva un valor fijo.
-  function efectoBendicion(o) {
-    const d = norm(o.desc + ' ' + o.nombre);
-    let m;
-    if ((m = d.match(/\+(\d+)% de ([a-z ]+?) a (todo el equipo|los de tipo ([a-z]+))/))) {
-      const f = 1 + (+m[1]) / 100, st = m[2], tipo = m[4] ? tipoDe(m[4]) : null;
-      const mods = {};
-      if (/ps/.test(st)) mods.hp = f;
-      if (/ataque/.test(st)) mods.atk = f;
-      if (/especial/.test(st)) mods.esp = f;
-      if (/defensa/.test(st)) { mods.def = f; }
-      if (/velocidad/.test(st)) mods.spe = f;
-      if (Object.keys(mods).length) return { mods, tipo };
+  // Movimientos vistos de una especie (solo para enseñarlos: el nombre no cambia el daño, lo que cuenta es el tipo)
+  const movsDe = e => Object.keys(e.movs || {});
+  // Un luchador. o: { hpMax, vida, extraMult (mejora de prueba), reglas (bioma) }
+  function luchadorDe(e, L, mio, ef, o = {}) {
+    const b = baseDe(e), st = stats(b, L), m = mio ? multMio() * (o.extraMult || 1) : 1;
+    const x = { num: e.num, nombre: e.nombre, L, tipos: e.tipos, mio, fis: st.fis, hp: st.hp * m, atk: st.atk * m, def: st.def * m, esp: st.esp * m, spe: st.spe * m, movs: movsDe(e) };
+    if (mio && ef) {
+      const aplica = s => { for (const [c, v] of Object.entries(s)) if (c !== 'hp') x[c] *= v; };
+      aplica(ef.stats);
+      for (const t of x.tipos) if (ef.porTipo[t]) aplica(ef.porTipo[t]);
+      const hpX = (ef.stats.hp || 1) * x.tipos.reduce((p, t) => p * ((ef.porTipo[t] || {}).hp || 1), 1);
+      x.hp *= hpX;
     }
-    if ((m = d.match(/sube (\d+) niveles/))) return { niveles: +m[1] };
-    if (/esquirlas/.test(d)) return { fijo: conf.prioridad === 'esquirlas' ? 0.08 : 0.012, porque: 'más esquirlas' };
-    if (/descansos? curan/.test(d)) return { fijo: 0.03, porque: 'descansos mejores' };
-    if (/reclut/.test(d)) return { fijo: equipoActual().length < 4 ? 0.04 : 0.015, porque: 'reclutas más fuertes' };
-    return { fijo: 0.02, porque: 'efecto que no sé medir' };
+    if (o.hpMax) x.hp = o.hpMax;
+    x.vida = o.vida ?? 1;
+    return x;
   }
-  function aplicarEfecto(equipo, ef) {
-    if (ef.mods) return equipo.map(x => (ef.tipo && !x.tipos.includes(ef.tipo)) ? x : { ...x, hp: x.hp * (ef.mods.hp || 1), atk: x.atk * (ef.mods.atk || 1), def: x.def * (ef.mods.def || 1), esp: x.esp * (ef.mods.esp || 1), spe: x.spe * (ef.mods.spe || 1) });
-    if (ef.niveles) return equipo.map(x => { const y = luchador(x.num, x.L + ef.niveles, { mio: true, tipos: x.tipos, nombre: x.nombre }); const f = x.hp / luchador(x.num, x.L, { mio: true }).hp; return { ...y, hp: y.hp * f, vida: x.vida }; });
-    return equipo;
+  function luchadorDeNombre(nombre, L, mio, ef, piso) {
+    const num = DEX_NOMBRE[norm(nombre)] || null;
+    const e = kb.especies[num || 'n:' + norm(nombre)] || (num ? { num, nombre, tipos: DEX[num].t, movs: {} } : null);
+    if (!e) return null;
+    const x = luchadorDe(e, L, mio, ef);
+    return mio ? x : hinchar(x, hinchaRival(piso || 1));
   }
-  function decidirBendicion(P) {
-    const eq = equipoActual(), piso = (P.cab && P.cab.piso) || 1;
-    if (!eq.length) return null;
-    const base = fuerza(eq, piso);
-    const ops = P.opciones.map(o => {
-      const ef = efectoBendicion(o);
-      const v = ef.fijo != null ? ef.fijo : fuerza(aplicarEfecto(eq, ef), piso) - base;
-      return { ...o, v, porque: ef.porque || '' };
-    }).sort((a, b) => b.v - a.v);
-    const tirar = P.reroll && ops[0].v < 0.015;
-    return { mejor: ops[0], lista: ops, tirar, texto: ops.map(o => `${o.nombre} ${o.v >= 0 ? '+' : ''}${(o.v * 100).toFixed(1)}`).join(' · ') + (tirar ? ' → mejor volver a tirar' : '') };
+  // Desde cierto piso los rivales, ya en Nv.100, se «hinchan» (más PS, ataque y defensas) un poco más en cada piso.
+  // Se aprende de los PS de verdad de cada rival visto; al principio: +4% por piso desde el 46.
+  let memoHincha = { n: -1, a: 0, b: 0, ok: false };
+  function hinchaRival(piso) {
+    const pts = kb.hinchazon || [];
+    if (memoHincha.n !== pts.length) {
+      const h = pts.filter(p => p[1] > 1.005);
+      memoHincha = { n: pts.length, ok: false };
+      if (h.length >= 3) {
+        const n = h.length, sx = h.reduce((s, p) => s + p[0], 0), sy = h.reduce((s, p) => s + p[1], 0), sxx = h.reduce((s, p) => s + p[0] * p[0], 0), sxy = h.reduce((s, p) => s + p[0] * p[1], 0);
+        if (n * sxx - sx * sx > 0) { const b = (n * sxy - sx * sy) / (n * sxx - sx * sx); memoHincha = { n: pts.length, a: (sy - b * sx) / n, b, ok: b > 0 }; }
+      }
+    }
+    if (memoHincha.ok) return Math.max(1, memoHincha.a + memoHincha.b * piso);
+    return 1 + 0.04 * Math.max(0, piso - 46);
   }
-  // Puerta: ganar, lo que cuesta y lo que da. Perder un combate es acabar la bajada.
-  function decidirPuerta(P) {
-    const eq = equipoActual(), piso = (P.cab && P.cab.piso) || 1;
-    const vivos = eq.filter(x => x.vida > 0), caidos = eq.length - vivos.length;
-    const vida = eq.length ? eq.reduce((s, x) => s + x.vida, 0) / eq.length : 1;
-    const brasas = bendicionesTengo().some(b => /descansos? curan el doble/i.test(b.desc));
-    const esq = conf.prioridad === 'esquirlas' ? 2 : 1;
-    const ops = P.opciones.map(o => {
-      let v, ev = null, porque = '';
-      if (o.clase === 'guardian') { ev = evaluarPuerta(eq, piso, 'guardian'); v = 1; porque = `ganas ${pct(ev.gana)}`; }
-      else if (o.clase === 'descanso') {
-        const cura = brasas ? 0.8 : 0.4, sube = brasas ? 0.5 : 0.25;
-        const tras = eq.map(x => ({ ...x, vida: x.vida > 0 ? Math.min(1, x.vida + cura) : sube }));
-        v = (fuerza(tras, piso) - fuerza(eq, piso)) * 1.2 + (caidos ? 0.05 * caidos : 0);
-        porque = `vida ${pct(vida)} → ${pct(tras.reduce((s, x) => s + x.vida, 0) / tras.length)}`;
-      } else if (o.clase === 'combate' || o.clase === 'elite') {
-        ev = evaluarPuerta(eq, piso, o.clase);
-        const premio = o.clase === 'elite' ? 0.07 * esq : 0.035 + (eq.length < 4 ? 0.07 : 0.01);
-        v = ev.gana * premio - (1 - ev.gana) * 1 - ev.coste * 0.08;
-        porque = `ganas ${pct(ev.gana)} · cuesta ${pct(ev.coste / Math.max(1, vivos.length))} de vida`;
-      } else if (o.clase === 'misterio') { v = 0.02 - (vida < 0.5 ? 0.03 : 0); porque = 'a ciegas'; }
-      else { ev = evaluarPuerta(eq, piso, 'combate'); v = 0.01 + ev.gana * 0.02 - (1 - ev.gana) * 0.5; porque = 'no se ve (niebla)'; }
-      return { ...o, v, ev, porque };
-    }).sort((a, b) => b.v - a.v);
-    return { mejor: ops[0], lista: ops, texto: ops.map(o => `${o.nombre}: ${o.porque}`).join(' · ') };
+  const hinchar = (x, h) => h === 1 ? x : { ...x, hp: x.hp * h, atk: x.atk * h, def: x.def * h, esp: x.esp * h };
+  // Daño de un ataque de tipo `tipo` antes de ajustes aprendidos
+  function danoBase(A, D, tipo, fis, reglas) {
+    const Aa = fis ? A.atk : A.esp, Dd = fis ? D.def : D.esp;
+    let d = ((2 * A.L / 5 + 2) * 30.5 * Aa / Math.max(1, Dd) / 50 + 2) * (A.tipos.includes(tipo) ? 1.5 : 1) * eficacia(tipo, D.tipos);
+    if (reglas) {
+      // «tus Pokémon de tipo X van un N% más fuertes en todo»: pegan más y reciben menos (defensa y PS)
+      if (reglas.tipoMio) { const t = reglas.tipoMio; if (A.mio && A.tipos.includes(t.t)) d *= t.x; if (D.mio && D.tipos.includes(t.t)) d /= t.x * t.x; }
+      if (!A.mio && reglas.rivalDano) d *= reglas.rivalDano;
+      if (A.mio && reglas.danoMio && A.tipos.includes(reglas.danoMio.t)) d *= reglas.danoMio.x;
+    }
+    return d;
   }
-  // Orden recomendado del equipo (pelean los tres primeros que sigan en pie) contra la élite y el guardián que vienen
-  let memoOrden = { firma: '', r: null };
-  function ordenRecomendado(piso) {
-    const eq = equipoActual().filter(x => x.vida > 0);
-    if (eq.length < 2) return null;
-    const firma = piso + '|' + eq.map(x => x.num + ':' + x.L + ':' + x.vida).join(',') + '|' + apr.niveles.length;
-    if (memoOrden.firma === firma) return memoOrden.r;
-    memoOrden = { firma, r: ordenRecomendado0(eq, piso) };
+  // Cómo ataca el juego (visto en tus combates: el nombre del movimiento es decorado): con el más eficaz de sus tipos
+  // (si empatan, el primero), físico o especial según sus estadísticas; si todos los suyos son poco eficaces y un
+  // ataque Normal no lo es tanto, ataca con Normal (físico y sin el ×1,5 de su tipo).
+  function mejorAtaque(A, D, reglas) {
+    let m = null;
+    for (const t of A.tipos) { const e = eficacia(t, D.tipos); if (!m || e > m.e) m = { t, e }; }
+    let fis = A.fis;
+    if (m.e < 1) { const en = eficacia('normal', D.tipos); if (en > m.e) { m = { t: 'normal', e: en }; fis = true; } }
+    if (m.e === 0) return D.hp / 16;
+    return danoBase(A, D, m.t, fis, reglas) * kLado((A.mio ? 'mio-' : 'riv-') + (fis ? 'F' : 'E'));
+  }
+  const HOLGAZAN = 289;
+  // Un combate: pelean los tres primeros que sigan en pie; el que gana sigue con lo que le queda. rng: dados (o null →
+  // cuenta media). Devuelve si ganas; cambia la vida de los tuyos en `mios`.
+  function combate(mios, rivales, reglas, rng, ef) {
+    const A = mios.filter(x => x.vida > 0).slice(0, 3), B = rivales.map(x => ({ l: x, v: 1 }));
+    const memo = new Map();
+    const dano = (x, y) => { const k = x.nombre + x.L + '>' + y.nombre + y.L; let d = memo.get(k); if (d === undefined) memo.set(k, (d = mejorAtaque(x, y, reglas) / y.hp)); return d; };
+    const tirada = () => rng ? (0.85 + 0.3 * rng()) * (rng() < 0.09 ? 1.64 : 1) : 1.058;
+    let i = 0, j = 0, turno = 0, aguante = !!(ef && ef.aguante);
+    const golpeA = () => { B[j].v -= dano(A[i], B[j].l) * tirada() * (A[i].num === HOLGAZAN && turno % 2 ? 0 : 1); if (B[j].v <= 0) { j++; turno = 0; } };
+    const golpeB = () => {
+      A[i].vida -= dano(B[j].l, A[i]) * tirada() * (B[j].l.num === HOLGAZAN && turno % 2 ? 0 : 1);
+      if (A[i].vida <= 0) { if (aguante) { A[i].vida = 1 / A[i].hp; aguante = false; } else { A[i].vida = 0; i++; turno = 0; } }
+    };
+    for (let n = 0; i < A.length && j < B.length && n < 300; n++, turno++) {
+      const a = A[i], b = B[j].l;
+      const primero = a.spe > b.spe || (a.spe === b.spe && (rng ? rng() < 0.5 : true));
+      if (primero) { golpeA(); if (j < B.length && B[j].l === b) golpeB(); }
+      else { golpeB(); if (i < A.length && A[i] === a) golpeA(); }
+    }
+    return j >= B.length;
+  }
+
+  /* ─── Lo que hay abajo (aprendido): nivel de los rivales por piso y especies de cada bioma ─── */
+  let memoNivel = { n: -1, f: null };
+  function curvaNivel() {
+    if (memoNivel.n === kb.niveles.length) return memoNivel.f;
+    const pts = kb.niveles.filter(x => x[1] < 100);
+    let a = 11, b = 2;
+    if (pts.length >= 6) {
+      const n = pts.length, sx = pts.reduce((s, p) => s + p[0], 0), sy = pts.reduce((s, p) => s + p[1], 0);
+      const sxx = pts.reduce((s, p) => s + p[0] * p[0], 0), sxy = pts.reduce((s, p) => s + p[0] * p[1], 0);
+      if (n * sxx - sx * sx > 0) { b = (n * sxy - sx * sy) / (n * sxx - sx * sx); a = (sy - b * sx) / n; }
+    }
+    const off = {};
+    for (const c of ['combate', 'elite', 'guardian']) { const r = pts.filter(p => p[2] === c).map(p => p[1] - (a + b * p[0])); off[c] = r.length >= 2 ? media(r) : { combate: 0, elite: 1.5, guardian: 3 }[c]; }
+    const f = (piso, puerta = 'combate') => clamp(Math.round(a + b * piso + (off[puerta] ?? 0)), 2, 100);
+    memoNivel = { n: kb.niveles.length, f, a, b, off };
+    return f;
+  }
+  const nivelRival = (piso, puerta) => curvaNivel()(piso, puerta);
+  function poolBioma(id) {
+    const vistas = Object.values(kb.especies).filter(e => e.biomas && e.biomas[id]);
+    if (vistas.length >= 3) return vistas.map(e => ({ e, w: e.biomas[id] }));
+    const todas = Object.values(kb.especies).filter(e => e.vistos);
+    return todas.length ? todas.map(e => ({ e, w: 1 })) : Object.values(DEX).filter(d => !d.leg).slice(0, 150).map(d => ({ e: { num: d.num, nombre: d.nombre, tipos: d.t, movs: {} }, w: 1 }));
+  }
+  const elige = (lista, rng) => { const tot = lista.reduce((s, x) => s + x.w, 0); let r = rng() * tot; for (const x of lista) { r -= x.w; if (r <= 0) return x; } return lista[lista.length - 1]; };
+  function rivalesDe(piso, puerta, rng) {
+    const bioma = biomaDePiso(piso), pool = poolBioma(bioma.id), L = nivelRival(piso, puerta);
+    const n = puerta === 'guardian' ? 3 : puerta === 'elite' ? 2 : bioma.reglas.dobles ? 2 : 1;
+    const h = hinchaRival(piso);
+    return Array.from({ length: n }, () => hinchar(luchadorDe(elige(pool, rng).e, L, false, null), h));
+  }
+
+  /* ══════════ 5 · SIMULADOR (un piso, con dados) ══════════ */
+  // Estado de una bajada: { piso, eq:[luchadores], ef (bendiciones), bend:[nombres], mej (mejoras), pluma, esq, vivo, plazas }
+  const clonar = S => ({ ...S, eq: S.eq.map(x => ({ ...x })), ef: JSON.parse(JSON.stringify(S.ef)), bend: S.bend.slice() });
+  function rngDe(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
+  const vidaMedia = S => S.eq.length ? media(S.eq.map(x => x.vida)) : 0;
+  const potencia = x => (x.hp * (x.def + x.esp) / 2) * Math.max(x.atk, x.esp) * (1 + x.spe / 300) * (x.vida > 0 ? 0.5 + x.vida / 2 : 0.3);
+  function subirNivel(S, x) {
+    const suben = kb.subida.n ? kb.subida.s / kb.subida.n : 2.5;
+    const nuevo = Math.min(100, x.L + suben);
+    if (nuevo === x.L) return;
+    const f = (nuevo - x.L) / Math.max(1, x.L);
+    for (const c of ['hp', 'atk', 'def', 'esp', 'spe']) x[c] *= 1 + f * 0.95;
+    x.L = nuevo;
+  }
+  function curar(S, vivos, caidos) { for (const x of S.eq) x.vida = x.vida > 0 ? Math.min(1, x.vida + vivos) : caidos; }
+  // Recluta: si hay hueco entra; si no, sustituye al más flojo si el nuevo es claramente mejor
+  function reclutarSim(S, e, L) {
+    const nivel = Math.min(100, L + (S.ef.reclutaNiv || 0) + (S.mej.reclutaNiv || 0));
+    const x = luchadorDe(e, nivel, true, S.ef, { extraMult: S.extraMult || 1 }); x.vida = S.ef.reclutaLlenos ? 1 : 0.6;
+    if (S.eq.length < S.plazas) { S.eq.push(x); return; }
+    let peor = 0; S.eq.forEach((y, k) => { if (potencia(y) < potencia(S.eq[peor])) peor = k; });
+    if (potencia(x) > potencia(S.eq[peor]) * 1.08) S.eq[peor] = x;
+  }
+  // Bendición al azar del catálogo y se queda con la que más suma (valor rápido)
+  function valorRapidoBend(S, e) {
+    if (!e) return 0.01;
+    let v = 0;
+    if (e.stats) for (const [c, x] of Object.entries(e.stats)) v += (x - 1) * (e.tipo ? S.eq.filter(y => y.tipos.includes(e.tipo)).length / Math.max(1, S.eq.length) : 1) * (c === 'spe' ? 0.6 : c === 'def' ? 0.7 : 1);
+    if (e.niveles) v += e.niveles * 0.035 * S.eq.filter(x => x.L < 100).length / Math.max(1, S.eq.length);
+    if (e.curaVictoria) v += e.curaVictoria * 1.1;
+    if (e.aguante) v += S.ef.aguante ? 0 : 0.09;
+    if (e.descansoX) v += 0.03;
+    if (e.esquirlas) v += conf.prioridad === 'esquirlas' ? 0.2 : 0.03;
+    if (e.reclutaNiv) v += S.eq.length < S.plazas ? 0.05 : 0.02;
+    return v;
+  }
+  function darBendicion(S, rng) {
+    const cat = Object.entries(kb.bendiciones);
+    if (!cat.length) return;
+    const tres = Array.from({ length: 3 }, () => cat[Math.floor(rng() * cat.length)]);
+    let mejor = null;
+    for (const [n, b] of tres) { const e = efectoDe(b.desc); const v = valorRapidoBend(S, e); if (!mejor || v > mejor.v) mejor = { n, b, e, v }; }
+    aplicarBendicion(S, mejor.n, mejor.b.desc);
+  }
+  function aplicarBendicion(S, nombre, desc) {
+    const e = efectoDe(desc); if (!e) return;
+    S.bend.push(nombre);
+    if (e.niveles) S.eq.forEach(x => { const antes = x.L; x.L = Math.min(100, x.L + e.niveles); const f = (x.L - antes) / Math.max(1, antes); for (const c of ['hp', 'atk', 'def', 'esp', 'spe']) x[c] *= 1 + f * 0.95; });
+    const ef1 = efectosActivos([{ nombre, desc, veces: 1 }]);
+    for (const x of S.eq) {
+      for (const [c, v] of Object.entries(ef1.stats)) x[c] *= v;
+      for (const t of x.tipos) if (ef1.porTipo[t]) for (const [c, v] of Object.entries(ef1.porTipo[t])) x[c] *= v;
+    }
+    const d = S.ef;
+    for (const [c, v] of Object.entries(ef1.stats)) d.stats[c] = (d.stats[c] || 1) + (v - 1);
+    for (const [t, s] of Object.entries(ef1.porTipo)) { d.porTipo[t] = d.porTipo[t] || {}; for (const [c, v] of Object.entries(s)) d.porTipo[t][c] = (d.porTipo[t][c] || 1) + (v - 1); }
+    d.curaVictoria += ef1.curaVictoria; d.aguante = d.aguante || ef1.aguante; d.descansoX *= ef1.descansoX; d.esquirlas += ef1.esquirlas; d.reclutaNiv += ef1.reclutaNiv; d.reclutaLlenos = d.reclutaLlenos || ef1.reclutaLlenos;
+  }
+  const esqPuerta = c => { const p = kb.puertas[c]; return p && p.esq && p.esq.n ? p.esq.s / p.esq.n : { combate: 5, elite: 9, guardian: 14, tesoro: 10, descanso: 2, misterio: 2, oculta: 5 }[c] || 3; };
+  function saleDe(clase, rng) {
+    const p = kb.puertas[clase]; const s = p && p.sale ? Object.entries(p.sale) : [];
+    if (!s.length) return clase === 'tesoro' ? 'cofre' : clase === 'misterio' || clase === 'oculta' ? 'cofre' : null;
+    return elige(s.map(([k, w]) => ({ k, w })), rng).k;
+  }
+  // Juega una puerta del piso actual. Cambia S. Devuelve 'gana' | 'pierde' | 'nada'
+  function jugarPuerta(S, clase, rng) {
+    const r = biomaDePiso(S.piso).reglas;
+    let res = 'nada';
+    const pelea = puerta => {
+      const riv = rivalesDe(S.piso, puerta, rng);
+      const gana = combate(S.eq, riv, r, rng, S.ef);
+      if (gana) {
+        S.eq.forEach(x => { if (x.vida > 0) subirNivel(S, x); });
+        const cura = S.ef.curaVictoria + S.mej.curaVictoria;
+        if (cura) curar(S, cura, 0);
+        if (puerta === 'combate' && riv.length && rng() < 0.9) reclutarSim(S, { num: riv[0].num, nombre: riv[0].nombre, tipos: riv[0].tipos, movs: {} }, riv[0].L);
+        if (puerta === 'guardian') darBendicion(S, rng);
+      }
+      return gana ? 'gana' : 'pierde';
+    };
+    const sale = ['misterio', 'tesoro', 'oculta'].includes(clase) || /^p-/.test(clase) ? saleDe(clase, rng) : null;
+    const efecto = sale || clase;
+    if (efecto === 'combate' || efecto === 'elite' || efecto === 'guardian') res = pelea(efecto);
+    else if (efecto === 'descanso' || efecto === 'hoguera') { const x = 0.4 * S.ef.descansoX * (1 + S.mej.descansoMas); curar(S, x, 0.25 * S.ef.descansoX * (1 + S.mej.descansoMas)); }
+    else if (efecto === 'manantial') curar(S, 0.3, 0.3);
+    else if (efecto === 'herido') { const p = poolBioma(biomaDePiso(S.piso).id); const c = elige(p, rng).e; reclutarSim(S, c, nivelRival(S.piso, 'combate')); }
+    else if (efecto === 'cofre+') darBendicion(S, rng);
+    if (res === 'pierde') {
+      if (!S.eq.some(x => x.vida > 0)) {
+        if (S.pluma) { S.pluma = false; S.eq.forEach(x => { x.vida = S.mej.pluma || 0.6; }); }
+        else { S.vivo = false; return res; }
+      }
+      return res;                                   // la puerta sigue ahí: se vuelve a elegir en el mismo piso
+    }
+    S.esq += esqPuerta(clase) * multEsquirlas(S.ef, S.mej);
+    if (r.desgaste) S.eq.forEach(x => { if (x.vida > 0 && !x.tipos.includes(r.desgaste.salvo)) x.vida = Math.max(0.01, x.vida - r.desgaste.p); });
+    if (S.mej.hincha && S.piso >= S.mej.hincha.desde) S.eq.forEach(x => { for (const c of ['hp', 'atk', 'def', 'esp', 'spe']) x[c] *= 1 + S.mej.hincha.p; });
+    S.piso++;
+    return res;
+  }
+  // Puertas que salen en un piso (lo visto: frecuencia de cada clase); cada 5º piso, el guardián
+  function puertasDe(piso, rng) {
+    if (piso % 5 === 0) return ['guardian'];
+    if (biomaDePiso(piso).reglas.niebla) return ['oculta', 'oculta', 'oculta'];
+    const cat = Object.entries(kb.puertas).filter(([c]) => !['guardian', 'oculta'].includes(c)).map(([k, p]) => ({ k, w: Math.max(1, p.vista || 1) }));
+    const out = [];
+    for (let i = 0; i < 12 && out.length < 3; i++) { const c = elige(cat, rng).k; if (!out.includes(c)) out.push(c); }
+    return out;
+  }
+  // Política rápida (la que se usa dentro de las simulaciones)
+  function politicaRapida(S, ops, rng) {
+    if (ops.length === 1) return ops[0];
+    const v = vidaMedia(S), hueco = S.eq.length < S.plazas;
+    const fuerte = S.eq.filter(x => x.vida > 0).length >= Math.min(3, S.eq.length) && v > 0.7;
+    const orden = [];
+    if (v < 0.5 && ops.includes('descanso')) orden.push('descanso');
+    if (hueco && ops.includes('combate') && v > 0.45) orden.push('combate');
+    if (conf.prioridad === 'esquirlas' && ops.includes('tesoro')) orden.push('tesoro');
+    if (fuerte && ops.includes('elite')) orden.push('elite');
+    orden.push('tesoro', 'combate', 'misterio', 'descanso', 'elite', 'oculta');
+    return orden.find(c => ops.includes(c)) || ops[Math.floor(rng() * ops.length)];
+  }
+  // Juega hasta `pisos` pisos con la política rápida; devuelve lo avanzado
+  function rodar(S, pisos, rng) {
+    const p0 = S.piso;
+    for (let n = 0; n < pisos * 3 && S.vivo && S.piso < p0 + pisos; n++) jugarPuerta(S, politicaRapida(S, puertasDe(S.piso, rng), rng), rng);
+    return S;
+  }
+  // Valor de un estado tras rodar: pisos bajados (+ algo si aún sigue vivo al acabar) y, si es la prioridad, esquirlas
+  // (en «pisos de combate» equivalentes)
+  function puntuar(S0, S, pisos) {
+    const avance = S.piso - S0.piso, vivo = S.vivo ? 1 : 0;
+    const esq = (S.esq - S0.esq) / Math.max(1, esqPuerta('combate') * multEsquirlas(S.ef, S.mej));
+    return avance + vivo * (2 + vidaMedia(S)) + (conf.prioridad === 'esquirlas' ? esq * 0.6 : esq * 0.03);
+  }
+
+  /* ══════════ 6 · IA: valorar cada opción jugándola muchas veces hacia delante (Monte Carlo) ══════════
+   * Para cada opción: se aplica al estado de verdad (tu equipo con su vida, tus bendiciones, el piso) y se juegan R
+   * partidas de H pisos con dados. Todas las opciones usan los MISMOS dados (así la comparación es justa aunque R sea
+   * pequeño). Nota = pisos que se bajan + seguir vivo con vida (+ esquirlas si es la prioridad).
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+  // R partidas por opción, cada una hasta caer o H pisos
+  const ESFUERZO = { rapido: { R: 24, H: 25 }, normal: { R: 48, H: 40 }, alto: { R: 120, H: 60 } };
+  // El estado de verdad, leído de la pantalla
+  function estadoActual(P) {
+    const cab = (P && P.cab) || ultimaCab;
+    const eqL = equipoLeido();
+    const bend = bendicionesActivas().length ? bendicionesActivas() : ultimasBendiciones;
+    const ef = efectosActivos(bend), mej = efectosMejoras();
+    const eq = (eqL ? eqL.miembros : []).map(m => {
+      const e = especie(m.nombre, m.num, m.tipos);
+      const x = luchadorDe(e, m.L || 50, true, ef, { hpMax: m.hpMax });
+      x.vida = m.hpMax ? m.hp / m.hpMax : 1; x.id = m.id;
+      return x;
+    });
+    return { piso: cab ? cab.piso : 1, eq, ef, bend: bend.map(b => b.nombre), mej, pluma: cab ? cab.pluma : true, esq: cab && cab.esquirlas || 0, vivo: true, plazas: eqL ? eqL.plazas : 4 + mej.plazas };
+  }
+  async function valorar(S0, opciones, aplicar, { R, H } = ESFUERZO[conf.esfuerzo] || ESFUERZO.normal) {
+    const res = opciones.map(o => ({ o, suma: 0, vivos: 0, n: 0 }));
+    const semilla = 1000 + S0.piso * 7919;
+    for (let r = 0; r < R; r++) {
+      for (const x of res) {
+        const rng = rngDe(semilla + r * 104729);
+        const S = clonar(S0);
+        aplicar(S, x.o, rng);
+        if (S.vivo) rodar(S, H, rng);
+        x.suma += puntuar(S0, S, H); x.vivos += S.vivo ? 1 : 0; x.n++;
+      }
+      if (r % 8 === 7) await sleep(0);
+    }
+    return res.map(x => ({ o: x.o, v: x.suma / x.n, vivo: x.vivos / x.n })).sort((a, b) => b.v - a.v);
+  }
+  const explica = (lista, nombre) => lista.map(x => `${nombre(x.o)}: ${x.v.toFixed(1)} (sigues vivo ${pct(x.vivo)})`).join(' · ');
+
+  async function decidirPrestado(P) {
+    const S0 = estadoActual(P);
+    const ops = P.opciones.map(o => ({ ...o, e: especie(o.nombre, o.num, o.tipos) }));
+    const lista = await valorar(S0, ops, (S, o) => { const x = luchadorDe(o.e, o.L, true, S.ef, { hpMax: o.hpMax }); S.eq = [x]; });
+    return { mejor: lista[0].o, lista, texto: explica(lista, o => o.nombre), porque: `con él se baja más: ${lista[0].v.toFixed(1)} pisos de media frente a ${lista.slice(1).map(x => x.v.toFixed(1)).join(' y ')}` };
+  }
+  async function decidirBendicion(P) {
+    const S0 = estadoActual(P);
+    const ops = P.opciones.map(o => ({ ...o }));
+    if (P.reroll) ops.push({ nombre: '🎲 Volver a tirar', reroll: true });
+    const lista = await valorar(S0, ops, (S, o, rng) => { if (o.reroll) darBendicion(S, rng); else aplicarBendicion(S, o.nombre, o.desc); });
+    for (const o of ops) if (!o.reroll) { const b = kb.bendiciones[o.nombre]; if (b && !efectoDe(o.desc)) b.noEntendida = true; }
+    const mejor = lista[0].o;
+    const dif = lista.length > 1 ? lista[0].v - lista[1].v : 0;
+    return { mejor, tirar: !!mejor.reroll, lista, texto: explica(lista, o => o.nombre), porque: mejor.reroll ? `las tres que hay rinden menos que tirar otra vez (+${dif.toFixed(1)} pisos)` : `es la que más pisos da de media (+${dif.toFixed(1)} sobre la siguiente)` };
+  }
+  async function decidirPuerta(P) {
+    const S0 = estadoActual(P);
+    const ops = P.opciones.map(o => ({ ...o }));
+    if (ops.length === 1) return { mejor: ops[0], lista: [{ o: ops[0], v: 0, vivo: 1 }], texto: ops[0].nombre, porque: 'es la única' };
+    const lista = await valorar(S0, ops, (S, o, rng) => jugarPuerta(S, o.clase, rng));
+    return { mejor: lista[0].o, lista, texto: explica(lista, o => o.nombre), porque: `con ella se baja más (${lista[0].v.toFixed(1)} pisos de media; la siguiente, ${lista[1].v.toFixed(1)})` };
+  }
+  // Reclutar: quedárselo (y a quién dejar si no cabe) o dejarlo
+  async function decidirRecluta(P) {
+    const S0 = estadoActual(P);
+    const e = especie(P.cand.nombre, P.cand.num, P.cand.tipos);
+    const nuevo = S => { const x = luchadorDe(e, P.cand.L, true, S.ef, { hpMax: P.cand.hpMax }); x.vida = P.cand.hpMax ? P.cand.hp / P.cand.hpMax : 0.6; return x; };
+    const ops = [{ nombre: 'Dejarlo', dejar: true }];
+    if (S0.eq.length < S0.plazas) ops.push({ nombre: 'Reclutarlo', meter: true });
+    else S0.eq.forEach((m, k) => ops.push({ nombre: `Reclutarlo y dejar a ${m.nombre}`, cambia: k, quien: m.nombre }));
+    const lista = await valorar(S0, ops, (S, o) => { if (o.meter) S.eq.push(nuevo(S)); else if (o.cambia != null) S.eq[o.cambia] = nuevo(S); });
+    const mejor = lista[0].o;
+    const sin = (lista.find(x => x.o.dejar) || {}).v;
+    return { mejor, lista, texto: explica(lista, o => o.nombre), porque: mejor.dejar ? 'no mejora a tu equipo (quedártelo no hace bajar más)' : `con él se baja más (${lista[0].v.toFixed(1)} pisos de media frente a ${sin != null ? sin.toFixed(1) : '?'} sin él)` };
+  }
+  // Orden del equipo (los tres primeros que sigan en pie pelean): el que más gana contra lo de los próximos pisos
+  let memoOrden = { clave: '', r: null };
+  function ordenRecomendado(P) {
+    const S0 = estadoActual(P);
+    const clave = S0.piso + '|' + S0.eq.map(x => x.id + ':' + x.L + ':' + x.vida.toFixed(2)).join(',') + '|' + S0.bend.join(',') + '|' + kb.niveles.length;
+    if (memoOrden.clave === clave) return memoOrden.r;
+    memoOrden = { clave, r: ordenRecomendado0(S0) };
     return memoOrden.r;
   }
-  function ordenRecomendado0(eq, piso) {
+  function ordenRecomendado0(S0) {
+    const vivos = S0.eq;
+    if (vivos.length < 2) return null;
     const perms = [];
     const rec = (pref, resto) => { if (!resto.length) { perms.push(pref); return; } resto.forEach((x, i) => rec([...pref, x], resto.filter((_, j) => j !== i))); };
-    rec([], eq);
-    let mejor = null;
-    for (const o of perms) { const v = fuerza(o, piso); if (!mejor || v > mejor.v + 1e-9) mejor = { o, v }; }
-    const actual = fuerza(eq, piso);
-    return mejor && mejor.v > actual + 0.01 ? { orden: mejor.o.map(x => x.nombre), v: mejor.v, actual } : { orden: eq.map(x => x.nombre), v: actual, actual, yaBien: true };
+    rec([], vivos.map((_, i) => i));
+    const grupos = [];
+    for (let g = 0; g < 24; g++) { const rng = rngDe(77 + g * 31 + S0.piso); const p = S0.piso + (g % 3); grupos.push({ riv: rivalesDe(p, g % 4 === 3 ? 'elite' : 'combate', rng), r: biomaDePiso(p).reglas, rng: rngDe(5 + g) }); }
+    const guard = Math.ceil(S0.piso / 5) * 5; for (let g = 0; g < 8; g++) { const rng = rngDe(991 + g * 13); grupos.push({ riv: rivalesDe(guard, 'guardian', rng), r: biomaDePiso(guard).reglas, rng: rngDe(9 + g) }); }
+    let mejor = null, actual = null;
+    for (const p of perms) {
+      let v = 0;
+      for (const g of grupos) { const eq = p.map(i => ({ ...vivos[i] })); const gana = combate(eq, g.riv, g.r, null, S0.ef); v += (gana ? 1 : 0) + media(eq.map(x => Math.max(0, x.vida))) * 0.3; }
+      v /= grupos.length;
+      const r = { orden: p.map(i => vivos[i]), v };
+      if (p.every((i, k) => i === k)) actual = r;
+      if (!mejor || v > mejor.v + 1e-9) mejor = r;
+    }
+    return { orden: mejor.orden, v: mejor.v, actual: actual.v, cambia: mejor.v > actual.v + 0.02 };
   }
-  let memoDecidir = { firma: '', R: null };
-  function decidir(P) {
-    if (!P) return null;
-    const firma = P.tipo + '|' + (P.opciones ? P.opciones.map(o => o.nombre + (o.desc || '')).join(',') : '') + '|' + resumenEquipo().map(x => x.num + ':' + x.vida).join(',') + '|' + conf.prioridad + '|' + apr.niveles.length;
-    if (memoDecidir.firma === firma) return memoDecidir.R;
-    const R = decidir0(P);
-    memoDecidir = { firma, R };
-    return R;
+  // Hasta dónde se llega de media desde aquí (60 partidas largas)
+  async function prediccion(P) {
+    const S0 = estadoActual(P);
+    if (!S0.eq.length) return null;
+    const fin = [];
+    for (let r = 0; r < 60; r++) { const S = clonar(S0); rodar(S, 80, rngDe(4242 + r * 7)); fin.push(S.piso); if (r % 10 === 9) await sleep(0); }
+    fin.sort((a, b) => a - b);
+    return { media: media(fin), p25: fin[Math.floor(fin.length * 0.25)], p75: fin[Math.floor(fin.length * 0.75)] };
   }
-  function decidir0(P) {
+  async function decidir(P) {
     try {
-      if (P.tipo === 'prestado') return decidirPrestado(P);
-      if (P.tipo === 'bendicion') return decidirBendicion(P);
-      if (P.tipo === 'puerta') return decidirPuerta(P);
+      if (P.tipo === 'prestado') return await decidirPrestado(P);
+      if (P.tipo === 'bendicion') return await decidirBendicion(P);
+      if (P.tipo === 'puerta') return await decidirPuerta(P);
+      if (P.tipo === 'reclutar' || P.tipo === 'sustituir') return await decidirRecluta(P);
     } catch (e) { console.warn('[axe] decidir', e); }
     return null;
   }
 
-  /* ------------------------------------------------------------------ *
-   *  LOS MEJORES DE LA POKÉDEX PARA CADA BIOMA (a Nv.40, contra lo que sale ahí y con su regla)
-   * ------------------------------------------------------------------ */
-  let rankingBiomas = null;
-  async function calcularRanking() {
-    const res = {};
-    for (const bioma of BIOMAS) {
-      // tú a Nv.40 contra dos rivales de su bioma a Nv.46: cuenta ganar y la vida que te queda (así pesan los tipos,
-      // Ausente y la regla del bioma)
-      const piso = BIOMAS.indexOf(bioma) * 5 + 3, L = 40;
-      const grupos = gruposRivales(piso, 'elite', 16, L + 6);
-      const lista = [];
-      for (const d of Object.values(DEX)) {
-        if (d.leg) continue;
-        const l = conBioma(luchador(d.num, L, { mio: true }), bioma);
-        let v = 0;
-        for (const gr of grupos) { const r = fila([l], gr, bioma); v += r.gana ? 1 + Math.max(0, l.vida - r.perdida) : 0; }
-        lista.push({ d, v: v / grupos.length });
-      }
-      lista.sort((a, b) => b.v - a.v);
-      res[bioma.id] = lista.slice(0, 6);
-      await sleep(0);
+  /* ══════════ 7 · MEJORAS DEL CAMPAMENTO: cuánto rinde cada esquirla ══════════
+   * Se simulan bajadas enteras (desde el piso de salida, con un prestado de los vistos) con las mejoras de ahora y con
+   * un nivel más de cada una. Lo que sube la media de esquirlas por bajada ÷ lo que cuesta = rendimiento. */
+  function bajadaEntera(mejExtra, rng) {
+    const mej = efectosMejoras(mejExtra);
+    let extraMult = 1;
+    const t = mejExtra && kb.mejoras[mejExtra]; const et = t && efectoDe(t.desc);
+    if (et && et.todas) { const por = (et.todas - 1) / t.max; extraMult = (1 + por * (t.nivel + 1)) / (1 + por * t.nivel); }
+    const prestados = (kb.prestados && kb.prestados.length ? kb.prestados : [{ nombre: 'Nidoqueen', num: 31, L: 21 }, { nombre: 'Arcanine', num: 59, L: 21 }, { nombre: 'Chansey', num: 113, L: 21 }]);
+    const pr = prestados[Math.floor(rng() * prestados.length)];
+    const e = especie(pr.nombre, pr.num, pr.tipos);
+    const ef = efectosActivos([]);
+    const x = luchadorDe(e, pr.L + (mej.prestadoNiv - efectosMejoras().prestadoNiv), true, ef, { extraMult });
+    const S = { piso: 1, eq: [x], ef, bend: [], mej, pluma: !!mej.pluma, esq: 0, vivo: true, plazas: 3 + mej.plazas, extraMult };
+    if (Object.values(kb.mejoras).some(m => m.nivel && /bendicion antes del primer piso/.test(norm(m.desc)))) darBendicion(S, rng);
+    for (let n = 0; n < 400 && S.vivo && S.piso < 150; n++) jugarPuerta(S, politicaRapida(S, puertasDe(S.piso, rng), rng), rng);
+    return S;
+  }
+  let informeMejoras = null;
+  // Bajadas emparejadas (mismos dados con y sin la mejora) y su error: si la diferencia no supera 2 errores, «no se nota»
+  async function calcularMejoras() {
+    const N = 160;
+    const correr = async extra => { const out = []; for (let r = 0; r < N; r++) { const S = bajadaEntera(extra, rngDe(313 + r * 101)); out.push([S.esq, S.piso]); if (r % 16 === 15) await sleep(0); } return out; };
+    const b0 = await correr(null);
+    const base = { esq: media(b0.map(x => x[0])), piso: media(b0.map(x => x[1])) };
+    const filas = [];
+    for (const [n, m] of Object.entries(kb.mejoras)) {
+      if (!m.coste || m.nivel >= m.max) continue;
+      const e = efectoDe(m.desc);
+      if (e && e.inicio) { filas.push({ n, m, opcional: true, rinde: -1 }); continue; }   // «puedes empezar en…»: se elige al bajar
+      const con = await correr(n);
+      const dE = con.map((x, i) => x[0] - b0[i][0]), dP = con.map((x, i) => x[1] - b0[i][1]);
+      const dEsq = media(dE), dPiso = media(dP);
+      const se = Math.sqrt(media(dE.map(x => (x - dEsq) ** 2)) / N);
+      const claro = dEsq > 2.5 * se;        // una mejora no puede hacerte daño: si sale negativa, es azar
+      filas.push({ n, m, dEsq, dPiso, se, claro, rinde: claro ? dEsq / m.coste : 0, paga: claro && dEsq > 0.5 ? m.coste / dEsq : null, entendida: !!e });
     }
-    rankingBiomas = res;
+    filas.sort((a, b) => b.rinde - a.rinde);
+    informeMejoras = { base, filas, t: Date.now() };
     pintar();
+    return informeMejoras;
   }
 
-  /* ------------------------------------------------------------------ *
-   *  GRABADORA: cada pantalla nueva (con su HTML la primera vez de cada tipo), lo que pulsas y cada combate
-   * ------------------------------------------------------------------ */
-  let registro = lsGet(LS_REG, []);
-  const pantallas = lsGet(LS_PANT, {});
-  function apunta(x) {
-    registro.push({ t: Date.now(), ...x });
-    if (registro.length > 3000) registro = registro.slice(-3000);
-    if (!lsPut(LS_REG, registro)) { registro = registro.slice(-800); lsPut(LS_REG, registro); }
+  /* ══════════ GRABAR (cada pantalla: al diario y a la base) ══════════ */
+  let firmaAnt = '', combateGrabado = '', enBajada = !!bajadaId, pendienteSustituir = null, ultimoEquipoL = {};
+  function firmaDe(P) {
+    if (!P) return '';
+    const o = P.opciones ? P.opciones.map(x => x.nombre + (x.desc || '') + (x.L || '')).join(',') : '';
+    return [P.tipo, P.cab && P.cab.piso, o, P.titulo || '', P.cand ? P.cand.nombre + P.cand.L : ''].join('|');
   }
-  function guardaPantalla(tipo) {
-    const lista = pantallas[tipo] = pantallas[tipo] || [];
-    if (lista.length >= 3) return;
-    const m = raiz(); if (!m) return;
-    const c = m.cloneNode(true); const yo = c.querySelector('#' + PANEL_ID); if (yo) yo.remove();
-    lista.push({ t: Date.now(), html: c.outerHTML.slice(0, 60000) + $$('div.fixed.inset-0').filter(d => !ajeno(d)).map(d => d.outerHTML).join('').slice(0, 20000) });
-    lsPut(LS_PANT, pantallas);
+  function empiezaBajada(P) {
+    bajadaId = Date.now(); lsPut('axe-bajada', bajadaId); enBajada = true;
+    kb.bajadas.push({ t: bajadaId, piso: null, esq: null, prestado: null, bend: [], equipo: [] });
+    log('⛰️ Empieza una bajada nueva.');
   }
-  const resumenEquipo = () => equipoActual().map(x => ({ num: x.num, nombre: x.nombre, L: x.L, vida: Math.round(x.vida * 100) / 100, hp: x.hp, tipos: x.tipos }));
-  let firmaAnt = '', puertaElegida = null, combateGrabado = '', enBajada = false;
+  const bajadaActual = () => kb.bajadas.find(b => b.t === bajadaId) || null;
+  function terminaBajada(piso, esq, causa) {
+    const b = bajadaActual();
+    if (b) { b.piso = piso; b.esq = esq; b.fin = Date.now(); b.causa = causa; b.bend = ultimasBendiciones.map(x => x.nombre + (x.veces > 1 ? ' ×' + x.veces : '')); b.equipo = [...equipoNombres]; }
+    log(`🏁 Bajada terminada en el piso ${piso} con ${esq} 💎${causa ? ' (' + causa + ')' : ''}.`);
+    kAviso({ tipo: 'fin', app: 'Entrañas', icono: '⛰️', titulo: `Piso ${piso} · ${esq} 💎`, texto: 'Bajada terminada.' });
+    bajadaId = null; lsPut('axe-bajada', null); enBajada = false;
+    guardaKb();
+  }
   function grabar(P) {
     if (!P) return;
-    const cab = P.cab || cabecera();
-    const opc = P.opciones ? P.opciones.map(o => o.nombre + (o.desc ? ': ' + o.desc : '') + (o.L ? ` Nv.${o.L}` : '')) : null;
-    const firma = P.tipo + '|' + (cab ? cab.piso : '') + '|' + (opc ? opc.join(',') : P.texto || '');
+    const cab = P.cab;
+    if (cab) cerrarPuerta(cab, null);
+    const b = bendicionesActivas(); if (b.length) ultimasBendiciones = b;
+    const eqL = equipoLeido();
+    if (eqL) {
+      equipoNombres = new Set(eqL.miembros.map(m => m.nombre));
+      // niveles que se suben por piso
+      if (cab) for (const m of eqL.miembros) { const u = ultimoEquipoL[m.id]; if (u && cab.piso === u.piso + 1 && m.L > u.L && u.L < 100) { kb.subida.n++; kb.subida.s += m.L - u.L; if (kb.subida.n > 200) { kb.subida.s *= 200 / kb.subida.n; kb.subida.n = 200; } } if (cab) ultimoEquipoL[m.id] = { L: m.L, piso: cab.piso }; }
+    }
     if (P.tipo === 'combate') {
       const c = leerCombate();
       const f = c ? c.lineas.map(l => l.t || l.mov + l.dmg).join('|') : '';
       if (c && f !== combateGrabado) {
         combateGrabado = f;
-        apunta({ tipo: 'combate', piso: cab && cab.piso, bioma: cab && cab.bioma.id, puerta: puertaElegida, combate: { lineas: c.lineas.map(l => { const { a, d, ...r } = l; return { ...r, a: a && `${a.nombre} Nv.${a.L}`, d: d && `${d.nombre} Nv.${d.L}` }; }), tarjetas: c.tarjetas.map(t => ({ ...t, ps: t.ps && t.ps[0] })) }, equipo: resumenEquipo() });
-        aprenderCombate(c, cab, puertaElegida);
+        apunta({ tipo: 'combate', piso: cab && cab.piso, bioma: cab && cab.bioma.id, puerta: puertaPendiente && puertaPendiente.clase, combate: { titulo: c.titulo, tarjetas: c.tarjetas, lineas: c.lineas.map(l => { const { a, d, ...r } = l; return { ...r, a: a && `${a.nombre} Nv.${a.L}`, d: d && `${d.nombre} Nv.${d.L}` }; }) } });
+        aprenderCombate(c, cab, puertaPendiente && puertaPendiente.clase);
+        if (puertaPendiente && !puertaPendiente.resultado && ['misterio', 'tesoro', 'oculta'].includes(puertaPendiente.clase)) cerrarPuerta(null, 'combate');
       }
     }
+    const firma = firmaDe(P);
     if (firma === firmaAnt) return;
     firmaAnt = firma;
-    if (P.tipo !== 'lobby' && P.tipo !== 'mejoras' && P.tipo !== 'otra') enBajada = true;
-    if (P.tipo === 'lobby' && enBajada) {
-      enBajada = false;
-      const m = texto(raiz()).match(/caíste en el piso (\d+) y subiste con (\d+) esquirlas/i);
-      if (m) { apr.bajadas.push({ t: Date.now(), piso: +m[1], esquirlas: +m[2] }); guardaApr(); log(`🏁 Bajada terminada: piso ${m[1]}, ${m[2]} 💎.`); }
+    kb.vistas++;
+    if (eqL) aprenderEquipo(eqL);
+    // catálogo de todo lo que aparece
+    if (P.tipo === 'prestado') {
+      if (!enBajada) empiezaBajada(P);
+      kb.prestados = kb.prestados || [];
+      for (const o of P.opciones) { especie(o.nombre, o.num, o.tipos); if (!kb.prestados.some(x => x.nombre === o.nombre)) kb.prestados.push({ nombre: o.nombre, num: o.num, L: o.L, tipos: o.tipos }); }
     }
-    apunta({ tipo: P.tipo, piso: cab && cab.piso, bioma: cab && cab.bioma.id, esquirlas: cab && cab.esquirlas, opciones: opc, texto: P.tipo === 'aviso' ? P.texto : undefined, equipo: P.tipo === 'lobby' ? undefined : resumenEquipo(), bendiciones: bendicionesTengo().map(b => b.nombre) });
-    guardaPantalla(P.tipo);
+    if (P.tipo === 'bendicion') for (const o of P.opciones) {
+      const x = kb.bendiciones[o.nombre] = kb.bendiciones[o.nombre] || { ico: o.ico, desc: o.desc, ofrecida: 0, elegida: 0, nueva: true };
+      if (x.nueva === true) { x.nueva = Date.now(); log(`🆕 Bendición nueva: ${o.nombre} — ${o.desc}${efectoDe(o.desc) ? '' : ' (aún no sé medirla)'}.`); }
+      x.ofrecida++; x.desc = o.desc || x.desc; x.ico = o.ico || x.ico;
+    }
+    if (P.tipo === 'puerta') for (const o of P.opciones) {
+      const x = kb.puertas[o.clase] = kb.puertas[o.clase] || { nombre: o.nombre, ico: o.ico, desc: o.desc, vista: 0, elegida: 0, esq: { n: 0, s: 0 }, sale: {} };
+      if (!x.desc && o.desc) x.desc = o.desc;
+      if (/^p-/.test(o.clase) && !x.avisada) { x.avisada = true; log(`🆕 Puerta nueva: ${o.nombre} — ${o.desc}.`); }
+      x.vista++;
+    }
+    if (P.tipo === 'reclutar' || P.tipo === 'sustituir') especie(P.cand.nombre, P.cand.num, P.cand.tipos);
+    if (P.tipo === 'aviso') {
+      const ev = kb.eventos[P.clase] = kb.eventos[P.clase] || { ico: P.ico, titulo: P.titulo, n: 0, ejemplos: [] };
+      ev.n++; if (!ev.ejemplos.includes(P.cuerpo) && ev.ejemplos.length < 4) ev.ejemplos.push(P.cuerpo);
+      if (/^e-/.test(P.clase) && ev.n === 1) log(`🆕 Suceso nuevo: ${P.titulo} — ${P.cuerpo}`);
+      if (['cofre', 'cofre+', 'manantial', 'herido', 'hoguera'].includes(P.clase)) cerrarPuerta(null, P.clase);
+      if (P.clase === 'objeto') { const m = P.cuerpo.match(/^(.+?), a tu mochila/i); if (m) kb.objetos[m[1]] = (kb.objetos[m[1]] || 0) + 1; }
+      if (P.clase === 'prestado' || P.clase === 'recluta') { const e = kb.especies[DEX_NOMBRE[norm(P.titulo.split(' ')[0])]]; if (e) e.reclutado = (e.reclutado || 0) + 1; }
+      if (P.clase === 'fin') { const m = norm(P.titulo + ' ' + P.cuerpo).match(/piso (\d+).*?(\d+) esquirlas/); terminaBajada(m ? +m[1] : (ultimaCab && ultimaCab.piso), m ? +m[2] : (ultimaCab && ultimaCab.esquirlas), ultimaCab ? ultimaCab.bioma.nombre : ''); }
+      if (P.clase === 'pluma') log('🪶 La Pluma de Fénix os levanta.');
+      if (P.clase === 'prestado') { const b = bajadaActual(); if (b && !b.prestado) b.prestado = P.titulo.split(' ')[0]; }
+    }
+    if (P.tipo === 'lobby') {
+      if (P.mejoras) for (const m of P.mejoras) {
+        const x = kb.mejoras[m.nombre];
+        if (!x) log(`🆕 Mejora nueva en el campamento: ${m.nombre} — ${m.desc}${efectoDe(m.desc) ? '' : ' (aún no sé medirla)'}.`);
+        kb.mejoras[m.nombre] = { ...(x || {}), ico: m.ico, desc: m.desc, nivel: m.nivel, max: m.max, coste: m.alMax ? null : m.coste, visto: Date.now() };
+      }
+      if (enBajada) { const m = norm(texto(raiz())).match(/caiste en el piso (\d+) y subiste con (\d+) esquirlas/); if (m) terminaBajada(+m[1], +m[2], ''); }
+    }
+    if (P.tipo === 'desconocida' && raiz()) {
+      const clave = 'd-' + norm(texto(raiz())).slice(0, 60);
+      if (!kb.pantallasNuevas[clave]) { kb.pantallasNuevas[clave] = Date.now(); guardaHtml('desconocida'); }
+    }
+    apunta({ tipo: P.tipo, piso: cab && cab.piso, bioma: cab && cab.bioma.id, esq: cab && cab.esquirlas, opciones: P.opciones ? P.opciones.map(o => o.nombre + (o.desc ? ': ' + o.desc : '') + (o.L ? ` Nv.${o.L}` : '')) : undefined,
+      aviso: P.tipo === 'aviso' ? { clase: P.clase, titulo: P.titulo, cuerpo: P.cuerpo } : undefined, cand: P.cand, equipo: eqL ? eqL.miembros.map(m => ({ nombre: m.nombre, L: m.L, hp: m.hp, hpMax: m.hpMax, tipos: m.tipos })) : undefined, bend: b.map(x => x.nombre + (x.veces > 1 ? '×' + x.veces : '')) });
+    guardaHtml(P.tipo);
+    guardaKb();
   }
-  // Lo que pulsas tú (o el piloto): el texto del botón y en qué pantalla
+  const htmlGuardado = {};
+  function guardaHtml(tipo) {
+    htmlGuardado[tipo] = (htmlGuardado[tipo] || 0) + 1;
+    if (htmlGuardado[tipo] > 2) return;
+    const m = raiz(); if (!m) return;
+    const c = m.cloneNode(true); const yo = c.querySelector('#' + PANEL_ID); if (yo) yo.remove();
+    DIARIO.html(tipo + '-' + htmlGuardado[tipo], c.outerHTML.slice(0, 80000) + $$('div.fixed.inset-0').filter(d => !ajeno(d)).map(d => d.outerHTML).join('').slice(0, 20000));
+  }
+  // Lo que se pulsa (tú o el piloto)
+  let pilotoPulsa = false;
   document.addEventListener('click', e => {
     const b = e.target.closest && e.target.closest('main button');
     if (!b || ajeno(b) || !enEntranas()) return;
     const P = pantalla();
-    const t = texto(b).slice(0, 80);
-    if (P && P.tipo === 'puerta') { const o = P.opciones.find(x => x.b === b); if (o) puertaElegida = o.clase; }
-    apunta({ tipo: 'pulsa', en: P && P.tipo, boton: t, piso: P && P.cab && P.cab.piso, auto: pilotoPulsa });
+    if (!P) return;
+    const t = texto(b).slice(0, 90);
+    if (P.tipo === 'puerta') { const o = P.opciones.find(x => x.b === b); if (o) aprenderPuerta(o.clase, o); }
+    if (P.tipo === 'bendicion') { const o = P.opciones.find(x => x.b === b); if (o && kb.bendiciones[o.nombre]) kb.bendiciones[o.nombre].elegida++; }
+    if (P.tipo === 'lobby' && b === P.boton && !enBajada) empiezaBajada(P);
+    apunta({ tipo: 'pulsa', en: P.tipo, boton: t, piso: P.cab && P.cab.piso, auto: pilotoPulsa });
   }, true);
-  function exportar() {
-    const datos = { script: 'Aurora Dex · Entrañas', version: VERSION, exportado: new Date().toISOString(), aprende: apr, registro, pantallas };
-    const json = JSON.stringify(datos);
-    try {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-      a.download = `entranas-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json`;
-      document.body.appendChild(a); a.click(); a.remove();
-      log(`📤 Exportado (${Math.round(json.length / 1024)} KB): pásame el fichero.`);
-    } catch (e) {
-      navigator.clipboard.writeText(json).then(() => log('📋 Copiado al portapapeles: pégamelo.'), () => log('⚠ No he podido exportar.'));
-    }
-  }
 
-  /* ------------------------------------------------------------------ *
-   *  PILOTO: baja solo con las decisiones de arriba. Se para ante lo que no conoce, si le das a ■, si cae la bajada o
-   *  si no es gratis empezar. Nunca pulsa «Retirarse».
-   * ------------------------------------------------------------------ */
-  let piloto = sessionStorage.getItem(SS_AUTO) === '1', pilotoPulsa = false, pilotoEnMarcha = false, msg = '';
+  /* ══════════ 8 · PILOTO ══════════ */
+  let piloto = sessionStorage.getItem(SS_AUTO) === '1', pilotoEnMarcha = false, msg = '', arrastreFallos = 0;
+  const VEL = { rapida: [250, 500], normal: [500, 900], tranquila: [1000, 1800] };
   const setPiloto = v => { piloto = v; try { sessionStorage.setItem(SS_AUTO, v ? '1' : '0'); } catch { /* nada */ } pintar(); if (v) bucle(); };
   const parar = (porque, tipo = 'aviso') => { setPiloto(false); msg = ''; if (porque) { log(porque); kAviso({ tipo, app: 'Entrañas', icono: '⛰️', titulo: 'Piloto parado', texto: porque }); } };
   async function pulsar(b, que) {
-    if (!b || !b.isConnected || b.disabled) return false;
-    if (/retirarse/i.test(texto(b))) return false;
-    await pausa(500, 900);
+    if (!b || !b.isConnected || b.disabled || /retirarse/i.test(texto(b))) return false;
+    await pausa(...(VEL[conf.velocidad] || VEL.normal));
     if (!piloto || !b.isConnected) return false;
     msg = que; pintar();
     pilotoPulsa = true; try { b.click(); } finally { pilotoPulsa = false; }
     const antes = firmaAnt;
-    for (let i = 0; i < 30; i++) { await sleep(200); const P = pantalla(); grabar(P); if (firmaAnt !== antes || !b.isConnected) break; }
+    for (let i = 0; i < 40; i++) { await sleep(150); const P = pantalla(); grabar(P); if (firmaAnt !== antes || !b.isConnected) break; }
     return true;
+  }
+  // Mover a un Pokémon del equipo arrastrando desde su «⠿» (como con el dedo o el ratón). Se comprueba después.
+  async function arrastrar(asa, destino) {
+    const r0 = asa.getBoundingClientRect(), r1 = destino.getBoundingClientRect();
+    const x = r0.left + r0.width / 2, y0 = r0.top + r0.height / 2, y1 = r1.top + r1.height / 2 + (r1.top > r0.top ? 6 : -6);
+    const ev = (tipo, y, el = asa) => {
+      const o = { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: tipo === 'pointerup' ? 0 : 1 };
+      el.dispatchEvent(new PointerEvent(tipo, o));
+      const mt = { pointerdown: 'mousedown', pointermove: 'mousemove', pointerup: 'mouseup' }[tipo];
+      el.dispatchEvent(new MouseEvent(mt, o));
+    };
+    ev('pointerdown', y0);
+    for (let k = 1; k <= 10; k++) { await sleep(25); const y = y0 + (y1 - y0) * k / 10; ev('pointermove', y, document); ev('pointermove', y, asa); }
+    await sleep(40); ev('pointerup', y1, document); ev('pointerup', y1, asa);
+    await sleep(500);
+  }
+  async function ponerOrden(orden) {
+    for (let k = 0; k < orden.length; k++) {
+      const eq = equipoLeido(); if (!eq || !eq.arrastre) return false;
+      const ids = eq.miembros.map(m => m.id);
+      const i = ids.indexOf(orden[k].id);
+      if (i === k || i < 0) continue;
+      const m = eq.miembros[i];
+      if (!m.asa) return false;
+      await arrastrar(m.asa, eq.miembros[k].li);
+      const tras = equipoLeido();
+      if (!tras || tras.miembros.map(x => x.id).indexOf(orden[k].id) !== k) return false;
+    }
+    return true;
+  }
+  let decision = { firma: '', R: null, calculando: false };
+  async function decisionPara(P) {
+    const f = firmaDe(P) + '|' + conf.prioridad + '|' + conf.esfuerzo;
+    if (decision.firma === f && (decision.R || decision.calculando)) { while (decision.calculando) await sleep(100); return decision.R; }
+    decision = { firma: f, R: null, calculando: true };
+    pintar();
+    try { decision.R = await decidir(P); } finally { decision.calculando = false; }
+    if (decision.firma === f) pintar();
+    return decision.R;
   }
   async function bucle() {
     if (pilotoEnMarcha) return;
@@ -823,126 +1383,269 @@
       while (piloto && enEntranas()) {
         const P = pantalla();
         grabar(P);
-        const R = decidir(P);
-        pintar(P, R);
         let hecho = false;
-        if (P.tipo === 'aviso' && P.boton) hecho = await pulsar(P.boton, `Pulso «${texto(P.boton)}»`);
+        if (P.tipo === 'aviso' && P.boton) hecho = await pulsar(P.boton, `«${P.titulo}»: sigo`);
+        else if (P.tipo === 'animacion') hecho = await pulsar(P.boton, 'Salto al resultado');
         else if (P.tipo === 'combate') hecho = await pulsar(P.boton, 'Combate: sigo');
-        else if (P.tipo === 'prestado' && R) { log(`🤲 Prestado: ${R.mejor.nombre} (${R.texto}).`); hecho = await pulsar(R.mejor.b, `Elijo a ${R.mejor.nombre}`); }
-        else if (P.tipo === 'bendicion' && R) {
-          if (R.tirar) { log(`🎲 Bendiciones flojas (${R.texto}): vuelvo a tirar.`); hecho = await pulsar(P.reroll, 'Vuelvo a tirar'); }
-          else { log(`✨ ${R.mejor.nombre} (${R.texto}).`); hecho = await pulsar(R.mejor.b, `Elijo ${R.mejor.nombre}`); }
-        } else if (P.tipo === 'puerta' && R) { log(`🚪 Piso ${P.cab ? P.cab.piso : '?'}: ${R.mejor.nombre} (${R.mejor.porque}).`); hecho = await pulsar(R.mejor.b, `Puerta: ${R.mejor.nombre}`); }
-        else if (P.tipo === 'reclutar') {
-          if (equipoActual().length < 4 && /^\W*reclutar/i.test(texto(P.boton))) { log('🤝 Recluto (hay hueco en el equipo).'); hecho = await pulsar(P.boton, 'Recluto'); }
-          else { parar('Pantalla de reclutar con el equipo lleno: elige tú (y exporta el registro para que aprenda a hacerlo).'); break; }
-        } else if (P.tipo === 'lobby') {
+        else if (P.tipo === 'lobby') {
           if (enBajada) { parar('🏁 Bajada terminada.', 'fin'); break; }
-          if (conf.empezarGratis && P.gratis) { log('⛰️ Empiezo la bajada (hoy es gratis).'); hecho = await pulsar(P.boton, 'Bajo'); }
-          else { parar(P.gratis ? 'Para empezar, dale tú a «Bajar».' : 'Bajar hoy ya no es gratis: no empiezo solo.'); break; }
+          if ((conf.empezarGratis && P.gratis) || (conf.usarPases && P.pases > 0)) { log(`⛰️ Empiezo (${P.gratis ? 'gratis' : 'con un pase'}).`); hecho = await pulsar(P.boton, 'Bajo'); }
+          else { parar(P.gratis ? 'Para empezar, dale tú a «Bajar» (o activa «empezar solo»).' : 'Hoy bajar ya no es gratis: no gasto pases si no me lo dices.'); break; }
+        } else if (['prestado', 'bendicion', 'puerta', 'reclutar', 'sustituir'].includes(P.tipo)) {
+          if (P.tipo === 'sustituir' && pendienteSustituir) {
+            const m = P.miembros.find(x => x.nombre === pendienteSustituir);
+            pendienteSustituir = null;
+            if (m) { log(`🔁 Dejo a ${m.nombre} por ${P.cand.nombre}.`); hecho = await pulsar(m.b, `Dejo a ${m.nombre}`); }
+          }
+          if (!hecho && P.tipo === 'puerta' && conf.reordenar && arrastreFallos < 2) {
+            const o = ordenRecomendado(P);
+            if (o && o.cambia) {
+              msg = 'Ordenando el equipo…'; pintar();
+              const ok = await ponerOrden(o.orden);
+              if (ok) log(`🔀 Orden: ${o.orden.map(x => x.nombre).join(' → ')} (${pct(o.actual)} → ${pct(o.v)} contra lo que viene).`);
+              else { arrastreFallos++; log('⚠ No he podido mover al equipo arrastrando: ponlo tú (te lo marco).'); }
+              await sleep(300);
+              continue;
+            }
+          }
+          if (!hecho) {
+            const P2 = pantalla(); if (firmaDe(P2) !== firmaDe(P)) continue;
+            msg = 'Pensando…'; pintar();
+            const R = await decisionPara(P);
+            if (!piloto) break;
+            const P3 = pantalla(); if (firmaDe(P3) !== firmaDe(P)) continue;
+            if (!R) { parar('No he sabido decidir aquí: hazlo tú.'); break; }
+            if (P.tipo === 'prestado') { log(`🤲 Prestado: ${R.mejor.nombre} — ${R.porque}.`); hecho = await pulsar(P3.opciones.find(o => o.nombre === R.mejor.nombre).b, `Elijo a ${R.mejor.nombre}`); }
+            else if (P.tipo === 'bendicion') {
+              if (R.tirar) { log(`🎲 Vuelvo a tirar — ${R.porque}.`); hecho = await pulsar(P3.reroll, 'Vuelvo a tirar'); }
+              else { log(`✨ ${R.mejor.nombre} — ${R.porque}.`); hecho = await pulsar(P3.opciones.find(o => o.nombre === R.mejor.nombre).b, `Elijo ${R.mejor.nombre}`); }
+            } else if (P.tipo === 'puerta') {
+              const o = P3.opciones.find(x => x.nombre === R.mejor.nombre && x.clase === R.mejor.clase) || P3.opciones[P.opciones.indexOf(R.mejor)];
+              log(`🚪 Piso ${P.cab ? P.cab.piso : '?'}: ${R.mejor.nombre} — ${R.porque}.`); hecho = await pulsar(o && o.b, `Puerta: ${R.mejor.nombre}`);
+            } else {
+              const m = R.mejor;
+              if (m.dejar) { log(`🙅 Dejo a ${P.cand.nombre} — ${R.porque}.`); hecho = await pulsar(P.tipo === 'sustituir' ? P3.cancelar : P3.no, 'Lo dejo'); }
+              else if (P.tipo === 'reclutar') { if (m.quien) pendienteSustituir = m.quien; log(`🤝 Recluto a ${P.cand.nombre}${m.quien ? ' (dejo a ' + m.quien + ')' : ''} — ${R.porque}.`); hecho = await pulsar(P3.si, 'Recluto'); }
+              else { const x = P3.miembros.find(y => y.nombre === m.quien); log(`🔁 Dejo a ${m.quien} por ${P.cand.nombre} — ${R.porque}.`); hecho = await pulsar(x && x.b, `Dejo a ${m.quien}`); }
+            }
+          }
         }
         if (hecho) { quieto = Date.now(); continue; }
-        if (Date.now() - quieto > 9000) {
-          guardaPantalla('desconocida');
-          parar('⏸ Pantalla que no conozco: hazla tú. Ya la he guardado para aprenderla (📤 Exportar).');
-          break;
-        }
-        await sleep(400);
+        if (Date.now() - quieto > 10000) { guardaHtml('desconocida'); parar('⏸ Pantalla que no conozco: hazla tú. La he guardado para aprenderla (Datos → Exportar).'); break; }
+        await sleep(350);
       }
     } catch (e) { console.warn('[axe] piloto', e); parar('⚠ ' + (e && e.message)); }
     finally { pilotoEnMarcha = false; msg = ''; pintar(); }
   }
 
-  /* ------------------------------------------------------------------ *
-   *  PANEL (arriba del todo, con los colores de las Entrañas)
-   * ------------------------------------------------------------------ */
+  /* ══════════ DATOS: exportar, importar, reaprender ══════════ */
+  async function exportar() {
+    const [diario, html] = await Promise.all([DIARIO.todo('diario'), DIARIO.todo('html')]);
+    const datos = { script: 'Aurora Dex · Entrañas', version: VERSION, esquema: ESQUEMA, exportado: new Date().toISOString(), kb, conf, diario, html };
+    const json = JSON.stringify(datos);
+    try {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+      a.download = `entranas-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      log(`📤 Exportado (${Math.round(json.length / 1024)} KB, ${diario.length} pasos del diario).`);
+    } catch { navigator.clipboard.writeText(json).then(() => log('📋 Copiado al portapapeles.'), () => log('⚠ No he podido exportar.')); }
+  }
+  // Vuelve a aprender de un registro (el de la versión 0.1 o el diario de esta)
+  function reaprender(pasos) {
+    let n = 0;
+    for (const x of pasos) {
+      const bioma = x.bioma && kb.biomas[x.bioma] ? { id: x.bioma, ...kb.biomas[x.bioma], reglas: reglasBioma(kb.biomas[x.bioma].efecto) } : null;
+      if (x.tipo === 'combate' && x.combate && bioma) {
+        const conv = s => { if (!s || typeof s !== 'string') return s; const i = s.lastIndexOf(' Nv.'); return i > 0 ? { nombre: s.slice(0, i), L: +s.slice(i + 4) } : null; };
+        const c = { ...x.combate, tarjetas: (x.combate.tarjetas || []).map(t => ({ ...t, L: t.L > 100 ? +String(t.L).slice(0, -1) : t.L, hpMax: t.hpMax || (t.ps ? +String(t.ps).split('/')[1] : null) })), lineas: x.combate.lineas.map(l => ({ ...l, a: conv(l.a), d: conv(l.d) })) };
+        aprenderCombate(c, { piso: x.piso, bioma }, x.puerta); n++;
+      }
+      if (x.tipo === 'bendicion' && x.opciones) for (const o of x.opciones) { const i = o.indexOf(': '); const nom = o.startsWith('Afinidad') ? o.slice(0, o.indexOf(': ', 10)) : o.slice(0, i); const desc = o.slice(nom.length + 2); const b = kb.bendiciones[nom] = kb.bendiciones[nom] || { ico: '✨', desc, ofrecida: 0, elegida: 0 }; b.ofrecida++; }
+    }
+    guardaKb();
+    return n;
+  }
+  function importar(archivo) {
+    const fr = new FileReader();
+    fr.onload = () => {
+      try {
+        const d = JSON.parse(fr.result);
+        if (d.kb && d.esquema === ESQUEMA) {
+          if (!confirm(`¿Cambiar tu base por la del fichero? (${Object.keys(d.kb.especies).length} especies, ${d.kb.bajadas.length} bajadas)`)) return;
+          kb = d.kb; guardaKb(); (d.diario || []).forEach(x => DIARIO.poner(x)); log(`📥 Base importada (${(d.diario || []).length} pasos al diario).`);
+        } else if (d.registro) {
+          const n = reaprender(d.registro); d.registro.forEach(x => DIARIO.poner({ ...x, importado: true }));
+          log(`📥 Registro de la versión ${d.version || '0.1'} importado: ${n} combates aprendidos.`);
+        } else log('⚠ Ese fichero no es de este script.');
+        memoNivel.n = -1; decision.firma = ''; pintar();
+      } catch (e) { log('⚠ No he podido leer el fichero: ' + e.message); }
+    };
+    fr.readAsText(archivo);
+  }
+  // De la versión 0.1: su registro pasa al diario (lo aprendido ya viene en la semilla)
+  if (!kb.migrado) {
+    const viejo = lsGet('axe-registro', null);
+    if (viejo && viejo.length) { viejo.forEach(x => DIARIO.poner({ ...x, v01: true })); }
+    kb.migrado = Date.now(); guardaKb();
+  }
+
+  /* ══════════ 9 · PANEL ══════════ */
   const CSS = `
-    #${PANEL_ID}{background:#131A2B;border:2px solid #2E3B57;color:#C9D3E3;border-radius:22px;padding:12px;font-size:12px}
+    #${PANEL_ID}{background:#131A2B;border:2px solid #2E3B57;color:#C9D3E3;border-radius:22px;padding:12px;font-size:12px;line-height:1.4}
     #${PANEL_ID} b{color:#EEF3FA}
     #${PANEL_ID} .t{font-family:var(--font-display),system-ui,sans-serif;font-weight:800;font-size:15px;color:#EEF3FA}
-    #${PANEL_ID} .s{font-size:10px;font-weight:700;color:#8391AB}
+    #${PANEL_ID} .s{font-size:10.5px;font-weight:700;color:#8391AB}
     #${PANEL_ID} .caja{background:#1B2438;border:1.5px solid #2E3B57;border-radius:16px;padding:8px 10px;margin-top:8px}
-    #${PANEL_ID} .reco{border-color:#E8C35A;box-shadow:0 0 12px rgba(232,195,90,.25)}
-    #${PANEL_ID} .reco .t2{color:#E8C35A;font-weight:800}
-    #${PANEL_ID} .bts{display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px;margin-top:8px}
-    #${PANEL_ID} button{border-radius:14px;padding:8px 6px;font-weight:800;font-size:12px;border:1.5px solid #2E3B57;background:#1B2438;color:#C9D3E3}
+    #${PANEL_ID} .caja.oro{border-color:#E8C35A;box-shadow:0 0 12px rgba(232,195,90,.22)}
+    #${PANEL_ID} .oro-t{color:#E8C35A;font-weight:800}
+    #${PANEL_ID} .tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;margin-top:8px}
+    #${PANEL_ID} .tabs button{padding:6px 2px;font-size:10.5px;border-radius:12px}
+    #${PANEL_ID} .tabs button[aria-pressed="true"]{background:#24314B;color:#EEF3FA;box-shadow:inset 0 -3px 0 #7FD6E8}
+    #${PANEL_ID} button{border-radius:14px;padding:8px 6px;font-weight:800;font-size:12px;border:1.5px solid #2E3B57;background:#1B2438;color:#C9D3E3;cursor:pointer}
     #${PANEL_ID} button.pri{background:linear-gradient(180deg,#F4F8FF 0%,#C9D3E3 55%,#8D9BB5 100%);color:#0C1120;border-bottom:4px solid #5A6884}
     #${PANEL_ID} button.on{background:#E8C35A;color:#0C1120;border-bottom:4px solid #9A7A2A}
+    #${PANEL_ID} .fila{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
     #${PANEL_ID} .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
     #${PANEL_ID} .chip{display:inline-flex;align-items:center;gap:3px;border-radius:999px;padding:1px 7px 1px 2px;background:#24314B;font-size:10px;font-weight:800;color:#EEF3FA}
-    #${PANEL_ID} .chip img{width:24px;height:24px;image-rendering:pixelated}
-    #${PANEL_ID} details summary{cursor:pointer;font-weight:800;color:#EEF3FA;list-style:none}
-    #${PANEL_ID} details summary::-webkit-details-marker{display:none}
-    #${PANEL_ID} .log{max-height:130px;overflow-y:auto;font-size:10.5px;font-weight:600;line-height:1.45}
+    #${PANEL_ID} .chip img{width:26px;height:26px;image-rendering:pixelated}
+    #${PANEL_ID} .chip small{color:#8391AB;font-weight:700}
+    #${PANEL_ID} table{width:100%;border-collapse:collapse;font-size:10.5px}
+    #${PANEL_ID} td,#${PANEL_ID} th{padding:3px 4px;border-bottom:1px solid #24314B;text-align:left;vertical-align:top}
+    #${PANEL_ID} th{color:#8391AB;font-weight:800}
+    #${PANEL_ID} .num{text-align:right;font-variant-numeric:tabular-nums}
+    #${PANEL_ID} .log{max-height:140px;overflow-y:auto;font-size:10.5px;font-weight:600;line-height:1.45}
     #${PANEL_ID} .log p{margin:0;padding:1px 0}
     #${PANEL_ID} .log:empty{display:none}
-    #${PANEL_ID} .opt{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
-    #${PANEL_ID} .opt label{display:flex;gap:4px;align-items:center;font-size:10.5px;font-weight:700}
+    #${PANEL_ID} label{display:flex;gap:6px;align-items:center;font-size:11px;font-weight:700;margin-top:4px}
+    #${PANEL_ID} select{background:#24314B;color:#EEF3FA;border:1px solid #2E3B57;border-radius:8px;padding:2px 4px}
+    #${PANEL_ID} .barra{height:6px;border-radius:99px;background:#24314B;overflow:hidden}
+    #${PANEL_ID} .barra>span{display:block;height:100%;background:#7FD6E8}
     [data-axe-reco]{outline:3px solid #E8C35A!important;outline-offset:2px;position:relative}
-    [data-axe-reco]::after{content:"⭐";position:absolute;right:-6px;top:-8px;font-size:15px;filter:drop-shadow(0 0 2px #000)}`;
+    [data-axe-reco]::after{content:"⭐";position:absolute;right:-6px;top:-8px;font-size:15px;filter:drop-shadow(0 0 2px #000);pointer-events:none}
+    [data-axe-orden]::before{content:attr(data-axe-orden);position:absolute;left:-6px;top:-6px;background:#E8C35A;color:#0C1120;border-radius:99px;font-size:10px;font-weight:900;padding:0 5px;z-index:2}
+    li[data-axe-orden]{position:relative}`;
   const registroLog = lsGet('axe-log', []);
   function log(t) {
     const d = new Date(), h = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    registroLog.push(`${h}  ${t}`); while (registroLog.length > 60) registroLog.shift();
+    registroLog.push(`${h}  ${t}`); while (registroLog.length > 80) registroLog.shift();
     lsPut('axe-log', registroLog);
     const box = document.querySelector(`#${PANEL_ID} .log`);
     if (box) { const p = document.createElement('p'); p.textContent = `${h}  ${t}`; box.appendChild(p); box.scrollTop = box.scrollHeight; }
   }
-  function marcarRecomendado(b) {
-    for (const x of $$('[data-axe-reco]')) if (x !== b) x.removeAttribute('data-axe-reco');
-    if (b && !b.hasAttribute('data-axe-reco')) b.setAttribute('data-axe-reco', '1');
+  const chip = (e, extra = '') => `<span class="chip" title="${kEsc((e.tipos || []).join(' / '))}">${e.num ? `<img src="/sprites/${e.num}.png" alt="">` : '❔'}${kEsc(e.nombre)}${extra ? ` <small>${extra}</small>` : ''}</span>`;
+  let pestana = lsGet('axe-pestana', 'ahora'), ultimoP = null, pred = { clave: '', r: null, calc: false };
+  function marcar(P, R) {
+    for (const x of $$('[data-axe-reco]')) x.removeAttribute('data-axe-reco');
+    for (const x of $$('[data-axe-orden]')) x.removeAttribute('data-axe-orden');
+    if (!P) return;
+    let b = null;
+    if (R && R.mejor) {
+      if (P.tipo === 'bendicion') b = R.tirar ? P.reroll : (P.opciones.find(o => o.nombre === R.mejor.nombre) || {}).b;
+      else if (P.tipo === 'prestado') b = (P.opciones.find(o => o.nombre === R.mejor.nombre) || {}).b;
+      else if (P.tipo === 'puerta') b = (P.opciones.find(o => o.nombre === R.mejor.nombre && o.clase === R.mejor.clase) || {}).b;
+      else if (P.tipo === 'reclutar') b = R.mejor.dejar ? P.no : P.si;
+      else if (P.tipo === 'sustituir') b = R.mejor.dejar ? P.cancelar : (P.miembros.find(m => m.nombre === R.mejor.quien) || {}).b;
+    }
+    if (P.tipo === 'lobby' && informeMejoras && informeMejoras.filas[0] && informeMejoras.filas[0].claro && informeMejoras.filas[0].dEsq > 0 && P.mejoras) { const m = P.mejoras.find(x => x.nombre === informeMejoras.filas[0].n); if (m && m.boton) b = m.boton; }
+    if (b) b.setAttribute('data-axe-reco', '1');
+    if (P.tipo === 'puerta' && conf.reordenar !== 'no') { const o = ordenRecomendado(P); if (o && o.cambia) o.orden.forEach((x, k) => { const eq = equipoLeido(); const m = eq && eq.miembros.find(y => y.id === x.id); if (m) m.li.setAttribute('data-axe-orden', String(k + 1)); }); }
   }
-  const chip = d => `<span class="chip" title="${kEsc(d.t.join(' / '))}"><img src="/sprites/${d.num}.png" alt="">${kEsc(d.nombre)}</span>`;
-  function htmlReco(P, R) {
-    if (!P) return '';
-    if (P.tipo === 'prestado' && R) return `<p class="t2">⭐ Prestado: ${kEsc(R.mejor.nombre)}</p><p class="s">Fuerza para los próximos biomas: ${kEsc(R.texto)}</p>`;
-    if (P.tipo === 'bendicion' && R) return `<p class="t2">⭐ ${R.tirar ? '🎲 Vuelve a tirar' : kEsc(R.mejor.nombre)}</p><p class="s">Puntos de fuerza que suma cada una: ${kEsc(R.texto)}</p>`;
-    if (P.tipo === 'puerta' && R) return `<p class="t2">⭐ Puerta: ${kEsc(R.mejor.nombre)}</p><p class="s">${R.lista.map(o => `${kEsc(o.nombre)}: ${kEsc(o.porque)}`).join('<br>')}</p>`;
-    if (P.tipo === 'combate') return '<p class="t2">⚔️ Combate</p><p class="s">Lo apunto todo para ajustar el modelo.</p>';
-    if (P.tipo === 'reclutar') return `<p class="t2">🤝 Reclutar</p><p class="s">${equipoActual().length < 4 ? 'Hay hueco: recluta.' : 'Equipo lleno: aún no sé decidir a quién cambiar.'}</p>`;
-    if (P.tipo === 'lobby') return `<p class="t2">⛰️ ${P.gratis ? 'Hoy bajar es gratis' : 'Bajar ya no es gratis hoy'}</p>`;
-    return '';
+  function htmlAhora(P) {
+    const cab = (P && P.cab) || ultimaCab;
+    let h = '';
+    if (cab && P && P.tipo !== 'lobby') {
+      const L = listaBiomas(), i = Math.floor((cab.piso - 1) / 5);
+      const sig = [1, 2].map(k => ({ b: L[(i + k) % L.length], p: (i + k) * 5 + 1 }));
+      h += `<div class="caja"><p><b>${kEsc(cab.bioma.ico)} ${kEsc(cab.bioma.nombre)} · piso ${cab.piso}</b> <span class="s">vuelta ${cab.vuelta}${cab.esquirlas != null ? ` · 💎 ${cab.esquirlas}` : ''}${cab.pluma ? ' · 🪶' : ''}</span></p><p class="s">${kEsc(cab.bioma.efecto)}</p>
+        <p class="s" style="margin-top:4px">Luego: ${sig.map(x => `${kEsc(x.b.ico)} ${kEsc(x.b.nombre)} (piso ${x.p})`).join(' · ')} · rivales ~Nv.${nivelRival(cab.piso + 1)} en el siguiente piso</p>
+        ${pred.r ? `<p class="s" style="margin-top:4px">📈 Con este equipo llegas de media al <b>piso ${Math.round(pred.r.media)}</b> (entre ${pred.r.p25} y ${pred.r.p75}).</p>` : ''}</div>`;
+    }
+    const R = decision.R;
+    if (decision.calculando) h += `<div class="caja oro"><p class="oro-t">🤔 Pensando… (jugando cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} veces hacia delante)</p></div>`;
+    else if (R && P && ['prestado', 'bendicion', 'puerta', 'reclutar', 'sustituir'].includes(P.tipo)) {
+      const nombre = R.mejor.nombre;
+      h += `<div class="caja oro"><p class="oro-t">⭐ ${kEsc(R.tirar ? '🎲 Volver a tirar' : nombre)}</p><p class="s">Porque ${kEsc(R.porque)}.</p>
+        <table style="margin-top:4px"><tr><th>Opción</th><th class="num">nota</th><th class="num">sigues vivo</th></tr>${R.lista.map(x => `<tr><td>${kEsc(x.o.nombre)}</td><td class="num">${x.v.toFixed(1)}</td><td class="num">${pct(x.vivo)}</td></tr>`).join('')}</table>
+        <p class="s" style="margin-top:3px">Nota = pisos que se bajan de media jugando cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} veces hasta caer${conf.prioridad === 'esquirlas' ? ' (y las esquirlas que dan)' : ''}.</p></div>`;
+    }
+    if (P && P.tipo === 'puerta') { const o = ordenRecomendado(P); if (o && o.cambia) h += `<div class="caja"><p class="oro-t">🔀 Mejor orden: ${o.orden.map((x, k) => `${k + 1}. ${kEsc(x.nombre)}`).join(' · ')}</p><p class="s">Gana ${pct(o.v)} de los combates que vienen (ahora ${pct(o.actual)}). ${conf.reordenar && arrastreFallos < 2 ? 'El piloto lo pone solo.' : 'Arrástralos tú desde ⠿ (van numerados).'}</p></div>`; }
+    if (P && P.tipo === 'lobby') {
+      const b = kb.bajadas.filter(x => x.piso), mejor = b.length ? Math.max(...b.map(x => x.piso)) : null;
+      h += `<div class="caja"><p><b>⛰️ ${P.gratis ? 'Hoy bajar es gratis' : P.pases ? `Tienes ${P.pases} pases` : 'Bajar no es gratis hoy'}</b></p><p class="s">${b.length} bajadas apuntadas${mejor ? ` · la mejor, piso ${mejor}` : ''}. Abre «💎 Mejoras» del juego y mira la pestaña Mejoras de este panel.</p></div>`;
+    }
+    if (P && P.tipo === 'desconocida') h += '<div class="caja"><p class="s">Esta pantalla aún no la conozco: la he guardado para aprenderla.</p></div>';
+    return h + `<div class="fila" style="margin-top:8px"><button type="button" class="piloto ${piloto ? 'on' : 'pri'}" style="flex:2">${piloto ? '■ Parar' : '▶ Bajar solo'}</button><button type="button" class="pensar" style="flex:1">🧠 Recalcular</button></div>${msg ? `<p class="s" style="text-align:center;margin-top:4px">${kEsc(msg)}</p>` : ''}`;
   }
-  let ultimoP = null, ultimoR = null;
-  function pintar(P = ultimoP, R = ultimoR) {
-    ultimoP = P; ultimoR = R;
+  function htmlSaber() {
+    const esp = Object.values(kb.especies);
+    let h = `<div class="caja"><p class="s">Llevo vistas <b>${esp.length}</b> especies, <b>${Object.keys(kb.movs).length}</b> movimientos, <b>${Object.keys(kb.bendiciones).length}</b> bendiciones, <b>${Object.keys(kb.puertas).length}</b> puertas, <b>${Object.keys(kb.eventos).length}</b> sucesos y <b>${Object.keys(kb.mejoras).length}</b> mejoras, en ${kb.vistas} pantallas.</p>
+      <p class="s">Modelo: rivales ≈ Nv.${(memoNivel.a || 11).toFixed(1)} + ${(memoNivel.b || 2).toFixed(2)}·piso (tope 100) y desde ahí se hinchan (piso 50: ×${hinchaRival(50).toFixed(2)}, piso 60: ×${hinchaRival(60).toFixed(2)}, piso 75: ×${hinchaRival(75).toFixed(2)}) · tus mejoras ×${multMio().toFixed(3)} · daño aprendido: tuyos ${kLado('mio-F').toFixed(2)}/${kLado('mio-E').toFixed(2)}, rivales ${kLado('riv-F').toFixed(2)}/${kLado('riv-E').toFixed(2)} (físico/especial) · subís ${(kb.subida.s / Math.max(1, kb.subida.n)).toFixed(1)} niveles por piso.</p></div>`;
+    h += '<div class="caja"><p><b>🗺️ Qué sale en cada bioma</b> <span class="s">(los mejores para reclutar, primero)</span></p>';
+    for (const b of listaBiomas()) {
+      const pool = esp.filter(e => e.biomas && e.biomas[b.id]).map(e => ({ e, v: potencia(luchadorDe(e, 60, true, null)) })).sort((x, y) => y.v - x.v);
+      h += `<p style="margin-top:6px"><b>${kEsc(b.ico)} ${kEsc(b.nombre)}</b> <span class="s">${kEsc(b.efecto)}</span></p><div class="chips">${pool.length ? pool.map(x => chip(x.e, '×' + x.e.biomas[b.id])).join('') : '<span class="s">nada aún</span>'}</div>`;
+    }
+    h += '</div>';
+    h += `<div class="caja"><p><b>✨ Bendiciones</b></p><table><tr><th></th><th>Qué hace</th><th class="num">sale</th><th class="num">cogida</th></tr>${Object.entries(kb.bendiciones).sort((a, b) => b[1].ofrecida - a[1].ofrecida).map(([n, b]) => `<tr><td>${kEsc(b.ico)} <b>${kEsc(n)}</b></td><td>${kEsc(b.desc)}${efectoDe(b.desc) ? '' : ' <span class="s">❓ no sé medirla</span>'}</td><td class="num">${b.ofrecida}</td><td class="num">${b.elegida}</td></tr>`).join('')}</table></div>`;
+    h += `<div class="caja"><p><b>🚪 Puertas</b></p><table><tr><th></th><th class="num">vista</th><th class="num">💎 base</th><th>qué sale</th></tr>${Object.entries(kb.puertas).map(([c, p]) => `<tr><td>${kEsc(p.ico)} <b>${kEsc(p.nombre)}</b></td><td class="num">${p.vista}</td><td class="num">${esqPuerta(c).toFixed(1)}</td><td>${Object.entries(p.sale || {}).map(([k, n]) => `${kEsc(k)} ×${n}`).join(', ') || '<span class="s">—</span>'}</td></tr>`).join('')}</table><p class="s">💎 base: sin tus multiplicadores (ahora ×${multEsquirlas(efectosActivos(ultimasBendiciones), efectosMejoras()).toFixed(2)}).</p></div>`;
+    h += `<div class="caja"><p><b>📜 Sucesos</b></p>${Object.entries(kb.eventos).map(([c, e]) => `<p class="s">${kEsc(e.ico)} <b>${kEsc(e.titulo)}</b> ×${e.n}: ${kEsc(e.ejemplos[0] || '')}</p>`).join('') || '<p class="s">nada aún</p>'}
+      ${Object.keys(kb.objetos).length ? `<p class="s" style="margin-top:4px">🎒 Objetos que dejan los guardianes: ${Object.entries(kb.objetos).map(([n, c]) => `${kEsc(n)} ×${c}`).join(', ')}</p>` : ''}</div>`;
+    const mv = Object.entries(kb.movs).sort((a, b) => b[1].n - a[1].n).slice(0, 40);
+    h += `<details class="caja"><summary><b>⚔️ Movimientos vistos (${Object.keys(kb.movs).length})</b> <span class="s">el nombre es decorado: lo que cuenta es el tipo y si es físico o especial</span></summary><table><tr><th>Mov.</th><th>tipo</th><th class="num">usos</th></tr>${mv.map(([n, m]) => `<tr><td>${kEsc(n)}</td><td>${kEsc(m.tipo)} ${m.cat === 'F' ? '👊' : '✨'}</td><td class="num">${m.n}</td></tr>`).join('')}</table></details>`;
+    return h;
+  }
+  function htmlMejoras() {
+    const lista = Object.entries(kb.mejoras);
+    let h = `<div class="caja"><p class="s">Para cada mejora que se puede comprar se simulan 160 bajadas enteras con ella y sin ella (con los mismos dados): cuántas esquirlas más te da por bajada y en cuántas bajadas se paga.</p>
+      <div class="fila" style="margin-top:6px"><button type="button" class="calc-mej pri" style="flex:1">${informeMejoras ? '🔄 Volver a calcular' : '🧮 Calcular'}</button></div></div>`;
+    if (informeMejoras) {
+      const I = informeMejoras;
+      h += `<div class="caja"><p class="s">Ahora, de media: <b>piso ${I.base.piso.toFixed(0)}</b> y <b>${I.base.esq.toFixed(0)} 💎</b> por bajada (simulado).</p><table><tr><th>Mejora</th><th class="num">coste</th><th class="num">+💎/bajada</th><th class="num">+pisos</th><th class="num">se paga en</th></tr>
+        ${I.filas.map((f, i) => f.opcional ? `<tr><td>${kEsc(f.m.ico)} ${kEsc(f.n)} <span class="s">${f.m.nivel}/${f.m.max}</span></td><td class="num">${f.m.coste}</td><td colspan="3" class="s">se elige al bajar: no la simulo</td></tr>`
+          : `<tr${i === 0 && f.claro && f.dEsq > 0 ? ' style="color:#E8C35A"' : ''}><td>${i === 0 && f.claro && f.dEsq > 0 ? '⭐ ' : ''}${kEsc(f.m.ico)} ${kEsc(f.n)} <span class="s">${f.m.nivel}/${f.m.max}${f.entendida ? '' : ' ❓'}</span></td><td class="num">${f.m.coste}</td><td class="num">${f.claro ? (f.dEsq >= 0 ? '+' : '') + f.dEsq.toFixed(0) : '<span class="s">no se nota</span>'}</td><td class="num">${f.claro ? (f.dPiso >= 0 ? '+' : '') + f.dPiso.toFixed(1) : ''}</td><td class="num">${f.paga ? f.paga.toFixed(1) + ' b.' : '—'}</td></tr>`).join('')}</table>
+        <p class="s">«No se nota» = en 160 bajadas simuladas la diferencia es menor que el azar. ❓ = no entiendo del todo su texto. Las que rinden desde un piso (p. ej. «Sangre de la veta») solo sirven si llegas.</p></div>`;
+    }
+    h += `<div class="caja"><p><b>🏕️ El campamento</b> <span class="s">(lo último que vi)</span></p><table>${lista.map(([n, m]) => `<tr><td>${kEsc(m.ico)} ${kEsc(n)}</td><td class="num">${m.nivel}/${m.max}</td><td>${kEsc(m.desc)}</td><td class="num">${m.coste ? '💎 ' + m.coste : '✓'}</td></tr>`).join('')}</table></div>`;
+    return h;
+  }
+  function htmlHistorial() {
+    const b = kb.bajadas.filter(x => x.piso).slice().reverse();
+    if (!b.length) return '<div class="caja"><p class="s">Aún no hay bajadas terminadas.</p></div>';
+    const pisos = b.map(x => x.piso), esq = b.map(x => x.esq || 0);
+    return `<div class="caja"><p class="s">${b.length} bajadas · mejor piso <b>${Math.max(...pisos)}</b> · media <b>${media(pisos).toFixed(1)}</b> · <b>${media(esq).toFixed(0)} 💎</b> por bajada</p>
+      <table style="margin-top:4px"><tr><th>Cuándo</th><th>Prestado</th><th class="num">piso</th><th class="num">💎</th><th>Dónde cayó</th></tr>${b.slice(0, 25).map(x => `<tr><td>${x.t ? new Date(x.t).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '—'}</td><td>${kEsc(x.prestado || '')}</td><td class="num">${x.piso}</td><td class="num">${x.esq ?? '—'}</td><td>${kEsc(x.causa || '')}</td></tr>`).join('')}</table></div>`;
+  }
+  function htmlDatos() {
+    const op = (k, v, t) => `<option value="${v}"${conf[k] === v ? ' selected' : ''}>${t}</option>`;
+    return `<div class="caja"><p><b>⚙️ Cómo juega</b></p>
+      <label>Prioridad <select data-c="prioridad">${op('prioridad', 'pisos', 'bajar más')}${op('prioridad', 'esquirlas', 'más 💎')}</select></label>
+      <label>Cuánto piensa <select data-c="esfuerzo">${op('esfuerzo', 'rapido', 'rápido')}${op('esfuerzo', 'normal', 'normal')}${op('esfuerzo', 'alto', 'a fondo')}</select></label>
+      <label>Velocidad del piloto <select data-c="velocidad">${op('velocidad', 'rapida', 'rápida')}${op('velocidad', 'normal', 'normal')}${op('velocidad', 'tranquila', 'tranquila')}</select></label>
+      <label><input type="checkbox" data-c="empezarGratis"${conf.empezarGratis ? ' checked' : ''}> empezar solo si bajar es gratis</label>
+      <label><input type="checkbox" data-c="usarPases"${conf.usarPases ? ' checked' : ''}> gastar pases para empezar</label>
+      <label><input type="checkbox" data-c="reordenar"${conf.reordenar ? ' checked' : ''}> ordenar el equipo solo (arrastrando)</label></div>
+      <div class="caja"><p><b>💾 Datos</b></p><p class="s">Diario: <span class="n-diario">…</span> pasos. Todo se queda en este navegador; exporta para pasármelo o para llevarlo a otro.</p>
+      <div class="fila" style="margin-top:6px"><button type="button" class="exp" style="flex:1">📤 Exportar</button><button type="button" class="imp" style="flex:1">📥 Importar</button><button type="button" class="cop" style="flex:1">📋 HTML</button></div>
+      <div class="fila" style="margin-top:6px"><button type="button" class="reset" style="flex:1">🗑️ Borrar lo aprendido</button></div>
+      <input type="file" class="archivo" accept=".json,application/json" hidden></div>
+      <p class="s" style="margin-top:6px">Versión ${VERSION} · base v${ESQUEMA}</p>`;
+  }
+  const RENDER = { ahora: htmlAhora, saber: htmlSaber, mejoras: htmlMejoras, historial: htmlHistorial, datos: htmlDatos };
+  function pintar(P = ultimoP) {
+    ultimoP = P;
     const p = document.getElementById(PANEL_ID);
     if (!p) return;
-    const cab = (P && P.cab) || cabecera();
-    const set = (sel, html) => { const el = p.querySelector(sel); if (el && el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; } };
-    // dónde estás y lo que viene
-    let lugar = '';
-    if (cab) {
-      const sig = [1, 2].map(k => biomaDePiso((Math.floor((cab.piso - 1) / 5) + k) * 5 + 1));
-      const pisoSig = k => (Math.floor((cab.piso - 1) / 5) + k) * 5 + 1;
-      lugar = `<p><b>${cab.bioma.ico} ${kEsc(cab.bioma.nombre)} · piso ${cab.piso}</b> <span class="s">vuelta ${cab.vuelta}${cab.esquirlas != null ? ` · 💎 ${cab.esquirlas}` : ''}</span></p>
-        <p class="s">${kEsc(cab.bioma.efecto)}</p>
-        <p class="s" style="margin-top:4px">Después: ${sig.map((b, k) => `${b.ico} ${kEsc(b.nombre)} (piso ${pisoSig(k + 1)}): ${kEsc(b.efecto)}`).join('<br>')}</p>`;
-      const o = ordenRecomendado(cab.piso);
-      if (o && !o.yaBien) lugar += `<p class="s" style="margin-top:4px;color:#E8C35A">🔀 Mejor orden: ${o.orden.map((n, i) => `${i + 1}. ${kEsc(n)}`).join(' · ')} (${pct(o.actual)} → ${pct(o.v)}). Muévelos tú: aún no sé hacerlo solo.</p>`;
-    } else {
-      const b = apr.bajadas.slice(-5);
-      lugar = `<p class="s">${b.length ? 'Últimas bajadas: ' + b.map(x => `piso ${x.piso} (${x.esquirlas} 💎)`).join(' · ') : 'Aún no he visto ninguna bajada entera.'}</p>`;
-    }
-    set('.lugar', lugar);
-    const hr = htmlReco(P, R);
-    set('.reco', hr);
-    p.querySelector('.reco').hidden = !hr;
-    marcarRecomendado(R ? (R.tirar ? P.reroll : R.mejor && R.mejor.b) : null);
-    // ranking por bioma
-    set('.rank', !rankingBiomas ? '<p class="s">Calculando…</p>' : BIOMAS.map(b => `<p style="margin-top:6px"><b>${b.ico} ${kEsc(b.nombre)}</b> <span class="s">${kEsc(b.efecto)}</span></p><div class="chips">${rankingBiomas[b.id].map(x => chip(x.d)).join('')}</div>`).join('') + '<p class="s" style="margin-top:6px">A Nv.40 contra lo que sale en cada bioma (lo que se ha visto o, si aún no, sus tipos), sin legendarios. Sirve para saber a quién reclutar.</p>');
-    // aprendizaje
-    const kM = kDe('mio'), kR = kDe('rival');
-    set('.apr', `<p class="s">Aprendido: ${apr.k.mio.n + apr.k.rival.n} golpes (los tuyos pegan ×${kM.toFixed(2)}, los rivales ×${kR.toFixed(2)}) · ${apr.niveles.length} rivales vistos · ${Object.values(apr.especies).reduce((s, x) => s + Object.keys(x).length, 0)} especies · registro de ${registro.length} pasos.</p>`);
-    const bp = p.querySelector('.piloto');
-    const t = piloto ? '■ Parar' : '▶ Bajar solo';
-    if (bp.textContent !== t) bp.textContent = t;
-    bp.className = 'piloto ' + (piloto ? 'on' : 'pri');
-    set('.msg', msg ? kEsc(msg) : '');
+    for (const b of $$('.tabs button', p)) b.setAttribute('aria-pressed', b.dataset.t === pestana ? 'true' : 'false');
+    const cont = p.querySelector('.cont');
+    const html = RENDER[pestana](P);
+    if (cont.dataset.h !== html) { cont.innerHTML = html; cont.dataset.h = html; }
+    const nd = p.querySelector('.n-diario'); if (nd) DIARIO.contar().then(n => { nd.textContent = n; });
+    marcar(P, decision.R && decision.firma.startsWith(firmaDe(P)) ? decision.R : null);
   }
   function montar() {
     let p = document.getElementById(PANEL_ID);
-    if (!enEntranas()) { if (p) p.remove(); marcarRecomendado(null); return; }
+    if (!enEntranas()) { if (p) p.remove(); marcar(null); return; }
     const m = raiz();
     if (!m) return;
     if (!p) {
@@ -950,39 +1653,43 @@
       p = document.createElement('section');
       p.id = PANEL_ID;
       p.setAttribute('data-ax-ignore', '1');
-      p.innerHTML = `
-        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:22px">⛏️</span><div style="flex:1"><p class="t">Entrañas · asistente</p><p class="s">Graba, aprende y recomienda (⭐). Con ▶ baja solo.</p></div></div>
-        <div class="caja lugar"></div>
-        <div class="caja reco" hidden></div>
-        <div class="bts"><button type="button" class="piloto pri"></button><button type="button" class="exp">📤 Exportar</button><button type="button" class="cop">📋 HTML</button></div>
-        <p class="s msg" style="text-align:center;margin-top:4px"></p>
-        <div class="opt">
-          <label><input type="checkbox" class="o-gratis"> empezar solo si es gratis</label>
-          <label>prioridad <select class="o-prio"><option value="pisos">bajar más</option><option value="esquirlas">más 💎</option></select></label>
-        </div>
-        <details class="caja"><summary>🗺️ Los mejores para cada bioma ▾</summary><div class="rank"></div></details>
-        <div class="caja apr"></div>
-        <div class="caja log"></div>`;
+      p.innerHTML = `<div class="fila"><span style="font-size:22px">⛏️</span><div style="flex:1"><p class="t">Entrañas · IA</p><p class="s">Graba todo, aprende y juega cada opción hacia delante antes de decidir.</p></div></div>
+        <div class="tabs">${[['ahora', '⭐ Ahora'], ['saber', '📚 Saber'], ['mejoras', '💎 Mejoras'], ['historial', '📜 Bajadas'], ['datos', '⚙️ Datos']].map(([k, t]) => `<button type="button" data-t="${k}">${t}</button>`).join('')}</div>
+        <div class="cont"></div><details class="caja" open><summary class="s">Bitácora</summary><div class="log"></div></details>`;
       p.querySelector('.log').innerHTML = registroLog.map(t => `<p>${kEsc(t)}</p>`).join('');
-      p.querySelector('.piloto').addEventListener('click', e => { e.preventDefault(); kPedirPermiso(); setPiloto(!piloto); });
-      p.querySelector('.exp').addEventListener('click', e => { e.preventDefault(); exportar(); });
-      p.querySelector('.cop').addEventListener('click', async e => {
+      p.addEventListener('click', e => {
+        const b = e.target.closest('button'); if (!b) return;
         e.preventDefault();
-        const c = raiz().cloneNode(true); const yo = c.querySelector('#' + PANEL_ID); if (yo) yo.remove();
-        const html = c.outerHTML + $$('div.fixed.inset-0').filter(d => !ajeno(d)).map(d => d.outerHTML).join('\n');
-        try { await navigator.clipboard.writeText(html); log('📋 HTML de esta pantalla copiado.'); } catch { console.log('[axe] HTML:', html); log('No pude copiar: está en la consola (F12).'); }
+        if (b.dataset.t) { pestana = b.dataset.t; lsPut('axe-pestana', pestana); pintar(); return; }
+        if (b.classList.contains('piloto')) { kPedirPermiso(); setPiloto(!piloto); }
+        if (b.classList.contains('pensar')) { decision.firma = ''; pred.clave = ''; actualizar(); }
+        if (b.classList.contains('calc-mej')) { b.textContent = '⏳ Simulando…'; calcularMejoras(); }
+        if (b.classList.contains('exp')) exportar();
+        if (b.classList.contains('imp')) p.querySelector('.archivo').click();
+        if (b.classList.contains('cop')) { const c = raiz().cloneNode(true); const yo = c.querySelector('#' + PANEL_ID); if (yo) yo.remove(); navigator.clipboard.writeText(c.outerHTML + $$('div.fixed.inset-0').filter(d => !ajeno(d)).map(d => d.outerHTML).join('\n')).then(() => log('📋 HTML copiado.'), () => log('No pude copiar.')); }
+        if (b.classList.contains('reset') && confirm('¿Borrar todo lo aprendido y el diario? (vuelve a lo que sabía al instalarlo)')) { kb = kbNueva(); guardaKb(); DIARIO.borrar(); informeMejoras = null; log('🗑️ Base reiniciada.'); pintar(); }
       });
-      const g = p.querySelector('.o-gratis'), pr = p.querySelector('.o-prio');
-      g.checked = !!conf.empezarGratis; pr.value = conf.prioridad;
-      g.addEventListener('change', () => { conf.empezarGratis = g.checked; guardaConf(); });
-      pr.addEventListener('change', () => { conf.prioridad = pr.value; guardaConf(); ultimoR = decidir(ultimoP); pintar(); });
+      p.addEventListener('change', e => {
+        const el = e.target;
+        if (el.classList.contains('archivo') && el.files[0]) { importar(el.files[0]); el.value = ''; return; }
+        if (el.dataset.c) { conf[el.dataset.c] = el.type === 'checkbox' ? el.checked : el.value; guardaConf(); decision.firma = ''; actualizar(); }
+      });
       const box = p.querySelector('.log'); box.scrollTop = box.scrollHeight;
-      if (!rankingBiomas) setTimeout(calcularRanking, 300);
     }
     if (m.firstElementChild !== p) m.insertBefore(p, m.firstElementChild);
+    actualizar();
+  }
+  // Lee la pantalla, la graba, y (si hay que decidir) piensa en segundo plano
+  function actualizar() {
     const P = pantalla();
     grabar(P);
-    pintar(P, decidir(P));
+    pintar(P);
+    if (P && ['prestado', 'bendicion', 'puerta', 'reclutar', 'sustituir'].includes(P.tipo) && !piloto) decisionPara(P).then(() => pintar());
+    if (P && P.tipo === 'puerta') {
+      const clave = P.cab.piso + '|' + equipoLeido().miembros.map(m => m.nombre + m.L + m.hp).join(',');
+      if (pred.clave !== clave && !pred.calc) { pred.clave = clave; pred.calc = true; prediccion(P).then(r => { pred.r = r; pred.calc = false; pintar(); }); }
+    }
+    if (P && P.tipo === 'lobby' && P.mejoras && (!informeMejoras || Date.now() - informeMejoras.t > 6 * 3600e3)) calcularMejoras();
     if (piloto) bucle();
   }
   let tMontar = null;
@@ -990,6 +1697,6 @@
     if (ms.every(m => m.target.nodeType === 1 && m.target.closest && m.target.closest('[data-ax-ignore]'))) return;
     clearTimeout(tMontar); tMontar = setTimeout(montar, 250);
   }).observe(document.documentElement, { childList: true, subtree: true });
-  setTimeout(montar, 1000);
-  window.__axEntranas = { pantalla, decidir, equipoActual, fuerza, evaluarPuerta, apr, exportar };
+  setTimeout(montar, 900);
+  window.__axEntranas = { ponerOrden, equipoLeido, combate, luchadorDe, especie, hinchar, hinchaRival, efectosActivos, rivalesDe, nivelRival, kLado, multMio, pantalla, decidir, estadoActual, valorar, kb: () => kb, calcularMejoras, prediccion, ordenRecomendado, exportar, reaprender, efectoDe, reglasBioma, bajadaEntera, rodar, clonar, rngDe };
 })();
