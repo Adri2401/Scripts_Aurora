@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.23.0
+// @version      0.23.1
 // @description  Solo en /castillo. Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -66,6 +66,7 @@
    * ------------------------------------------------------------------ */
   const LS_MAPAS = 'axg-mapas';
   let mapas = (() => { try { return JSON.parse(localStorage.getItem(LS_MAPAS) || '{}') || {}; } catch { return {}; } })();
+  for (const m of Object.values(mapas)) for (const d of Object.values((m && m.ent) || {})) delete d.ida;
   let guardarMapasT = null;
   const guardarMapas = () => { clearTimeout(guardarMapasT); guardarMapasT = setTimeout(() => { try { localStorage.setItem(LS_MAPAS, JSON.stringify(mapas)); } catch { /* sin storage */ } }, 400); };
   let plantaMemo = { t: 0, v: null };
@@ -108,17 +109,19 @@
       ahora.add(k);
       const d = { c: e.c, f: e.f, tipo: e.tipo, nombre: e.nombre, tag: e.el.tagName === 'IMG' ? 'img' : 'span', src: e.el.tagName === 'IMG' ? e.el.getAttribute('src') : '', cls: String(e.el.className || '').replace(/\banimate-\S+/g, '').trim(), css: e.el.style.cssText };
       const antes = m.ent[k];
+      idasVisita.delete(n + '|' + k);
       if (!antes || antes.css !== d.css || antes.src !== d.src || antes.ida) { m.ent[k] = d; cambio = true; }
     }
     for (const [k, d] of Object.entries(m.ent)) {
       const cel = t.celdas.get(d.c + ',' + d.f);
-      if (!ahora.has(k) && cel && cel.tipo !== 'niebla' && !idaReciente(d)) { d.ida = Date.now(); cambio = true; }
+      if (!ahora.has(k) && cel && cel.tipo !== 'niebla') idasVisita.add(n + '|' + k);      // en esta visita ya no está (se queda en la memoria)
     }
     if (cambio) { m.t = Date.now(); guardarMapas(); }
   }
-  // Lo que se vio que ya no estaba (jarrón roto, entrenador vencido) no cuenta durante 6 h (esta expedición); después
-  // se da por hecho que ha vuelto
-  const idaReciente = d => d.ida && Date.now() - d.ida < 6 * 3600e3;
+  // Lo que en ESTA visita a la planta ya no está (jarrón roto, entrenador vencido) no se dibuja ni se busca; la memoria
+  // lo guarda para siempre, porque al volver a la planta está todo otra vez. Se vacía al llegar a la planta.
+  const idasVisita = new Set();
+  const idaReciente = d => idasVisita.has(plantaN() + '|' + d.tipo + '|' + d.c + ',' + d.f);
   // Lo recordado que ahora está a oscuras: casillas (con su imagen) y cosas, algo apagado para que se note que es memoria
   function memoriaHTML(t) {
     const m = memPlanta();
@@ -203,6 +206,7 @@
     // Solo al llegar a la planta (la primera lectura): si no, pisar la de bajada la confundiría con la de subida.
     const pk = plantaActual(), cj = jugador && celdas.get(jugador.c + ',' + jugador.f);
     const llegando = pk !== plantaLeida; plantaLeida = pk;
+    if (llegando) nuevaVisita(pk);
     if (cj && cj.tipo === 'escalera' && llegando) entradas.add(pk + '|' + cj.c + ',' + cj.f);
     const memE = memPlanta();
     for (const cel of celdas.values()) if (cel.tipo === 'escalera' && (entradas.has(pk + '|' + cel.c + ',' + cel.f) || (memE && memE.c[cel.c + ',' + cel.f] === 'u'))) { cel.tipo = 'suelo'; cel.entrada = true; }
@@ -949,6 +953,13 @@
   }
 
   const combatidos = new Set();
+  // Al llegar a una planta (o volver a ella otra semana) todo está otra vez: se olvida lo hecho en la visita anterior
+  function nuevaVisita(pk) {
+    const n = plantaN();
+    for (const k of [...idasVisita]) if (k.startsWith(n + '|')) idasVisita.delete(k);
+    for (const set of [combatidos, tumbasVistas]) for (const k of [...set]) if (k.startsWith(pk + '|')) set.delete(k);
+    contadoresPlanta = { planta: pk, remolino: 0, jarron: 0, lapida: 0, puerta: 0, arqueologo: 0 };
+  }
   const MAX_REMOLINOS = 5;                       // por planta, por si un remolino no desapareciera tras usarlo
   const MAX_JARRONES = 20;
   const puertaVisitas = {};                      // planta|puerta → nº de tumbas leídas la última vez que se probó
@@ -1088,7 +1099,7 @@
             }
           } else if (r.length > 1 && e.recordado) {
             msg = TXT[1] + ' (recordado, a oscuras)'; pintar();
-            if (!(await pasoA(r[1], t))) { if (++sinCambio > 3) { const m = memPlanta(), d = m && m.ent && m.ent[e.tipo + '|' + e.c + ',' + e.f]; if (d) d.ida = Date.now(); sinCambio = 0; } } else sinCambio = 0;
+            if (!(await pasoA(r[1], t))) { if (++sinCambio > 3) { const m = memPlanta(), d = m && m.ent && m.ent[e.tipo + '|' + e.c + ',' + e.f]; if (d) idasVisita.add(plantaN() + '|' + e.tipo + '|' + e.c + ',' + e.f); sinCambio = 0; } } else sinCambio = 0;
             await pausa(150, 300);
             continue;
           } else if (r.length > 1) {
