@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Frente Batalla (automático)
 // @namespace    auroradex-frente
-// @version      0.2.0
+// @version      0.3.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
-// @description  En cada edificio del Frente Batalla (/frontera/…): elige a los mejores para esa regla (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Seguir» hasta el final. Si sale una pantalla que aún no conoce, se para, avisa y deja copiar su HTML. En la Cúpula, antes de cada combate, pone a los tuyos en el mejor orden contra los tres que te esperan.
+// @description  En cada edificio del Frente Batalla (/frontera/…): marca solos a los mejores para esa regla de los Pokémon que haya (en cuanto abres la pantalla de elegir) (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Seguir» hasta el final. Si sale una pantalla que aún no conoce, se para, avisa y deja copiar su HTML. En la Cúpula, antes de cada combate, pone a los tuyos en el mejor orden contra los tres que te esperan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -298,7 +298,9 @@
     const pokes = $$('ul li > button', sec).map(b => {
       const img = b.querySelector('img[src*="/sprites/"]');
       const m = img && (img.getAttribute('src') || '').match(/\/(\d+)\.(?:png|gif|webp)/);
-      return { b, nombre: img ? img.alt : texto(b), num: m ? +m[1] : null, vale: !b.disabled };
+      // marcado: la tarjeta sale con el borde verde (o aria-pressed)
+      const marcado = b.getAttribute('aria-pressed') === 'true' || /\b(border-hoja-[3-6]00|bg-hoja-50)\b/.test(b.className);
+      return { b, nombre: img ? img.alt : texto(b), num: m ? +m[1] : null, vale: !b.disabled, marcado };
     });
     const empezar = $$('button', sec).find(b => /empezar la tanda/i.test(texto(b)));
     return { sec, pokes, elegidos: cont ? +cont[1] : 0, necesarios: cont ? +cont[2] : 3, empezar };
@@ -596,8 +598,60 @@
     return { estado: 'no', textos };
   }
 
+  // Deja marcados justo a los recomendados, en su orden. Si la página enseña quién está marcado (borde verde), se mira
+  // eso: se quitan los que sobran y se ponen los que faltan, y se comprueba (vale igual si al tocar a otro se cambia
+  // solo, como en «Elige uno»). Si no lo enseña, se tira del contador: se toca cada uno y, si el contador no se mueve
+  // como toca, se vuelve a tocar.
+  const marcados = () => eleccion().pokes.filter(p => p.marcado).map(p => p.nombre);
+  const seVeMarcado = () => { const E = eleccion(); return E.elegidos === E.pokes.filter(p => p.marcado).length; };
+  async function marcar(R) {
+    const quiero = R.eq.map(x => x.p.nombre);
+    const buscar = n => { const p = eleccion().pokes.find(y => y.nombre === n && y.vale); if (!p) throw new Error(`No encuentro a ${n}.`); return p; };
+    if (seVeMarcado()) {
+      for (let vuelta = 0; vuelta < 3; vuelta++) {
+        for (const p of eleccion().pokes.filter(y => y.marcado && !quiero.includes(y.nombre))) { p.b.click(); await pausa(250, 400); }
+        for (const n of quiero) { const p = buscar(n); if (!p.marcado) { p.b.click(); await pausa(300, 500); } }
+        if ([...marcados()].sort().join() === [...quiero].sort().join()) return;
+      }
+      return;
+    }
+    if (eleccion().elegidos > 0) {
+      for (const p of eleccion().pokes.filter(y => y.vale && !quiero.includes(y.nombre))) {
+        const antes = eleccion().elegidos;
+        if (!antes) break;
+        p.b.click(); await pausa(250, 400);
+        if (eleccion().elegidos > antes) { p.b.click(); await pausa(250, 400); }
+      }
+    }
+    for (const n of quiero) {
+      const p = buscar(n);
+      const antes = eleccion().elegidos;
+      p.b.click(); await pausa(300, 500);
+      if (eleccion().elegidos <= antes) { p.b.click(); await pausa(300, 500); }   // ya estaba marcado: se desmarcó
+    }
+  }
+  // En cuanto se abre la pantalla de elegir sin nadie marcado, se marcan solos los mejores de los que haya (no gasta
+  // nada: la tanda se empieza con el botón). Una vez cada vez que se abre; si luego cambias algo a mano, no se toca.
+  let autoFirma = '', marcando = false;
+  async function marcarSolo() {
+    const E = eleccion();
+    if (!E) { autoFirma = ''; return; }            // fuera de la pantalla de elegir (en plena tanda): al volver se marca otra vez
+    if (corriendo || marcando || E.elegidos > 0 || !reco || !reco.eq || reco.firma !== recoFirma) return;
+    const firma = recoFirma;
+    if (!firma || firma === autoFirma) return;
+    autoFirma = firma;
+    marcando = true;
+    try {
+      await marcar(reco);
+      const F = eleccion();
+      if (F && F.elegidos === F.necesarios) log(`☑️ Marcados solos: ${reco.eq.map(x => x.p.nombre).join(', ')}. Dale a «Empezar» o a 🤖.`);
+    } catch (e) { console.warn('[axf] marcar', e); }
+    finally { marcando = false; }
+  }
+
   async function hacerTanda() {
     if (corriendo) { parar = true; return; }
+    while (marcando) await sleep(200);
     corriendo = true; parar = false; desconocida = false;
     kPedirPermiso();
     try {
@@ -606,24 +660,7 @@
       else {
         const R = await recomendacion();
         if (!R || !R.eq) throw new Error(R ? `Solo ${R.validos.length} Pokémon valen aquí y hacen falta ${R.E.necesarios}.` : 'No veo dónde elegir.');
-        // 1) quitar lo que haya elegido y marcar los recomendados, en orden
-        // (si ya había alguno marcado a mano: se toca cada uno que no toca; si el contador baja, estaba marcado y ya no;
-        // si sube, no lo estaba y se vuelve a tocar para dejarlo como estaba)
-        if (eleccion().elegidos > 0) {
-          for (const p of eleccion().pokes.filter(y => y.vale && !R.eq.some(x => x.p.nombre === y.nombre))) {
-            const antes = eleccion().elegidos;
-            if (!antes) break;
-            p.b.click(); await pausa(250, 400);
-            if (eleccion().elegidos > antes) { p.b.click(); await pausa(250, 400); }
-          }
-        }
-        for (const x of R.eq) {
-          const p = eleccion().pokes.find(y => y.nombre === x.p.nombre && y.vale);
-          if (!p) throw new Error(`No encuentro a ${x.p.nombre}.`);
-          const antes = eleccion().elegidos;
-          p.b.click(); await pausa(300, 500);
-          if (eleccion().elegidos <= antes) { p.b.click(); await pausa(300, 500); }   // ya estaba marcado: se desmarcó
-        }
+        await marcar(R);
         // se deja al juego un momento para que apunte la elección antes de empezar
         await pausa(1200, 1800);
         const E = eleccion();
@@ -690,8 +727,11 @@
     const firma = E ? E.pokes.map(p => p.nombre + (p.vale ? '1' : '0')).join(',') + '|' + E.necesarios + '|' + edificio() : '';
     if (!E || firma === recoFirma) return;
     recoFirma = firma;
-    reco = await recomendacion();
+    const r = await recomendacion();
+    if (r) r.firma = firma;
+    reco = r;
     pintar();
+    marcarSolo();
   }
   const pct = x => Math.round(x * 100) + '%';
   function pintar() {
@@ -764,6 +804,7 @@
     if (main.firstElementChild !== p) main.insertBefore(p, main.firstElementChild);
     pintar();
     actualizarReco();
+    marcarSolo();
     // en la Cúpula se ordena solo en cuanto se ve a los rivales (también si la tanda la llevas tú)
     if (id === 'cupula' && pantallaCupula()) ordenarCupula();
   }
