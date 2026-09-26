@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Frente Batalla (automático)
 // @namespace    auroradex-frente
-// @version      0.3.0
+// @version      0.4.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
-// @description  En cada edificio del Frente Batalla (/frontera/…): marca solos a los mejores para esa regla de los Pokémon que haya (en cuanto abres la pantalla de elegir) (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Seguir» hasta el final. Si sale una pantalla que aún no conoce, se para, avisa y deja copiar su HTML. En la Cúpula, antes de cada combate, pone a los tuyos en el mejor orden contra los tres que te esperan.
+// @description  En cada edificio del Frente Batalla (/frontera/…): marca solos a los mejores para esa regla de los Pokémon que haya (en cuanto abres la pantalla de elegir) (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Seguir» hasta el final. Si sale una pantalla que aún no conoce, se para, avisa y deja copiar su HTML. En la Cúpula, antes de cada combate, pone a los tuyos en el mejor orden contra los tres que te esperan. Si ganas una tanda empieza sola la siguiente; se para si pierdes o al llevar 3 ganadas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -649,68 +649,138 @@
     finally { marcando = false; }
   }
 
+  /* ─── ¿Ganada o perdida? ───
+   * 1) La racha del edificio en los datos de la página (React): si sube, ganada; si estaba en 0 y sigue en 0, perdida.
+   * 2) Si no se ve, los mensajes que han salido durante la tanda. Si no está claro, se da por no ganada (y se para). */
+  const fibraDe = el => { if (!el) return null; const k = Object.keys(el).find(x => x.startsWith('__reactFiber$')); return k ? el[k] : null; };
+  function rachaDatos() {
+    const id = edificio();
+    const buscar = (v, prof, vistos) => {
+      if (!v || typeof v !== 'object' || prof > 4 || vistos.has(v) || v.$$typeof) return null;
+      vistos.add(v);
+      if (!Array.isArray(v) && typeof v.racha === 'number' && (v.id === id || v.zonaId === 'frontera-' + id || prof === 0)) return v.racha;
+      for (const k of Array.isArray(v) ? v.keys() : Object.keys(v)) {
+        if (k === 'children') continue;
+        const r = buscar(v[k], prof + 1, vistos);
+        if (r != null) return r;
+      }
+      return null;
+    };
+    for (const el of $$('main section').filter(x => !ajeno(x)).slice(0, 4)) {
+      for (let f = fibraDe(el), i = 0; f && i < 60; f = f.return, i++) {
+        const r = buscar(f.memoizedProps, 0, new Set());
+        if (r != null) return r;
+      }
+    }
+    return null;
+  }
+  const rachaAhora = () => { const d = rachaDatos(); if (d != null) return d; const m = rachaTexto().join(' ').match(/llevas (\d+) tanda/i); return m ? +m[1] : null; };
+  const RE_PERDIDA = /(has perdido|derrota|te (ha|han) ganado|te ha tumbado|ca[ií]do|\bcaes\b|pierdes|fin de la racha|racha (rota|perdida|a cero)|tanda (perdida|gastada)|eliminad)/i;
+  const RE_GANADA = /(tanda (completa|superada|ganada)|has ganado (la tanda|los 7|los siete)|\b7\s*\/\s*7\b|siete de siete|s[ií]mbolo[^.]*(es tuyo|conseguido|ganado)|enhorabuena|victoria)/i;
+  async function veredicto(antes, textos) {
+    let despues = rachaAhora();
+    for (let i = 0; i < 20 && antes != null && despues === antes && !(antes === 0 && i >= 10); i++) { await sleep(250); despues = rachaAhora(); }   // lo que tarde en refrescarse
+    if (antes != null && despues != null) {
+      if (despues > antes) return 'ganada';
+      if (despues < antes || antes === 0) return 'perdida';
+    }
+    const t = textos.join(' · ');
+    if (RE_PERDIDA.test(t)) return 'perdida';
+    if (RE_GANADA.test(t)) return 'ganada';
+    return null;
+  }
+
+  // Una tanda: elegir, empezar y avanzar hasta volver a la pantalla de elegir. Devuelve 'ganada', 'perdida', null (no
+  // se sabe), 'parado' o 'desconocida' (pantalla que no conoce)
+  async function unaTanda() {
+    let antes;
+    const textos = [], vistos = new Set();
+    const apunta = () => { if (eleccion()) return; for (const t of textosJuego()) if (!vistos.has(t)) { vistos.add(t); textos.push(t); } };
+    // a mitad de tanda (p. ej. en la Cúpula antes de un combate): se sigue desde ahí
+    if (!eleccion() && (pantallaCupula() || botonAvance())) { antes = rachaAhora(); log('▶ Sigo la tanda donde está.'); }
+    else {
+      const R = await recomendacion();
+      if (!R || !R.eq) throw new Error(R ? `Solo ${R.validos.length} Pokémon valen aquí y hacen falta ${R.E.necesarios}.` : 'No veo dónde elegir.');
+      await marcar(R);
+      // se deja al juego un momento para que apunte la elección antes de empezar
+      await pausa(1200, 1800);
+      const E = eleccion();
+      if (E.elegidos !== E.necesarios) throw new Error(`Hay ${E.elegidos} de ${E.necesarios} elegidos; revísalo.`);
+      log(`✅ Elegidos: ${R.eq.map(x => x.p.nombre).join(', ')}.`);
+      if (!E.empezar || E.empezar.disabled) throw new Error('El botón de empezar está apagado (¿sin energía?).');
+      if (parar) return 'parado';
+      antes = rachaAhora();
+      const arranque = await empezarTanda(E.empezar);
+      if (arranque.estado === 'hecha') {
+        log(`🏁 La tanda se ha jugado de golpe (⚡ ${arranque.antes} → ${arranque.despues}).${arranque.textos.length ? ' ' + arranque.textos.join(' · ') : ''}`);
+        return veredicto(antes, arranque.textos);
+      }
+      if (arranque.estado === 'no') throw new Error(arranque.textos.length
+        ? `El juego no ha empezado la tanda: «${arranque.textos.join(' · ')}».`
+        : 'El juego no ha empezado la tanda: al pulsar «Empezar» no ha cambiado nada ni ha gastado ⚡. Pulsa tú «Empezar la tanda» y, si sale algún mensaje, pásamelo.');
+      textos.push(...arranque.textos);
+      log('▶ Tanda empezada.');
+      await pausa(600, 900);
+    }
+    // avanzar con los botones del juego hasta volver a la pantalla de elegir
+    let ultimo = Date.now(), ultimoBoton = Date.now(), cambiosAntes = cambios, pulsados = 0;
+    while (!parar) {
+      if (!edificio()) throw new Error('Has salido del edificio.');
+      apunta();
+      const E2 = eleccion();
+      if (E2 && E2.empezar && pulsados > 0) return veredicto(antes, textos);
+      // Cúpula: antes de cada combate, los tuyos en el mejor orden contra los que te esperan
+      if (pantallaCupula()) { await ordenarCupula(); if (parar) break; }
+      const b = botonAvance();
+      if (b) {
+        await pausa(500, 900);
+        if (!b.isConnected || b.disabled) continue;
+        apunta();
+        msg = `Pulso «${texto(b)}»`; pintar();
+        b.click(); pulsados++; ultimo = ultimoBoton = Date.now();
+        await pausa(700, 1100);
+        continue;
+      }
+      if (cambios !== cambiosAntes) { cambiosAntes = cambios; ultimo = Date.now(); }   // algo se mueve (animación del combate)
+      // sin botón conocido: 8 s con la pantalla quieta, o 30 s como mucho aunque se mueva algo
+      if (Date.now() - ultimo > 8000 || Date.now() - ultimoBoton > 30000) {
+        desconocida = true;
+        console.log('[axf] pantalla desconocida:', document.querySelector('main') && document.querySelector('main').outerHTML);
+        log('⏸ Pantalla que no conozco: la dejo para ti.');
+        kAviso({ tipo: 'aviso', app: 'Frente Batalla', icono: '🧩', titulo: 'Pantalla que no conozco', texto: 'Hazla tú y, si quieres que la aprenda, pulsa «Copiar el HTML de esta pantalla» en el panel y pásamelo.' });
+        return 'desconocida';
+      }
+      const seg = Math.round((Date.now() - ultimoBoton) / 1000);
+      if (seg >= 3) { const t = `Esperando al juego… ${seg} s`; if (msg !== t) { msg = t; pintar(); } }
+      await sleep(400);
+    }
+    return 'parado';
+  }
+
+  // Tandas seguidas: si ganas una, va solo a por la siguiente; si pierdes (o no está claro), se para; con 3 ganadas, también
+  const MAX_GANADAS = 3;
+  let ganadas = 0;
   async function hacerTanda() {
     if (corriendo) { parar = true; return; }
     while (marcando) await sleep(200);
-    corriendo = true; parar = false; desconocida = false;
+    corriendo = true; parar = false; desconocida = false; ganadas = 0;
     kPedirPermiso();
+    const aviso = (tipo, titulo, lineas = []) => kAviso({ tipo, app: 'Frente Batalla', icono: EDIFICIOS[edificio()] ? EDIFICIOS[edificio()].icono : '🏝️', titulo, lineas: [EDIFICIOS[edificio()] ? EDIFICIOS[edificio()].nombre : '', ...lineas, ...rachaTexto()].filter(Boolean) });
     try {
-      // a mitad de tanda (p. ej. en la Cúpula antes de un combate): se sigue desde ahí
-      if (!eleccion() && (pantallaCupula() || botonAvance())) log('▶ Sigo la tanda donde está.');
-      else {
-        const R = await recomendacion();
-        if (!R || !R.eq) throw new Error(R ? `Solo ${R.validos.length} Pokémon valen aquí y hacen falta ${R.E.necesarios}.` : 'No veo dónde elegir.');
-        await marcar(R);
-        // se deja al juego un momento para que apunte la elección antes de empezar
-        await pausa(1200, 1800);
-        const E = eleccion();
-        if (E.elegidos !== E.necesarios) throw new Error(`Hay ${E.elegidos} de ${E.necesarios} elegidos; revísalo.`);
-        log(`✅ Elegidos: ${R.eq.map(x => x.p.nombre).join(', ')}.`);
-        if (!E.empezar || E.empezar.disabled) throw new Error('El botón de empezar está apagado (¿sin energía?).');
-        if (parar) throw new Error('Parado.');
-        const arranque = await empezarTanda(E.empezar);
-        if (arranque.estado === 'hecha') {
-          log(`🏁 La tanda se ha jugado de golpe (⚡ ${arranque.antes} → ${arranque.despues}).${arranque.textos.length ? ' ' + arranque.textos.join(' · ') : ''}`);
-          kAviso({ tipo: 'fin', app: 'Frente Batalla', icono: EDIFICIOS[edificio()].icono, titulo: 'Tanda terminada', lineas: [EDIFICIOS[edificio()].nombre, ...arranque.textos.slice(0, 3), ...rachaTexto()] });
-          return;
-        }
-        if (arranque.estado === 'no') throw new Error(arranque.textos.length
-          ? `El juego no ha empezado la tanda: «${arranque.textos.join(' · ')}».`
-          : 'El juego no ha empezado la tanda: al pulsar «Empezar» no ha cambiado nada ni ha gastado ⚡. Pulsa tú «Empezar la tanda» y, si sale algún mensaje, pásamelo.');
-        log('▶ Tanda empezada.');
-        await pausa(600, 900);
+      for (;;) {
+        const r = await unaTanda();
+        if (r === 'parado') { log('■ Parado.'); break; }
+        if (r === 'desconocida') break;
+        if (r === 'perdida') { log(`❌ Tanda perdida${ganadas ? ` (llevabas ${ganadas} ganada${ganadas > 1 ? 's' : ''})` : ''}: paro.`); aviso('error', 'Tanda perdida', ganadas ? [`Ganadas antes: ${ganadas}`] : []); break; }
+        if (r !== 'ganada') { log('⏹ Tanda terminada, pero no sé si la has ganado: paro por si acaso.'); aviso('aviso', 'Tanda terminada', ['No sé si se ha ganado: paro']); break; }
+        ganadas++;
+        if (ganadas >= MAX_GANADAS) { log(`🏆 ${ganadas} tandas ganadas seguidas: paro.`); aviso('fin', `${ganadas} tandas ganadas`, ['Paro aquí']); break; }
+        log(`✔ Tanda ganada (${ganadas}/${MAX_GANADAS}). Voy a por la siguiente.`);
+        msg = `Ganadas ${ganadas}/${MAX_GANADAS}: a por la siguiente…`; pintar();
+        await pausa(1500, 2500);
+        if (!await (async () => { for (let i = 0; i < 40; i++) { if (parar || eleccion()) return true; await sleep(250); } return false; })()) throw new Error('No vuelve la pantalla de elegir para la siguiente tanda.');
+        if (parar) { log('■ Parado.'); break; }
       }
-      // 2) avanzar con los botones del juego hasta volver a la pantalla de elegir
-      let ultimo = Date.now(), ultimoBoton = Date.now(), cambiosAntes = cambios, pulsados = 0;
-      while (!parar) {
-        if (!edificio()) throw new Error('Has salido del edificio.');
-        const E2 = eleccion();
-        if (E2 && E2.empezar && pulsados > 0) { log('🏁 Tanda terminada.'); kAviso({ tipo: 'fin', app: 'Frente Batalla', icono: EDIFICIOS[edificio()].icono, titulo: 'Tanda terminada', lineas: [EDIFICIOS[edificio()].nombre, ...rachaTexto()] }); break; }
-        // Cúpula: antes de cada combate, los tuyos en el mejor orden contra los que te esperan
-        if (pantallaCupula()) { await ordenarCupula(); if (parar) break; }
-        const b = botonAvance();
-        if (b) {
-          await pausa(500, 900);
-          if (!b.isConnected || b.disabled) continue;
-          msg = `Pulso «${texto(b)}»`; pintar();
-          b.click(); pulsados++; ultimo = ultimoBoton = Date.now();
-          await pausa(700, 1100);
-          continue;
-        }
-        if (cambios !== cambiosAntes) { cambiosAntes = cambios; ultimo = Date.now(); }   // algo se mueve (animación del combate)
-        // sin botón conocido: 8 s con la pantalla quieta, o 30 s como mucho aunque se mueva algo
-        if (Date.now() - ultimo > 8000 || Date.now() - ultimoBoton > 30000) {
-          desconocida = true;
-          console.log('[axf] pantalla desconocida:', document.querySelector('main') && document.querySelector('main').outerHTML);
-          log('⏸ Pantalla que no conozco: la dejo para ti.');
-          kAviso({ tipo: 'aviso', app: 'Frente Batalla', icono: '🧩', titulo: 'Pantalla que no conozco', texto: 'Hazla tú y, si quieres que la aprenda, pulsa «Copiar el HTML de esta pantalla» en el panel y pásamelo.' });
-          break;
-        }
-        const seg = Math.round((Date.now() - ultimoBoton) / 1000);
-        if (seg >= 3) { const t = `Esperando al juego… ${seg} s`; if (msg !== t) { msg = t; pintar(); } }
-        await sleep(400);
-      }
-      if (parar) log('■ Parado.');
     } catch (e) {
       log('⚠ ' + (e && e.message));
       kAviso({ tipo: 'error', app: 'Frente Batalla', titulo: 'Tanda parada', texto: String(e && e.message) });
@@ -785,7 +855,7 @@
         <div class="axf-reco"></div>
         <div class="axf-cupula space-y-0.5 rounded-card border-2 border-crema-200 bg-crema-50 p-2" hidden></div>
         <button type="button" class="axf-tanda boton-principal w-full !py-2.5 text-sm"></button>
-        <p class="text-[10px] font-semibold leading-snug text-tinta-400">Elige a los mejores (todas las combinaciones de los que valen aquí, contra rivales de todos los tipos), empieza la tanda (se pagan los ⚡ del botón del juego) y va pulsando «Seguir» / «Continuar» hasta el final. En la Cúpula, antes de cada combate ordena a los tuyos contra los que te esperan. Si sale algo que aún no sé hacer (las puertas de la Senda, rebuscar en la Pirámide…), se para y te avisa.</p>
+        <p class="text-[10px] font-semibold leading-snug text-tinta-400">Elige a los mejores (todas las combinaciones de los que valen aquí, contra rivales de todos los tipos), empieza la tanda (se pagan los ⚡ del botón del juego) y va pulsando «Seguir» / «Continuar» hasta el final. Si la ganas, empieza sola la siguiente; se para si pierdes o al llevar 3 ganadas. En la Cúpula, antes de cada combate ordena a los tuyos contra los que te esperan. Si sale algo que aún no sé hacer (las puertas de la Senda, rebuscar en la Pirámide…), se para y te avisa.</p>
         <p class="axf-msg text-center text-[11px] font-bold text-tinta-500"></p>
         <button type="button" class="axf-copiar boton-suave w-full !py-2 text-[11px]" hidden>📋 Copiar el HTML de esta pantalla</button>
         <div class="axf-log ${K_LOG}"></div>`;
