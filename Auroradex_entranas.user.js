@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.4.0
+// @version      1.5.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que los que pelean estén al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -371,12 +371,18 @@
   kb.templeObs = kb.templeObs || []; kb.subidaPuerta = kb.subidaPuerta || {};
   let tGuardar = null;
   const guardaKb = () => { clearTimeout(tGuardar); tGuardar = setTimeout(() => { if (!lsPut(LS_KB, kb)) { kb.niveles = kb.niveles.slice(-300); lsPut(LS_KB, kb); } }, 400); };
-  const conf = Object.assign({ prioridad: 'equilibrio', empezarGratis: true, usarPases: false, reordenar: true, velocidad: 'normal', esfuerzo: 'normal', comprar: false, sanguijuelas: 6, eliteHasta: 'equipo' }, lsGet(LS_CONF, {}));
+  const conf = Object.assign({ prioridad: 'progreso', empezarGratis: true, usarPases: false, reordenar: true, velocidad: 'normal', esfuerzo: 'normal', comprar: false, sanguijuelas: 6, eliteHasta: 'equipo' }, lsGet(LS_CONF, {}));
   // 1.2: la prioridad por defecto pasa a «equilibrio» (bajar mucho y que rinda en esquirlas: Botín pronto)
+  // 1.5: «progreso» pasa a ser lo de por defecto (lo que más rápido lleva hondo, según el laboratorio)
+  if (!conf.v15) { if (conf.prioridad === 'equilibrio' || conf.prioridad === 'pisos') conf.prioridad = 'progreso'; conf.v15 = true; lsPut(LS_CONF, conf); }
   if (!conf.v12) { if (conf.prioridad === 'pisos') conf.prioridad = 'equilibrio'; conf.v12 = true; lsPut(LS_CONF, conf); }
   // Cuánto vale una esquirla frente a un piso, según la prioridad (en «pisos» de la bajada). En «equilibrio» pesa al
   // principio (Botín pronto rinde toda la partida) y cada vez menos al bajar (ahí lo que cuenta es aguantar).
-  const pesoEsq = (piso = 1) => conf.prioridad === 'esquirlas' ? 1 : conf.prioridad === 'pisos' ? 0.05 : 0.4 - 0.35 * clamp((piso - 15) / 30, 0, 1);
+  // «progreso» (por defecto): a por esquirlas mientras Sangre de la veta no esté al máximo (en el laboratorio, cada nivel de
+  // Sangre vale muchísimos pisos: 2/5 → piso 74, 3/5 → 89, 4/5 → 138, 5/5 → 246 de media) y luego, equilibrio.
+  const sangrePendiente = () => (mejAhora(), memoMej.sp);
+  const modoPrioridad = () => conf.prioridad === 'progreso' ? (sangrePendiente() ? 'esquirlas' : 'equilibrio') : conf.prioridad;
+  const pesoEsq = (piso = 1) => { const m = modoPrioridad(); return m === 'esquirlas' ? 1 : m === 'pisos' ? 0.05 : 0.4 - 0.35 * clamp((piso - 15) / 30, 0, 1); };
   const guardaConf = () => lsPut(LS_CONF, conf);
   const media2 = x => x && x.n ? Math.exp(x.s / x.n) : 1;
 
@@ -511,7 +517,11 @@
   }
   // Las mejoras de ahora (se recalcula solo si cambia algún nivel)
   let memoMej = { k: null, v: null };
-  const mejAhora = () => { const k = Object.entries(kb.mejoras).map(([n, m]) => n + ':' + m.nivel).join('|'); if (memoMej.k !== k) memoMej = { k, v: efectosMejoras() }; return memoMej.v; };
+  const mejAhora = () => {
+    const k = Object.entries(kb.mejoras).map(([n, m]) => n + ':' + m.nivel).join('|');
+    if (memoMej.k !== k) memoMej = { k, v: efectosMejoras(), sp: Object.values(kb.mejoras).some(m => { const e = efectoDe(m.desc || ''); return e && e.hincha && m.nivel < m.max; }) };
+    return memoMej.v;
+  };
 
   /* ══════════ 1 · LECTOR (cada pantalla → datos) ══════════ */
   const raiz = () => document.querySelector('main main') || document.querySelector('main');
@@ -985,7 +995,7 @@
     const cn = calidad(e, null).total, cs = S.eq.map(y => calidadDe(y, null));
     const hueco = S.eq.length < S.plazas;
     let peor = 0; cs.forEach((c, k) => { if (c < cs[peor]) peor = k; });
-    if (hueco ? cs.length && cn < 0.85 * media(cs) : !(cn > cs[peor] + 0.06)) return;
+    if (hueco ? cs.length && cn < AJ.recluta * media(cs) : !(cn > cs[peor] + 0.06)) return;
     const nivel = Math.min(100, L + (S.ef.reclutaNiv || 0) + (S.mej.reclutaNiv || 0));
     const x = luchadorDe(e, nivel, true, S.ef, { piso: S.piso, mej: S.mej }); x.vida = S.ef.reclutaLlenos ? 1 : 0.6;
     if (hueco) S.eq.push(x); else S.eq[peor] = x;
@@ -995,6 +1005,8 @@
   //   así se reparte solo entre PS, ataque y defensas (aguantar ∝ PS × defensa; ganar ∝ ataque).
   // · Curar al ganar (Sanguijuela) vale mucho hasta que entre todo cura ~100% por victoria; luego ya no suma.
   // · Subir niveles vale poco (al 100 se llega igual y ahí no hace nada). Botín vale más cuanto más queda por bajar.
+  // Ajustes de la estrategia (los que se afinan en el laboratorio: miles de bajadas simuladas con los mismos dados)
+  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0.2, recluta: 0.85, nivelesPeso: 0.5 };
   function valorRapidoBend(S, e) {
     if (!e) return 0.01;
     const eq = S.eq, n = Math.max(1, eq.length);
@@ -1002,20 +1014,25 @@
     if (e.stats) for (const x of eq) {
       if (!x.m || (e.tipo && !x.tipos.includes(e.tipo))) continue;
       const g = c => ((e.stats[c] || 1) - 1) / x.m[c];
-      v += (g('hp') + (x.fis ? g('atk') : g('esp')) + 0.5 * g('def') + 0.5 * g('esp') + 0.2 * g('spe')) / n;
+      v += (AJ.pHp * g('hp') + AJ.pOff * (x.fis ? g('atk') : g('esp')) + AJ.pDef * g('def') + AJ.pEsp * g('esp') + AJ.pSpe * g('spe')) / n;
     }
-    if (e.curaVictoria) v += e.curaVictoria * 1.3 * Math.max(0, 1.1 - S.ef.curaVictoria - S.mej.curaVictoria);
-    if (e.niveles) v += eq.reduce((s, x) => s + (Math.min(100, x.L + e.niveles) - x.L) / Math.max(1, x.L), 0) / n * 0.5;
+    if (e.curaVictoria) {
+      v += e.curaVictoria * AJ.curaPeso * Math.max(0, 1.1 - S.ef.curaVictoria - S.mej.curaVictoria);
+      if (AJ.sangHasta && S.ef.curaVictoria / e.curaVictoria < AJ.sangHasta - 0.5 && !estadoEquipo(S).al100) v += 1;
+    }
+    if (e.niveles) v += eq.reduce((s, x) => s + (Math.min(100, x.L + e.niveles) - x.L) / Math.max(1, x.L), 0) / n * AJ.nivelesPeso;
     if (e.aguante) v += S.ef.aguante ? 0 : 0.05;
     if (e.descansoX) v += 0.03;
-    if (e.esquirlas) v += pesoEsq(S.piso) * 0.5 * e.esquirlas / (1 + S.ef.esquirlas) * clamp(((S.techo || S.piso + 60) - S.piso) / 80, 0, 1.5);
+    if (e.esquirlas) v += AJ.botinPeso * (modoPrioridad() === 'esquirlas' ? 2 : 1) * pesoEsq(S.piso) * 0.5 * e.esquirlas / (1 + S.ef.esquirlas) * clamp(((S.techo || S.piso + 60) - S.piso) / 80, 0, 1.5);
     if (e.reclutaNiv) v += S.eq.length < S.plazas ? 0.04 : 0.015;
     return v;
   }
   function darBendicion(S, rng) {
     const cat = Object.entries(kb.bendiciones);
     if (!cat.length) return;
-    const tres = Array.from({ length: 3 }, () => cat[Math.floor(rng() * cat.length)]);
+    // tres distintas, cada una con la frecuencia con que el juego las ofrece de verdad
+    const pool = cat.map(([n, b]) => ({ k: [n, b], w: Math.max(1, b.ofrecida || 1) })), tres = [];
+    while (tres.length < 3 && pool.length) { const x = elige(pool, rng); tres.push(x.k); pool.splice(pool.indexOf(x), 1); }
     let mejor = null;
     for (const [n, b] of tres) { const e = efectoDe(b.desc); const v = valorRapidoBend(S, e); if (!mejor || v > mejor.v) mejor = { n, b, e, v }; }
     aplicarBendicion(S, mejor.n, mejor.b.desc);
@@ -1118,12 +1135,12 @@
     const t = estadoEquipo(S), hay = c => ops.includes(c);
     let orden;
     if (!t.al100) {
-      if (hay('elite') && t.h >= 0.6 && !t.falta) return 'elite';
-      if (hay('descanso') && (t.h < 0.55 || t.falta)) return 'descanso';
+      if (hay('elite') && t.h >= AJ.eliteVida && !t.falta) return 'elite';
+      if (hay('descanso') && (t.h < AJ.descansoVida || t.falta)) return 'descanso';
       // sin Élite: Combate (2 niveles) si aún queda mucho para el 100; si ya casi, lo que da esquirlas sin pelear
       orden = t.h >= 0.45 && !t.falta && t.minL < 90 ? ['combate', 'tesoro', 'misterio', 'oculta', 'descanso', 'elite'] : ['tesoro', 'misterio', 'descanso', 'oculta', 'combate', 'elite'];
     } else {
-      if (hay('descanso') && (t.h < 0.9 || t.falta || t.minVida < 0.7)) return 'descanso';
+      if (hay('descanso') && (t.h < AJ.descanso100 || t.falta || t.minVida < 0.7)) return 'descanso';
       orden = ['tesoro', 'misterio', 'oculta', 'descanso', 'combate', 'elite'];
     }
     return orden.find(hay) || ops[0];
@@ -1790,7 +1807,7 @@
       const nombre = R.mejor.nombre;
       h += `<div class="caja oro"><p class="oro-t">⭐ ${kEsc(R.tirar ? '🎲 Volver a tirar' : nombre)}</p><p class="s">Porque ${kEsc(R.porque)}.</p>
         <table style="margin-top:4px"><tr><th>Opción</th><th class="num">nota</th><th class="num">llega al piso</th></tr>${R.lista.map(x => `<tr><td>${kEsc(x.o.nombre)}</td><td class="num">${x.v.toFixed(1)}</td><td class="num">${x.techo ? x.techo.toFixed(0) : '—'}</td></tr>`).join('')}</table>
-        <p class="s" style="margin-top:3px">Se juega cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} partidas enteras hasta caer, jugando bien (Élite hasta que los que pelean estén al Nv.100; luego tesoros, misterios y descansos) y con las mismas puertas y rivales en cada piso para todas. Nota = piso al que se llega${conf.prioridad !== 'pisos' ? ' + las esquirlas que se sacan (pesan más al principio)' : ''}.</p></div>`;
+        <p class="s" style="margin-top:3px">Se juega cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} partidas enteras hasta caer, jugando bien (Élite hasta que los que pelean estén al Nv.100; luego tesoros, misterios y descansos) y con las mismas puertas y rivales en cada piso para todas. Nota = piso al que se llega${modoPrioridad() !== 'pisos' ? (modoPrioridad() === 'esquirlas' ? ' + las esquirlas que se sacan (ahora mandan: son las que compran Sangre de la veta)' : ' + las esquirlas que se sacan (pesan más al principio)') : ''}.</p></div>`;
     }
     if (P && P.tipo === 'puerta') { const o = ordenRecomendado(P); if (o && o.cambia) h += `<div class="caja"><p class="oro-t">🔀 Mejor orden: ${o.orden.map((x, k) => `${k + 1}. ${kEsc(x.nombre)}`).join(' · ')}</p><p class="s">Gana ${pct(o.v)} de los combates que vienen (ahora ${pct(o.actual)}). ${conf.reordenar && arrastreFallos < 2 ? 'El piloto lo pone solo.' : 'Arrástralos tú desde ⠿ (van numerados).'}</p></div>`; }
     if (P && P.tipo === 'lobby') {
@@ -1849,7 +1866,7 @@
   function htmlDatos() {
     const op = (k, v, t) => `<option value="${v}"${conf[k] === v ? ' selected' : ''}>${t}</option>`;
     return `<div class="caja"><p><b>⚙️ Cómo juega</b></p>
-      <label>Prioridad <select data-c="prioridad">${op('prioridad', 'equilibrio', 'equilibrio (bajar mucho y Botín pronto)')}${op('prioridad', 'pisos', 'solo bajar')}${op('prioridad', 'esquirlas', 'más 💎')}</select></label>
+      <label>Prioridad <select data-c="prioridad">${op('prioridad', 'progreso', 'progreso: 💎 hasta tener Sangre de la veta al máximo, luego bajar (recomendado)')}${op('prioridad', 'equilibrio', 'equilibrio (bajar mucho y Botín pronto)')}${op('prioridad', 'pisos', 'solo bajar')}${op('prioridad', 'esquirlas', 'más 💎')}</select></label>
       <label>Élites hasta que estén al Nv.100 <select data-c="eliteHasta">${op('eliteHasta', 'equipo', 'los tres que pelean (recomendado)')}${op('eliteHasta', 'principal', 'solo el principal (el prestado)')}</select></label>
       <label>Sanguijuela (mientras suben de nivel): cogerla hasta <select data-c="sanguijuelas">${['0', '3', '4', '5', '6', '8'].map(v => `<option value="${v}"${String(conf.sanguijuelas) === v ? ' selected' : ''}>${v === '0' ? 'lo que diga la IA' : '×' + v}</option>`).join('')}</select></label>
       <label>Cuánto piensa <select data-c="esfuerzo">${op('esfuerzo', 'rapido', 'rápido')}${op('esfuerzo', 'normal', 'normal')}${op('esfuerzo', 'alto', 'a fondo')}</select></label>
@@ -1930,5 +1947,5 @@
     clearTimeout(tMontar); tMontar = setTimeout(montar, 250);
   }).observe(document.documentElement, { childList: true, subtree: true });
   setTimeout(montar, 900);
-  window.__axEntranas = { ponerOrden, equipoLeido, combate, luchadorDe, especie, hinchar, hinchaRival, efectosActivos, rivalesDe, nivelRival, kLado, multMio, pantalla, decidir, estadoActual, valorar, kb: () => kb, calcularMejoras, prediccion, ordenRecomendado, exportar, reaprender, efectoDe, reglasBioma, bajadaEntera, rodar, clonar, rngDe, techo, modeloMio, pendMio, puntuar, calidad, politica, recorrer, estadoEquipo, valorRapidoBend, aplicarBendicion, mejAhora, jugarPuerta, puertasDe, politicaRapida, darBendicion, conf };
+  window.__axEntranas = { ponerOrden, equipoLeido, combate, luchadorDe, especie, hinchar, hinchaRival, efectosActivos, rivalesDe, nivelRival, kLado, multMio, pantalla, decidir, estadoActual, valorar, kb: () => kb, calcularMejoras, prediccion, ordenRecomendado, exportar, reaprender, efectoDe, reglasBioma, bajadaEntera, rodar, clonar, rngDe, techo, modeloMio, pendMio, puntuar, calidad, politica, recorrer, estadoEquipo, valorRapidoBend, aplicarBendicion, mejAhora, jugarPuerta, puertasDe, politicaRapida, darBendicion, conf, AJ };
 })();
