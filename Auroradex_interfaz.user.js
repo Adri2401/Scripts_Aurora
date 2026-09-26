@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.7.3
-// @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
+// @version      1.8.0
+// @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente y embarca), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_interfaz.user.js
@@ -346,7 +346,8 @@
       SAFARI('kanto', 'Kanto'), SAFARI('johto', 'Johto'), SAFARI('hoenn', 'Hoenn'), SAFARI('sinnoh', 'Sinnoh'), SAFARI('teselia', 'Teselia'),
     ] },
     { id: 'extra', titulo: 'Extra', icono: '🧰', items: [
-      { href: '/frontera',   icon: '🎖️', label: 'Frente Batalla' },
+      // Se llega en barco: Hoenn → tramo «Muelle del Frente» → «Embarcar»
+      { href: '/frontera',   icon: '🏝️', label: 'Frente Batalla', region: 'hoenn', regionLabel: 'Hoenn', zona: 'Muelle del Frente', boton: 'embarcar' },
       { href: '/ranking',    icon: '🏆', label: 'Ranking' },
       { href: '/liga',       icon: '🏅', label: 'Liga' },
       { href: '/miel',       icon: '🍯', label: 'Árboles de Miel' },
@@ -452,6 +453,78 @@
     const buscada = normalizarTexto(pend.etiqueta);
     const btn = [...document.querySelectorAll('button:not([disabled])')].find(b => normalizarTexto(b.textContent).includes(buscada));
     if (btn) btn.click();
+  }
+
+  /* ─── Accesos que están en un tramo del mapa (el Frente Batalla: Hoenn → Muelle del Frente → «Embarcar») ───
+   * Se apunta el destino en la pestaña; si hace falta, se cambia de región (con el viaje de arriba, que acaba en el
+   * mapa) y en el mapa se abre «Ver mapa completo», se pulsa el tramo y, ya allí, el botón («Embarcar»). */
+  const ZONA_KEY = 'adx-pending-zona';
+  const esperaMs = ms => new Promise(r => setTimeout(r, ms));
+  async function esperarA(fn, ms = 8000) { for (let t = 0; t < ms; t += 200) { const v = fn(); if (v) return v; await esperaMs(200); } return fn(); }
+  const textoDe = el => (el && el.textContent || '').replace(/\s+/g, ' ').trim();
+  const visibleEl = el => !!el && el.getClientRects().length > 0 && !el.closest('#' + PANEL_ID) && !el.closest('[data-ax-ignore]');
+  function irAZona(item) {
+    sessionStorage.setItem(ZONA_KEY, JSON.stringify({ zona: item.zona, boton: item.boton, region: item.region, label: item.label, t: Date.now() }));
+    if (item.region && regionActual() !== item.region) { irConCambioDeRegion(item.region, item.regionLabel || cap(item.region), '/mapa'); return; }
+    if (/^\/mapa\/?$/.test(location.pathname)) continuarZona();
+    else { const en = document.querySelector('nav a[href="/mapa"]'); if (en) en.click(); else location.href = '/mapa'; }
+  }
+  const tramoAqui = () => textoDe(document.querySelector('main h1'));
+  // Lista de tramos de «Ver mapa completo» (la misma que usa el script de Manadas)
+  const listaTramos = () => [...document.querySelectorAll('ol')].find(o => o.querySelector('li button') && /Nv\./.test(o.textContent)) || null;
+  let zonaEnMarcha = false;
+  async function continuarZona() {
+    if (zonaEnMarcha) return;
+    const raw = sessionStorage.getItem(ZONA_KEY);
+    if (!raw) return;
+    let pend;
+    try { pend = JSON.parse(raw); } catch { sessionStorage.removeItem(ZONA_KEY); return; }
+    if (!pend || !pend.zona || Date.now() - (pend.t || 0) > 180000) { sessionStorage.removeItem(ZONA_KEY); return; }
+    if (sessionStorage.getItem(ADX_PENDING_KEY)) return;            // aún cambiando de región
+    if (!/^\/mapa\/?$/.test(location.pathname)) return;
+    zonaEnMarcha = true;
+    const fallo = texto => { sessionStorage.removeItem(ZONA_KEY); kAviso({ tipo: 'error', app: 'Accesos', icono: '🏝️', titulo: `No he podido llegar a ${pend.label || pend.zona}`, texto }); };
+    const buscada = normalizarTexto(pend.zona);
+    const estoy = () => normalizarTexto(tramoAqui()) === buscada;
+    try {
+      await esperarA(() => tramoAqui() && regionEnChapa(), 6000);      // que acabe de pintarse el mapa
+      if (pend.region && (regionEnChapa() || regionActual()) !== pend.region) return fallo(`Sigues sin estar en ${cap(pend.region)}.`);
+      if (!estoy()) {
+        // 1) el tramo en la lista de «Ver mapa completo»; si no sale ahí, su tarjeta en el mapa
+        let ol = listaTramos();
+        if (!ol) {
+          const ab = [...document.querySelectorAll('main a, main button')].find(x => visibleEl(x) && /mapa completo/i.test(textoDe(x)));
+          if (ab) { ab.click(); ol = await esperarA(listaTramos, 6000); }
+        }
+        const nombreDe = b => normalizarTexto(textoDe(b.querySelector('span.truncate')) || textoDe(b));
+        let btn = ol && [...ol.querySelectorAll('li button')].find(b => !/^ver que/i.test(b.getAttribute('aria-label') || '') && nombreDe(b).startsWith(buscada));
+        if (!btn) btn = [...document.querySelectorAll('main a, main button')].find(x => visibleEl(x) && !x.querySelector('h1') && normalizarTexto(textoDe(x)).startsWith(buscada));
+        if (!btn) return fallo(`No veo «${pend.zona}» en el mapa de ${cap(pend.region || '')}.`);
+        if (btn.disabled) return fallo(`«${pend.zona}» está cerrado en el mapa.`);
+        btn.click();
+        // si pide confirmar el viaje, se confirma (una vez)
+        let confirmado = false;
+        const llegado = await esperarA(() => {
+          if (estoy()) return true;
+          if (!confirmado) {
+            const c = [...document.querySelectorAll('[role="dialog"] button, [aria-modal="true"] button, div.fixed button')]
+              .find(b => visibleEl(b) && !b.disabled && /^[^a-z0-9¡]*(ir|viajar|s[ií]\b|vamos|confirmar|aceptar)/i.test(textoDe(b)));
+            if (c) { confirmado = true; c.click(); }
+          }
+          return false;
+        }, 15000);
+        if (!llegado) return fallo(`He pulsado «${pend.zona}» pero no he llegado.`);
+        await esperaMs(400);
+      }
+      // 2) ya en el tramo: su botón («Embarcar»)
+      if (!pend.boton) { sessionStorage.removeItem(ZONA_KEY); return; }
+      const re = new RegExp('^[^a-z0-9]*' + pend.boton, 'i');
+      const b = await esperarA(() => [...document.querySelectorAll('main button, main a')].find(x => visibleEl(x) && !x.disabled && re.test(normalizarTexto(textoDe(x)))), 8000);
+      if (!b) return fallo(`Estoy en ${pend.zona} pero no encuentro «${cap(pend.boton)}».`);
+      sessionStorage.removeItem(ZONA_KEY);
+      b.click();
+    } catch (e) { console.warn('[adx zona]', e); fallo(String(e && e.message || e)); }
+    finally { zonaEnMarcha = false; }
   }
 
   /* ─── Qué actividades hay en cada región, aprendido del Menú ────────────
@@ -1054,7 +1127,13 @@
       ${req ? `<span class="text-[9px] font-extrabold uppercase tracking-wide text-cielo-600">${kEsc(req.label)}</span>` : ''}`;
 
     if (item.porRegion) a.addEventListener('click', (ev) => { if (ev.button === 0) marcarHecho(item); });   // Safari: al pulsarlo cuenta como hecho hoy
-    if (req) {
+    if (item.zona) {
+      a.addEventListener('click', (ev) => {
+        if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+        ev.preventDefault();
+        irAZona(item);
+      });
+    } else if (req) {
       a.addEventListener('click', (ev) => {
         if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
         ev.preventDefault();
@@ -1154,6 +1233,7 @@
     clearTimeout(syncT);
     syncT = setTimeout(() => {
       continuarViajePendiente();
+      continuarZona();
       leerEstadoDelMenu();
       refrescarSubasta();
       refrescarSalon();
@@ -1172,6 +1252,7 @@
   esperarHidratacion().then(() => {
     observer.observe(document.body, { childList: true, subtree: true });
     continuarViajePendiente();
+    continuarZona();
     leerEstadoDelMenu();
     refrescarSubasta();
     refrescarSalon();
