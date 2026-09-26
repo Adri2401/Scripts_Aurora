@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.26.0
+// @version      1.26.1
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -908,7 +908,7 @@
     pintarEquipo();
     try {
       const pag = datosPaginaEquipo();
-      if (!pag.todos.length || !pag.guardar) {
+      if (!pag.todos.length) {
         console.warn('[axt mejor equipo] datos', pag.todos.length, 'guardar', !!pag.guardar);
         resultado = aviso('⚠️ No encuentro tus Pokémon o cómo cambiar el equipo en esta página.', 'rojo');
         return;
@@ -930,30 +930,138 @@
       const lineas = `${filaEquipo(r.equipo)}${cambios}<p class="mt-1 text-[10px] font-semibold text-tinta-400">Gana el ${Math.round(r.n.g * 100)}% contra rivales de todos los tipos (Nv.${r.nivel}), elegido entre ${r.especies} especies. Los 3 primeros salen a combatir.</p>`;
       if (ids.join() === pag.ids.join()) { resultado = aviso(`✔ ${titulo}: ya lo tenías puesto así.`, 'hoja', lineas); return; }
       progreso = 'Cambiando el equipo…'; pintarEquipo();
-      const ok = await cambiarEquipo(pag.guardar, ids, conLeg ? 'Mejor equipo puesto.' : 'Mejor equipo sin legendarios puesto.');
-      resultado = ok
+      const fallo = await cambiarEquipo(pag.guardar, ids, porId, conLeg ? 'Mejor equipo puesto.' : 'Mejor equipo sin legendarios puesto.');
+      resultado = !fallo
         ? aviso(`✔ ${titulo}: puesto, ordenado y guardado.`, 'hoja', lineas)
-        : aviso(`⚠️ ${titulo}: la web no ha aceptado el cambio. Ponlo a mano:`, 'rojo', lineas);
+        : aviso(`⚠️ ${titulo}: ${esc(fallo)}. Lo que falte, ponlo a mano:`, 'rojo', lineas);
     } catch (e) { console.warn('[axt mejor equipo]', e); resultado = aviso('⚠️ Error: ' + esc(e && e.message), 'rojo'); }
     finally { ocupado = null; progreso = ''; pintarEquipo(); }
   }
-  // Cambia el equipo entero (saca a los que sobran y mete los de la Caja PC, ya en orden) con la misma función que usa la web
-  // y espera a ver en la página que ha quedado así. Si de golpe no entra, se hace en dos pasos: primero se quedan solo los
-  // que siguen y luego se meten los nuevos.
+  /* Cambia el equipo entero como lo harías tú a mano, porque la función que guarda el orden solo acepta a los que ya están
+   * («el orden no cuadra»): uno a uno, «A la Caja PC» en los que salen y el botón de meter al equipo en la ficha de los que
+   * entran (turnándose para no pasar de 6 ni dejar el equipo vacío). Para encontrar en la Caja PC a los que entran se quitan
+   * un momento los filtros y se busca por nombre; al acabar se dejan como estaban. Al final se ordenan con la función de la
+   * web, que ahí sí cuadra. Devuelve '' si todo ha ido bien o qué ha fallado. */
   const idsEnPagina = () => { const l = listaEquipo(); return l ? $$(':scope > li[data-id]', l).map(li => li.dataset.id) : []; };
-  async function cambiarEquipo(guardar, ids, mensaje) {
-    const espera = ms => new Promise(r => setTimeout(r, ms));
-    const listo = () => idsEnPagina().join() === ids.join();
-    const intento = async (lista, msg, fin) => {
-      try { const v = guardar(lista, msg); if (v && typeof v.then === 'function') await v; }
-      catch (e) { console.warn('[axt cambiar equipo]', e); }
-      for (let i = 0; i < 40; i++) { if (fin()) return true; await espera(250); }
-      return fin();
+  async function hasta(fn, ms = 6000) { for (let t = 0; t < ms; t += 150) { const v = fn(); if (v) return v; await espera(150); } return fn(); }
+  const textoDe = el => (el.textContent || '').replace(/\s+/g, ' ').trim();
+  const visible = el => !!el && el.getClientRects().length > 0 && !el.closest('[data-ax-ignore]');
+  const botonQue = (re, raiz = document) => $$('button', raiz).find(b => visible(b) && !b.disabled && re.test(textoDe(b).replace(/^[^\p{L}]+/u, '')));
+  const RE_SACAR = /^(a la caja( pc)?|sacar( del equipo)?|al pc)$/i;
+  const RE_METER = /^(al equipo|meter (en el|al) equipo|a(ñ|n)adir al equipo|poner en el equipo)(?![\p{L}])(?!.*objeto)/iu;
+  // si la web pide confirmar, se confirma
+  async function confirmarSiPide() {
+    await espera(250);
+    const dlg = $$('[role="dialog"],[role="alertdialog"],[aria-modal="true"]').filter(visible).pop();
+    const b = dlg && botonQue(/^(s[ií]|confirmar|aceptar|vale|de acuerdo|s[ií], .*)$/i, dlg);
+    if (b) b.click();
+  }
+  async function sacarDelEquipo(id) {
+    const li = () => { const l = listaEquipo(); return l && $$(':scope > li[data-id]', l).find(x => x.dataset.id === id); };
+    if (!li()) return true;
+    let b = botonQue(RE_SACAR, li());
+    if (!b) {
+      const cab = $$('button', li()).find(x => x.querySelector('img[src*="/sprites/"]'));
+      if (cab) cab.click();
+      b = await hasta(() => li() && botonQue(RE_SACAR, li()), 3000);
+    }
+    if (!b) return false;
+    b.click();
+    await confirmarSiPide();
+    return !!await hasta(() => !li(), 10000);
+  }
+  // el id del Pokémon de una tarjeta de la Caja PC (sale de sus datos de React)
+  function idTarjeta(li) {
+    for (let f = fibraDe(li.querySelector('button') || li), i = 0; f && i < 8; f = f.return, i++) {
+      const pr = f.memoizedProps;
+      if (pr && typeof pr === 'object') for (const k of Object.keys(pr)) if (k !== 'children' && esPokeDato(pr[k])) return String(pr[k].id);
+      if (f.key != null && f.stateNode === li) return String(f.key);
+    }
+    const f = fibraDe(li);
+    return f && f.key != null ? String(f.key) : null;
+  }
+  const tarjetaPC = id => $$('main ul.grid > li').find(li => !li.closest('[data-ax-ignore]') && idTarjeta(li) === id);
+  const inputValor = (el, v, ev = 'input') => {
+    const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+    d.set.call(el, v);
+    el.dispatchEvent(new Event(ev, { bubbles: true }));
+  };
+  // quita los filtros de la Caja PC y busca por nombre; devuelve cómo dejarlos como estaban
+  function prepararFiltros() {
+    const buscar = $$('main input').find(i => /buscar por nombre/i.test(i.placeholder || ''));
+    const tipo = $$('main select').find(s => /tipo/i.test(s.getAttribute('aria-label') || ''));
+    const pulsados = $$('main button[aria-pressed="true"]').filter(b => !b.closest('[data-ax-ignore]'));
+    const todas = $$('main button.pastilla').find(b => textoDe(b) === 'Todas');
+    const region = todas && $$(':scope > button', todas.parentElement).find(b => /bg-cielo-500/.test(b.className));
+    const antes = { buscar: buscar && buscar.value, tipo: tipo && tipo.value };
+    for (const b of pulsados) b.click();
+    if (tipo && tipo.value) inputValor(tipo, tipo.options[0] ? tipo.options[0].value : '', 'change');
+    if (todas && region && region !== todas) todas.click();
+    return {
+      buscar: nombre => { if (buscar) inputValor(buscar, nombre); },
+      volver: async () => {
+        if (buscar) inputValor(buscar, antes.buscar || '');
+        if (tipo && tipo.value !== antes.tipo) inputValor(tipo, antes.tipo, 'change');
+        if (todas && region && region !== todas && region.isConnected) region.click();
+        await espera(100);
+        for (const b of pulsados) if (b.isConnected && b.getAttribute('aria-pressed') !== 'true') b.click();
+      },
     };
-    if (await intento(ids, mensaje, listo)) return true;
-    const siguen = idsEnPagina().filter(id => ids.includes(id));
-    if (siguen.length && siguen.length < idsEnPagina().length) await intento(siguen, 'Preparando el equipo…', () => idsEnPagina().join() === siguen.join());
-    return intento(ids, mensaje, listo);
+  }
+  async function meterEnEquipo(id, p, filtros) {
+    if (idsEnPagina().includes(id)) return '';
+    let li = tarjetaPC(id);
+    if (!li) { filtros.buscar(p.nombre || ''); li = await hasta(() => tarjetaPC(id), 3000); }
+    if (!li) return `no encuentro a ${p.nombre} en la Caja PC`;
+    li.scrollIntoView({ block: 'center' });
+    const antes = new Set($$('button').filter(visible));
+    (li.querySelector('button') || li).click();
+    const b = await hasta(() => botonQue(RE_METER), 3000);
+    if (!b) {
+      const nuevos = $$('button').filter(x => visible(x) && !antes.has(x)).map(textoDe).filter(Boolean).slice(0, 12);
+      console.warn('[axt mejor equipo] sin botón para meter al equipo. Botones nuevos:', nuevos);
+      const cerrar = $$('button').find(x => visible(x) && !antes.has(x) && /cerrar|^[✕×x]$/i.test((x.getAttribute('aria-label') || '') + textoDe(x)));
+      if (cerrar) cerrar.click(); else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return `no encuentro el botón para meter a ${p.nombre} en el equipo${nuevos.length ? ` (veo: ${nuevos.join(' · ')})` : ''}`;
+    }
+    b.click();
+    await confirmarSiPide();
+    if (!await hasta(() => idsEnPagina().includes(id), 10000)) return `la web no ha metido a ${p.nombre} en el equipo`;
+    // si la ficha sigue abierta, se cierra
+    const cerrar = $$('button').find(x => visible(x) && /cerrar/i.test((x.getAttribute('aria-label') || '') + ' ' + textoDe(x)));
+    if (cerrar) cerrar.click();
+    return '';
+  }
+  async function cambiarEquipo(guardar, ids, porId, mensaje) {
+    const nombre = id => (porId.get(id) || {}).nombre || '?';
+    const salen = () => idsEnPagina().filter(id => !ids.includes(id));
+    const entran = () => ids.filter(id => !idsEnPagina().includes(id));
+    let filtros = null, fallo = '';
+    try {
+      for (let vuelta = 0; vuelta < 30 && (salen().length || entran().length); vuelta++) {
+        const n = idsEnPagina().length;
+        if (entran().length && (n < 6 || !salen().length)) {
+          const id = entran()[0];
+          progreso = `Metiendo a ${nombre(id)}…`; pintarEquipo();
+          filtros = filtros || prepararFiltros();
+          fallo = await meterEnEquipo(id, porId.get(id) || { nombre: '?' }, filtros);
+        } else {
+          const id = salen()[0];
+          progreso = `Sacando a ${nombre(id)}…`; pintarEquipo();
+          fallo = await sacarDelEquipo(id) ? '' : `no he podido sacar a ${nombre(id)} del equipo`;
+        }
+        if (fallo) return fallo;
+        await espera(200);
+      }
+    } finally { if (filtros) await filtros.volver(); }
+    if (salen().length || entran().length) return 'el equipo no ha quedado como tocaba';
+    // ya están todos: ahora sí, el orden
+    if (idsEnPagina().join() !== ids.join()) {
+      progreso = 'Ordenando…'; pintarEquipo();
+      try { const v = guardar && guardar(ids, mensaje); if (v && typeof v.then === 'function') await v; } catch (e) { console.warn('[axt ordenar]', e); }
+      if (!await hasta(() => idsEnPagina().join() === ids.join(), 10000)) return 'están todos, pero no he podido ordenarlos';
+    }
+    return '';
   }
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // «1. Gyarados · 2. Garchomp · 3. Swampert» (en negrita los que combaten) y los de reserva detrás
