@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.23.0
-// @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
+// @version      1.24.0
+// @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo, tiene dos botones que ponen y guardan el mejor equipo con todo lo que tienes (con o sin legendarios) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_tiers.user.js
@@ -789,6 +789,166 @@
       memoEquipo = await correrPasos(calcularEquipoPasos(miembros));
     } catch (e) { console.warn('[axt equipo]', e); ordenFallo = '⚠️ Error: ' + (e && e.message); }
     finally { calculandoEquipo = false; ordenProg = ''; programar(); }
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  MEJOR EQUIPO CON TODO LO QUE TIENES (dos botones: con legendarios / sin legendarios)
+   *  Los datos (equipo y Caja PC enteros) y la función que guarda el equipo salen de la propia página (la misma que usan
+   *  «Meter en el equipo», «Sacar» y arrastrar). Cada Pokémon a su nivel real y con su objeto:
+   *  1) nota de cada uno contra rivales de todos los tipos · 2) con los 12 mejores (uno por especie), todas las formas de
+   *  poner 3 en orden contra 300 tríos de rivales (los 3 primeros son los que combaten) · 3) los huecos 4-6, los siguientes
+   *  mejores. Se pone y se guarda solo.
+   * ------------------------------------------------------------------ */
+  const esPokeDato = o => o && typeof o === 'object' && !Array.isArray(o) && o.id != null && (o.speciesId || typeof o.sprite === 'string') && Number.isFinite(+o.nivel) && +o.nivel > 0;
+  function datosPaginaEquipo() {
+    const lista = listaEquipo();
+    const porId = new Map();
+    let guardar = null, guardarFlojo = null;
+    const esGuardar = v => Array.isArray(v) && typeof v[0] === 'function' && /refresh\(\)/.test(String(v[0]));
+    const mirar = (v, prof, vistos) => {
+      if (!v || typeof v !== 'object' || prof > 3 || vistos.has(v)) return;
+      vistos.add(v);
+      if (Array.isArray(v)) {
+        if (v.some(esPokeDato)) { for (const o of v) if (esPokeDato(o)) porId.set(String(o.id), o); return; }
+        for (const x of v.slice(0, 8)) mirar(x, prof + 1, vistos);
+        return;
+      }
+      if (v.$$typeof) return;   // elementos de React
+      for (const k of Object.keys(v)) if (k !== 'children' && k[0] !== '_') mirar(v[k], prof + 1, vistos);
+    };
+    const inicios = [lista && lista.querySelector('li[data-id]'), $$('main ul.grid > li > button')[0], $$('main section')[0]].filter(Boolean);
+    const hechas = new Set();
+    for (const el of inicios) {
+      for (const inicio of [fibraDe(el), actual(fibraDe(el))]) {
+        for (let f = inicio, i = 0; f && i < 200; f = f.return, i++) {
+          for (const c of [f, f.alternate]) {
+            if (!c || hechas.has(c)) continue;
+            hechas.add(c);
+            const vistos = new Set();
+            mirar(c.memoizedProps, 0, vistos);
+            if (typeof c.type !== 'function' && typeof c.type !== 'object') continue;
+            for (let h = c.memoizedState, k = 0; h && typeof h === 'object' && 'next' in h && k < 120; h = h.next, k++) {
+              for (const s of [h.memoizedState, h.baseState]) {
+                if (esGuardar(s)) { if (s[0].length === 2) guardar = guardar || s[0]; else guardarFlojo = guardarFlojo || s[0]; }
+                else mirar(s, 0, vistos);
+              }
+            }
+          }
+        }
+      }
+    }
+    const ids = lista ? $$(':scope > li[data-id]', lista).map(li => li.dataset.id) : [];
+    return { todos: [...porId.values()], ids, guardar: guardar || guardarFlojo };
+  }
+  function listaEquipo() {
+    const aviso = $$('main p').find(p => /arrastra (por el asa|desde)/i.test(p.textContent || ''));
+    return aviso && $$('main ul').find(u => u.querySelector(':scope > li[data-id]') && aviso.compareDocumentPosition(u) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+  const numDato = p => +p.speciesId || numSrc(p.sprite);
+  const objDato = p => { for (const v of [p.itemId, p.objetoId, p.objeto, p.item]) { const id = v && typeof v === 'object' ? v.id || v.itemId : v; if (typeof id === 'string' && OBJETOS[id]) return id; } return null; };
+  function luchadorDato(p) {
+    const num = numDato(p), d = datos[num];
+    const tipos = [p.tipo1, p.tipo2].map(x => x && tipoDe(x)).filter(Boolean);
+    const L = +p.nivel;
+    return { ...conObjeto(stats(d.s, L), objDato(p)), L, tipos: tipos.length ? tipos : d.t, num, nombre: p.nombre || '?', id: String(p.id), base: d.s.reduce((x, y) => x + y, 0) / 6 };
+  }
+  function* mejorDeTodoPasos(pokes, conLeg) {
+    // uno por especie (el más fuerte), y sin legendarios si se pide
+    const pool = pokes.filter(p => datos[numDato(p)] && (conLeg || !esLegendario({ rareza: p.rareza, sprite: p.sprite || `/sprites/${numDato(p)}.png` })));
+    if (!pool.length) return null;
+    const niveles = pool.map(p => +p.nivel).sort((a, b) => b - a);
+    const nivel = Math.round(niveles.slice(0, 6).reduce((x, y) => x + y, 0) / Math.min(6, niveles.length));
+    const bancoRef = GEN.flatMap(t => PERFILES.map(pf => ({ ...stats(pf, nivel), L: nivel, tipos: t.split('/'), num: 0 })));
+    const porEspecie = new Map();
+    let n = 0;
+    for (const p of pool) {
+      const l = luchadorDato(p);
+      l.nota = pctCon(l, bancoRef);
+      const prev = porEspecie.get(l.num);
+      if (!prev || l.nota > prev.nota) porEspecie.set(l.num, l);
+      if (++n % 40 === 0) yield;
+    }
+    const orden = [...porEspecie.values()].sort((a, b) => b.nota - a.nota);
+    const top = orden.slice(0, 12);
+    // rivales tan fuertes de media como esos 12, a su nivel
+    const baseMedia = top.reduce((x, l) => x + l.base, 0) / top.length;
+    let semilla = 23; const azar = () => (semilla = (semilla * 16807) % 2147483647) / 2147483647;
+    const banco = GEN.flatMap(t => PERFILES.map(pf => ({ ...stats(pf.map(v => Math.max(30, Math.round(v + baseMedia - 80))), nivel), L: nivel, tipos: t.split('/'), num: 0 })));
+    const trios = Array.from({ length: 300 }, () => [0, 0, 0].map(() => banco[Math.floor(azar() * banco.length)]));
+    const nota = eq => { let g = 0, v = 0; for (const tr of trios) { const r = combate(eq, tr); if (r.gana) { g++; v += r.vivos; } } return { g: g / trios.length, v: v / trios.length }; };
+    let mejor = null;
+    for (const eq of permutaciones(top, Math.min(3, top.length))) {
+      const r = nota(eq);
+      if (!mejor || r.g + r.v / 100 > mejor.n.g + mejor.n.v / 100) mejor = { eq, n: r };
+      yield;
+    }
+    const resto = orden.filter(l => !mejor.eq.includes(l)).slice(0, 6 - mejor.eq.length);
+    return { equipo: [...mejor.eq, ...resto], n: mejor.n, nivel, especies: orden.length };
+  }
+  let mejorCalc = null, mejorMsg = '';
+  async function ponerMejorDeTodo(conLeg) {
+    if (mejorCalc) return;
+    mejorCalc = conLeg ? 'leg' : 'sin'; mejorMsg = '⏳ Buscando…';
+    pintarMejor();
+    try {
+      const pag = datosPaginaEquipo();
+      if (!pag.todos.length || !pag.guardar) {
+        console.warn('[axt mejor equipo] datos', pag.todos.length, 'guardar', !!pag.guardar);
+        mejorMsg = '⚠️ No encuentro tus Pokémon o cómo cambiar el equipo en esta página.';
+        return;
+      }
+      const falta = () => [...new Set(pag.todos.map(numDato))].filter(x => x && !datos[x]);
+      for (const x of falta()) pedir(x);
+      for (let i = 0; i < 60 && falta().length && cola.length + activos > 0; i++) { mejorMsg = `⏳ Estadísticas de ${falta().length} especies…`; pintarMejor(); await new Promise(r => setTimeout(r, 400)); }
+      mejorMsg = '⏳ Probando equipos…'; pintarMejor();
+      const r = await correrPasos(mejorDeTodoPasos(pag.todos, conLeg));
+      if (!r) { mejorMsg = conLeg ? '⚠️ No tienes Pokémon.' : '⚠️ No tienes Pokémon que no sean legendarios.'; return; }
+      const ids = r.equipo.map(l => l.id);
+      const nombres = r.equipo.map((l, i) => (i < 3 ? `<b>${esc(l.nombre)}</b>` : esc(l.nombre))).join(' · ');
+      if (ids.join() === pag.ids.join()) { mejorMsg = `✔ Ya lo tienes: ${nombres}`; return; }
+      pag.guardar(ids, conLeg ? 'Mejor equipo puesto.' : 'Mejor equipo sin legendarios puesto.');
+      mejorMsg = `✔ Puesto y guardado: ${nombres}`;
+    } catch (e) { console.warn('[axt mejor equipo]', e); mejorMsg = '⚠️ Error: ' + esc(e && e.message); }
+    finally { mejorCalc = null; pintarMejor(); }
+  }
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const CSS_MEJOR = `
+    #axt-mejor{display:flex;flex-direction:column;gap:5px;margin:0 0 8px}
+    #axt-mejor .axt-mb{display:flex;gap:6px}
+    #axt-mejor button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 10px;border-radius:999px;border:0;cursor:pointer;
+      font-size:11px;font-weight:900;letter-spacing:.01em;color:#fff;white-space:nowrap;text-shadow:0 1px 1px rgba(0,0,0,.25);
+      box-shadow:0 2px 0 rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.28);transition:transform .12s,filter .12s,box-shadow .12s}
+    #axt-mejor button:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.07)}
+    #axt-mejor button:active:not(:disabled){transform:translateY(1px);box-shadow:0 1px 0 rgba(0,0,0,.18)}
+    #axt-mejor button:disabled{opacity:.55;cursor:default}
+    #axt-mejor .axt-leg{background:linear-gradient(135deg,#6D28D9,#8B5CF6 55%,#D4A72C)}
+    #axt-mejor .axt-sin{background:linear-gradient(135deg,#0F766E,#14B8A6)}
+    #axt-mejor .axt-mm{font-size:10.5px;font-weight:700;line-height:1.35;color:rgb(var(--tinta-500));padding:0 4px}
+    #axt-mejor .axt-mm b{color:rgb(var(--tinta-700))}
+    #axt-mejor .axt-mm:empty{display:none}`;
+  function pintarMejor() {
+    const lista = listaEquipo();
+    let caja = document.getElementById('axt-mejor');
+    if (!lista) { if (caja) caja.remove(); return; }
+    if (!document.getElementById('axt-mejor-css')) { const s = document.createElement('style'); s.id = 'axt-mejor-css'; s.setAttribute('data-ax-ignore', '1'); s.textContent = CSS_MEJOR; document.head.appendChild(s); }
+    if (!caja) {
+      caja = document.createElement('div');
+      caja.id = 'axt-mejor';
+      caja.setAttribute('data-ax-ignore', '1');
+      caja.innerHTML = `<div class="axt-mb">
+        <button type="button" class="axt-leg" title="Pone y guarda el equipo que más combates gana con todos tus Pokémon (cada uno a su nivel y con su objeto)">👑 Mejor equipo</button>
+        <button type="button" class="axt-sin" title="Lo mismo, pero sin legendarios ni singulares">🛡️ Sin legendarios</button></div><p class="axt-mm"></p>`;
+      caja.querySelector('.axt-leg').addEventListener('click', e => { e.preventDefault(); ponerMejorDeTodo(true); });
+      caja.querySelector('.axt-sin').addEventListener('click', e => { e.preventDefault(); ponerMejorDeTodo(false); });
+    }
+    const antes = document.getElementById('axt-equipo') || lista;
+    if (antes.previousElementSibling !== caja) antes.insertAdjacentElement('beforebegin', caja);
+    const [bl, bs] = caja.querySelectorAll('button');
+    bl.disabled = bs.disabled = !!mejorCalc;
+    bl.textContent = mejorCalc === 'leg' ? '⏳ Calculando…' : '👑 Mejor equipo';
+    bs.textContent = mejorCalc === 'sin' ? '⏳ Calculando…' : '🛡️ Sin legendarios';
+    const m = caja.querySelector('.axt-mm');
+    if (m.innerHTML !== mejorMsg) m.innerHTML = mejorMsg;
   }
 
   /* ------------------------------------------------------------------ *
@@ -2386,7 +2546,7 @@
     prog = setTimeout(() => {
       if (!listo) return;
       try {
-        if (enEquipo()) { decorarTarjetas(); decorarFichas(); botonOrden(); ordenar(); ordenEquipo(); }
+        if (enEquipo()) { decorarTarjetas(); decorarFichas(); botonOrden(); ordenar(); ordenEquipo(); pintarMejor(); }
         else if (enTorre()) torre();
         else if (enTronos()) tronos();
       } catch (e) { console.warn('[axt]', e); }
