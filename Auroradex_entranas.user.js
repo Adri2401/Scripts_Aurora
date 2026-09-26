@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.3.2
+// @version      1.4.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
-// @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu Pokémon principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
+// @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que los que pelean estén al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.3.2';
+  const VERSION = '1.4.0';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -371,7 +371,7 @@
   kb.templeObs = kb.templeObs || []; kb.subidaPuerta = kb.subidaPuerta || {};
   let tGuardar = null;
   const guardaKb = () => { clearTimeout(tGuardar); tGuardar = setTimeout(() => { if (!lsPut(LS_KB, kb)) { kb.niveles = kb.niveles.slice(-300); lsPut(LS_KB, kb); } }, 400); };
-  const conf = Object.assign({ prioridad: 'equilibrio', empezarGratis: true, usarPases: false, reordenar: true, velocidad: 'normal', esfuerzo: 'normal', comprar: false, sanguijuelas: 6 }, lsGet(LS_CONF, {}));
+  const conf = Object.assign({ prioridad: 'equilibrio', empezarGratis: true, usarPases: false, reordenar: true, velocidad: 'normal', esfuerzo: 'normal', comprar: false, sanguijuelas: 6, eliteHasta: 'equipo' }, lsGet(LS_CONF, {}));
   // 1.2: la prioridad por defecto pasa a «equilibrio» (bajar mucho y que rinda en esquirlas: Botín pronto)
   if (!conf.v12) { if (conf.prioridad === 'pisos') conf.prioridad = 'equilibrio'; conf.v12 = true; lsPut(LS_CONF, conf); }
   // Cuánto vale una esquirla frente a un piso, según la prioridad (en «pisos» de la bajada). En «equilibrio» pesa al
@@ -1089,10 +1089,11 @@
     return out;
   }
   /* ══════════ 5b · POLÍTICA: cómo se juega una puerta (en las simulaciones, y la base de lo que hace el piloto) ══════════
-   * · (Todo esto va por el NIVEL de tu Pokémon PRINCIPAL —el prestado con el que empiezas—, no por el piso ni por el resto.)
-   * · Mientras el principal no esté al Nv.100: ÉLITE siempre que los que pelean estén enteros (+3 niveles por piso en vez de 2 y
+   * · (Todo esto va por el NIVEL de los Pokémon, no por el piso: los tres que pelean, o solo el principal —el prestado—
+   *   si lo eliges en Datos. Con los tres sale mejor: +0,8 pisos y +32 💎 por bajada en 300 bajadas simuladas.)
+   * · Mientras no estén al Nv.100: ÉLITE siempre que los que pelean estén enteros (+3 niveles por piso en vez de 2 y
    *   casi el doble de esquirlas). Si no, descanso para recuperarse; combate si no queda otra.
-   * · Con el principal al Nv.100 (o casi: desde el 97, los guardianes dan el resto) pelear ya no da nada (ni niveles) y solo quita vida: tesoros, misterios y descansos; combate o
+   * · Ya al Nv.100 (o casi: desde el 97, los guardianes dan el resto) pelear ya no da nada (ni niveles) y solo quita vida: tesoros, misterios y descansos; combate o
    *   élite solo si no hay otra cosa. Se pelea con los guardianes (obligatorio) y poco más.
    * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
   // El principal: el prestado con el que empiezas (si sigue en el equipo); si no, el de más calidad. Solo interesa subir
@@ -1107,7 +1108,10 @@
   }
   function estadoEquipo(S) {
     const n = Math.min(3, S.eq.length), vivos = S.eq.filter(x => x.vida > 0), top = vivos.slice(0, 3), pr = principalDe(S);
-    return { h: top.length ? media(top.map(x => x.vida)) : 0, falta: n - top.length, principal: pr, al100: !!pr && pr.L >= 97, minL: pr ? pr.L : 0, minVida: S.eq.length ? Math.min(...S.eq.map(x => x.vida)) : 0 };
+    // Quién tiene que llegar al Nv.100 antes de dejar las Élites: el principal solo, o los tres que pelean
+    const quien = conf.eliteHasta === 'principal' ? (pr ? [pr] : []) : S.eq.slice(0, 3);
+    const flojo = quien.length ? quien.reduce((a, x) => x.L < a.L ? x : a) : null;
+    return { h: top.length ? media(top.map(x => x.vida)) : 0, falta: n - top.length, principal: pr, flojo, al100: !!flojo && flojo.L >= 97, minL: flojo ? flojo.L : 0, minVida: S.eq.length ? Math.min(...S.eq.map(x => x.vida)) : 0 };
   }
   function politica(S, ops) {
     if (ops.length === 1) return ops[0];
@@ -1248,7 +1252,8 @@
     const cura = lista.find(x => { const e = !x.o.reroll && efectoDe(x.o.desc || ''); return e && e.curaVictoria; });
     if (cura && cura !== lista[0]) {
       const e = efectoDe(cura.o.desc), tiene = Math.round(S0.ef.curaVictoria / e.curaVictoria);
-      if (tiene < (+conf.sanguijuelas || 0) && lista[0].v - cura.v <= 3) {
+      // (solo mientras se sube de nivel: con los que pelean al Nv.100 casi solo se pelea con guardianes, y ahí no cura)
+      if (tiene < (+conf.sanguijuelas || 0) && lista[0].v - cura.v <= 3 && !estadoEquipo(S0).al100) {
         regla = `la cojo hasta tener ×${conf.sanguijuelas} (llevas ×${tiene}); jugándolas enteras, ${lista[0].o.nombre} llegaría al piso ${lista[0].techo.toFixed(0)} y esta al ${cura.techo.toFixed(0)}`;
         lista.splice(lista.indexOf(cura), 1); lista.unshift(cura);
       }
@@ -1268,8 +1273,8 @@
     const lista = await valorar(S0, ops, (S, o, rng) => jugarPuerta(S, o.clase, rng));
     const t = estadoEquipo(S0), pc = politica(S0, ops.map(o => o.clase));
     const lp = lista.find(x => x.o.clase === pc), top = lista[0];
-    const regla = !t.al100 ? (pc === 'elite' ? `${t.principal.nombre} (tu principal) aún está en Nv.${Math.round(t.principal.L)}: Élite le da 3 niveles (Combate, 2) y más esquirlas` : t.falta || t.h < 0.55 ? 'el equipo va tocado: primero recuperarse' : 'sin Élite a mano, lo que más sube sin arriesgar')
-      : pc === 'descanso' ? `${t.principal ? t.principal.nombre : 'tu principal'} ya está al Nv.100 y hay alguien tocado: a curarse` : `${t.principal ? t.principal.nombre : 'tu principal'} ya está al Nv.100: una Élite no le sube nada y solo quita vida; mejor lo que da esquirlas sin pelear`;
+    const regla = !t.al100 ? (pc === 'elite' ? `${t.flojo.nombre}${t.flojo === t.principal ? ' (tu principal)' : ''} aún está en Nv.${Math.round(t.flojo.L)}: Élite da 3 niveles (Combate, 2) y más esquirlas` : t.falta || t.h < 0.55 ? 'el equipo va tocado: primero recuperarse' : 'sin Élite a mano, lo que más sube sin arriesgar')
+      : pc === 'descanso' ? `${conf.eliteHasta === 'principal' ? 'tu principal ya está' : 'los que pelean ya están'} al Nv.100 y hay alguien tocado: a curarse` : `${conf.eliteHasta === 'principal' ? 'tu principal ya está' : 'los que pelean ya están'} al Nv.100: una Élite no sube nada y solo quita vida; mejor lo que da esquirlas sin pelear`;
     let mejor = lp, porque = regla;
     // Antes del 100 la Élite manda (lo que se gana en niveles no lo ve del todo la simulación); solo se cambia si la
     // propia Élite se pierde a menudo. Con el principal al Nv.100, otra puerta si jugándolas enteras es claramente mejor (p. ej.
@@ -1785,7 +1790,7 @@
       const nombre = R.mejor.nombre;
       h += `<div class="caja oro"><p class="oro-t">⭐ ${kEsc(R.tirar ? '🎲 Volver a tirar' : nombre)}</p><p class="s">Porque ${kEsc(R.porque)}.</p>
         <table style="margin-top:4px"><tr><th>Opción</th><th class="num">nota</th><th class="num">llega al piso</th></tr>${R.lista.map(x => `<tr><td>${kEsc(x.o.nombre)}</td><td class="num">${x.v.toFixed(1)}</td><td class="num">${x.techo ? x.techo.toFixed(0) : '—'}</td></tr>`).join('')}</table>
-        <p class="s" style="margin-top:3px">Se juega cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} partidas enteras hasta caer, jugando bien (Élite hasta que tu principal —el prestado— esté al Nv.100; luego tesoros, misterios y descansos) y con las mismas puertas y rivales en cada piso para todas. Nota = piso al que se llega${conf.prioridad !== 'pisos' ? ' + las esquirlas que se sacan (pesan más al principio)' : ''}.</p></div>`;
+        <p class="s" style="margin-top:3px">Se juega cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} partidas enteras hasta caer, jugando bien (Élite hasta que los que pelean estén al Nv.100; luego tesoros, misterios y descansos) y con las mismas puertas y rivales en cada piso para todas. Nota = piso al que se llega${conf.prioridad !== 'pisos' ? ' + las esquirlas que se sacan (pesan más al principio)' : ''}.</p></div>`;
     }
     if (P && P.tipo === 'puerta') { const o = ordenRecomendado(P); if (o && o.cambia) h += `<div class="caja"><p class="oro-t">🔀 Mejor orden: ${o.orden.map((x, k) => `${k + 1}. ${kEsc(x.nombre)}`).join(' · ')}</p><p class="s">Gana ${pct(o.v)} de los combates que vienen (ahora ${pct(o.actual)}). ${conf.reordenar && arrastreFallos < 2 ? 'El piloto lo pone solo.' : 'Arrástralos tú desde ⠿ (van numerados).'}</p></div>`; }
     if (P && P.tipo === 'lobby') {
@@ -1845,7 +1850,8 @@
     const op = (k, v, t) => `<option value="${v}"${conf[k] === v ? ' selected' : ''}>${t}</option>`;
     return `<div class="caja"><p><b>⚙️ Cómo juega</b></p>
       <label>Prioridad <select data-c="prioridad">${op('prioridad', 'equilibrio', 'equilibrio (bajar mucho y Botín pronto)')}${op('prioridad', 'pisos', 'solo bajar')}${op('prioridad', 'esquirlas', 'más 💎')}</select></label>
-      <label>Sanguijuela: cogerla hasta <select data-c="sanguijuelas">${['0', '3', '4', '5', '6', '8'].map(v => `<option value="${v}"${String(conf.sanguijuelas) === v ? ' selected' : ''}>${v === '0' ? 'lo que diga la IA' : '×' + v}</option>`).join('')}</select></label>
+      <label>Élites hasta que estén al Nv.100 <select data-c="eliteHasta">${op('eliteHasta', 'equipo', 'los tres que pelean (recomendado)')}${op('eliteHasta', 'principal', 'solo el principal (el prestado)')}</select></label>
+      <label>Sanguijuela (mientras suben de nivel): cogerla hasta <select data-c="sanguijuelas">${['0', '3', '4', '5', '6', '8'].map(v => `<option value="${v}"${String(conf.sanguijuelas) === v ? ' selected' : ''}>${v === '0' ? 'lo que diga la IA' : '×' + v}</option>`).join('')}</select></label>
       <label>Cuánto piensa <select data-c="esfuerzo">${op('esfuerzo', 'rapido', 'rápido')}${op('esfuerzo', 'normal', 'normal')}${op('esfuerzo', 'alto', 'a fondo')}</select></label>
       <label>Velocidad del piloto <select data-c="velocidad">${op('velocidad', 'rapida', 'rápida')}${op('velocidad', 'normal', 'normal')}${op('velocidad', 'tranquila', 'tranquila')}</select></label>
       <label><input type="checkbox" data-c="empezarGratis"${conf.empezarGratis ? ' checked' : ''}> empezar solo si bajar es gratis</label>
@@ -1924,5 +1930,5 @@
     clearTimeout(tMontar); tMontar = setTimeout(montar, 250);
   }).observe(document.documentElement, { childList: true, subtree: true });
   setTimeout(montar, 900);
-  window.__axEntranas = { ponerOrden, equipoLeido, combate, luchadorDe, especie, hinchar, hinchaRival, efectosActivos, rivalesDe, nivelRival, kLado, multMio, pantalla, decidir, estadoActual, valorar, kb: () => kb, calcularMejoras, prediccion, ordenRecomendado, exportar, reaprender, efectoDe, reglasBioma, bajadaEntera, rodar, clonar, rngDe, techo, modeloMio, pendMio, puntuar, calidad, politica, recorrer, estadoEquipo, valorRapidoBend, aplicarBendicion, mejAhora, jugarPuerta, puertasDe, politicaRapida, darBendicion };
+  window.__axEntranas = { ponerOrden, equipoLeido, combate, luchadorDe, especie, hinchar, hinchaRival, efectosActivos, rivalesDe, nivelRival, kLado, multMio, pantalla, decidir, estadoActual, valorar, kb: () => kb, calcularMejoras, prediccion, ordenRecomendado, exportar, reaprender, efectoDe, reglasBioma, bajadaEntera, rodar, clonar, rngDe, techo, modeloMio, pendMio, puntuar, calidad, politica, recorrer, estadoEquipo, valorRapidoBend, aplicarBendicion, mejAhora, jugarPuerta, puertasDe, politicaRapida, darBendicion, conf };
 })();
