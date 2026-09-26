@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.22.0
+// @version      1.23.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -997,6 +997,37 @@
     }
     return Object.values(porEspecie).sort((a, b) => b.stats.total - a.stats.total || (String(a.id) < String(b.id) ? -1 : 1));
   }
+  // Liga que no es la clásica (Planta Baja: solo comunes): las letras se reparten entre lo que se puede llevar ahí
+  // (tus comunes y los de los rivales vistos en «Retar»), en la misma proporción que la escala general
+  // (S el 3,7 % mejor, A hasta el 9,2 %, B 18,8 %, C 30,5 %, D 40,2 %, E 51,3 %, F 67 %, el resto G)
+  const PROP_LETRAS = [0.037, 0.092, 0.188, 0.305, 0.402, 0.513, 0.67];
+  let cortesMemo = { k: '', v: null };
+  function cortesLiga(est) {
+    if (!est || est.modo === 'clasico') return null;
+    const cands = candidatosUnicosTodos(est);
+    const riv = Object.values(((lsGet(LS_RIV, {})[est.modo]) || {}).pokes || {}).filter(p => p && p.stats);
+    const k = est.modo + '|' + cands.length + '|' + riv.length + '|' + cands.reduce((x, c) => x + c.stats.total, 0);
+    if (cortesMemo.k === k) return cortesMemo.v;
+    const vistos = new Set(), notas = [];
+    for (const c of [...cands, ...riv]) {
+      const esp = c.especie || c.nombre || c.sprite;
+      if (vistos.has(esp)) continue;
+      vistos.add(esp);
+      notas.push(tierTorre(c).nota);
+    }
+    notas.sort((a, b) => b - a);
+    const v = notas.length < 20 ? null : PROP_LETRAS.map(q => { const i = Math.max(1, Math.floor(q * notas.length)); return (notas[i - 1] + notas[i]) / 2; });
+    cortesMemo = { k, v };
+    return v;
+  }
+  // La letra en la liga de esta página: en Clásico la general; en Planta Baja, comparando solo entre comunes
+  function tierLiga(c, est) {
+    const t = tierTorre(c), cortes = cortesLiga(est);
+    if (!cortes) return t;
+    const i = cortes.findIndex(u => t.nota >= u);
+    const letra = i < 0 ? 'G' : TIERS[i][0];
+    return { ...t, letra, color: TIERS.find(x => x[0] === letra)[2], liga: true };
+  }
   const cacheTierT = new Map();
   function tierTorre(c) {
     const num = numSrc(c.sprite), k = (c.id != null ? c.id : c.sprite) + '|' + c.itemId + '|' + c.stats.total + '|' + (num && datos[num] ? 1 : 0);
@@ -1135,13 +1166,13 @@
       const f = b && fibraDe(li);
       const c = f && porId[String(f.key)];
       if (!c || !c.stats) continue;
-      const t = tierTorre(c);
+      const t = tierLiga(c, est);
       const firma = c.id + '|' + c.itemId + '|' + c.stats.total + '|' + t.letra;
       if (b.dataset.axtNum === firma && b.querySelector(':scope > .axt-tier')) continue;
       const viejo = b.querySelector(':scope > .axt-tier');
       if (viejo) viejo.remove();
       const s = insignia(t);
-      s.title = `Tier ${t.letra} (nota ${Math.round(t.nota * 100)}/100): gana el ${Math.round(t.pct * 100)}% de los duelos 1 contra 1 a Nv.50${c.itemId && OBJETOS[c.itemId] ? ' (con su objeto)' : ''}`;
+      s.title = `Tier ${t.letra}${t.liga ? ' entre los comunes de esta liga' : ''} (nota ${Math.round(t.nota * 100)}/100): gana el ${Math.round(t.pct * 100)}% de los duelos 1 contra 1 a Nv.50${c.itemId && OBJETOS[c.itemId] ? ' (con su objeto)' : ''}`;
       s.style.position = 'absolute'; s.style.left = '-4px'; s.style.bottom = '-4px';
       b.appendChild(s);
       b.dataset.axtNum = firma;
@@ -1441,7 +1472,7 @@
     const guardadoEnOrden = idsG.join() === idsMejor.join();
     const esGuardado = idsG.length === idsMejor.length && idsMejor.every(id => idsG.includes(id));
     const yaSel = idsMejor.length === sel.length && idsMejor.every(id => sel.includes(id));
-    const chipT = c => { const t = tierTorre(c); return `<span style="display:inline-grid;place-items:center;min-width:15px;height:15px;border-radius:999px;background:${t.color};color:#fff;font-size:9px;font-weight:900;margin-right:2px">${t.letra}</span>`; };
+    const chipT = c => { const t = tierLiga(c, est); return `<span style="display:inline-grid;place-items:center;min-width:15px;height:15px;border-radius:999px;background:${t.color};color:#fff;font-size:9px;font-weight:900;margin-right:2px">${t.letra}</span>`; };
     const avisosComp = C => [
       ...C.debiles.map(x => `⚠️ ${x}.`),
       ...(C.amenazas.length ? [`⚠️ Amenazas de «Retar» que casi nadie frena: ${C.amenazas.join(', ')}.`] : []),
