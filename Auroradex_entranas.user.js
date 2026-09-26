@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.3.0
+// @version      1.3.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
-// @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta el 100 y, con todos al 100, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
+// @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que tus Pokémon estén al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.3.0';
+  const VERSION = '1.3.1';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -1089,14 +1089,15 @@
     return out;
   }
   /* ══════════ 5b · POLÍTICA: cómo se juega una puerta (en las simulaciones, y la base de lo que hace el piloto) ══════════
-   * · Mientras alguno no esté al 100: ÉLITE siempre que los que pelean estén enteros (+3 niveles por piso en vez de 2 y
+   * · (Todo esto va por el NIVEL de los Pokémon, no por el piso. Cuentan los tres que pelean: la reserva sube igual.)
+   * · Mientras alguno de los que pelean no esté al Nv.100: ÉLITE siempre que los que pelean estén enteros (+3 niveles por piso en vez de 2 y
    *   casi el doble de esquirlas). Si no, descanso para recuperarse; combate si no queda otra.
-   * · Con TODOS al 100 (o casi: desde el 97, los guardianes dan el resto) pelear ya no da nada (ni niveles) y solo quita vida: tesoros, misterios y descansos; combate o
+   * · Con los que pelean al Nv.100 (o casi: desde el 97, los guardianes dan el resto) pelear ya no da nada (ni niveles) y solo quita vida: tesoros, misterios y descansos; combate o
    *   élite solo si no hay otra cosa. Se pelea con los guardianes (obligatorio) y poco más.
    * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
   function estadoEquipo(S) {
     const n = Math.min(3, S.eq.length), vivos = S.eq.filter(x => x.vida > 0), top = vivos.slice(0, 3);
-    return { h: top.length ? media(top.map(x => x.vida)) : 0, falta: n - top.length, al100: S.eq.length > 0 && S.eq.every(x => x.L >= 97), minL: S.eq.length ? Math.min(...S.eq.map(x => x.L)) : 0, minVida: S.eq.length ? Math.min(...S.eq.map(x => x.vida)) : 0 };
+    return { h: top.length ? media(top.map(x => x.vida)) : 0, falta: n - top.length, al100: S.eq.length > 0 && S.eq.slice(0, 3).every(x => x.L >= 97), minL: S.eq.length ? Math.min(...S.eq.slice(0, 3).map(x => x.L)) : 0, minVida: S.eq.length ? Math.min(...S.eq.map(x => x.vida)) : 0 };
   }
   function politica(S, ops) {
     if (ops.length === 1) return ops[0];
@@ -1256,11 +1257,11 @@
     const lista = await valorar(S0, ops, (S, o, rng) => jugarPuerta(S, o.clase, rng));
     const t = estadoEquipo(S0), pc = politica(S0, ops.map(o => o.clase));
     const lp = lista.find(x => x.o.clase === pc), top = lista[0];
-    const regla = !t.al100 ? (pc === 'elite' ? 'aún no estáis todos al 100: Élite da 3 niveles por piso (Combate, 2) y más esquirlas' : t.falta || t.h < 0.55 ? 'el equipo va tocado: primero recuperarse' : 'sin Élite a mano, lo que más sube sin arriesgar')
-      : pc === 'descanso' ? 'todos al 100 y alguno tocado: a curarse' : 'todos al 100: pelear ya no da niveles, solo quita vida; mejor lo que da esquirlas sin pelear';
+    const regla = !t.al100 ? (pc === 'elite' ? `aún hay quien no está al Nv.100 (${S0.eq.slice(0, 3).filter(x => x.L < 97).map(x => `${x.nombre} Nv.${Math.round(x.L)}`).join(', ')}): Élite da 3 niveles (Combate, 2) y más esquirlas` : t.falta || t.h < 0.55 ? 'el equipo va tocado: primero recuperarse' : 'sin Élite a mano, lo que más sube sin arriesgar')
+      : pc === 'descanso' ? 'ya están al Nv.100 y alguno va tocado: a curarse' : 'ya están al Nv.100: una Élite no les sube nada y solo quita vida; mejor lo que da esquirlas sin pelear';
     let mejor = lp, porque = regla;
     // Antes del 100 la Élite manda (lo que se gana en niveles no lo ve del todo la simulación); solo se cambia si la
-    // propia Élite se pierde a menudo. Con todos al 100, otra puerta si jugándolas enteras es claramente mejor (p. ej.
+    // propia Élite se pierde a menudo. Con los que pelean al Nv.100, otra puerta si jugándolas enteras es claramente mejor (p. ej.
     // un combate para reclutar a uno bueno).
     const cambiar = !lp || (pc === 'elite' ? lp.pierde > 0.15 && top.v > lp.v : top.v - lp.v > 2);
     if (cambiar && pc === 'elite' && lp) { mejor = top; porque = `la Élite se pierde ${pct(lp.pierde)} de las veces con el equipo así: mejor ${top.o.nombre}`; }
@@ -1773,7 +1774,7 @@
       const nombre = R.mejor.nombre;
       h += `<div class="caja oro"><p class="oro-t">⭐ ${kEsc(R.tirar ? '🎲 Volver a tirar' : nombre)}</p><p class="s">Porque ${kEsc(R.porque)}.</p>
         <table style="margin-top:4px"><tr><th>Opción</th><th class="num">nota</th><th class="num">llega al piso</th></tr>${R.lista.map(x => `<tr><td>${kEsc(x.o.nombre)}</td><td class="num">${x.v.toFixed(1)}</td><td class="num">${x.techo ? x.techo.toFixed(0) : '—'}</td></tr>`).join('')}</table>
-        <p class="s" style="margin-top:3px">Se juega cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} partidas enteras hasta caer, jugando bien (Élite hasta el 100; luego tesoros, misterios y descansos) y con las mismas puertas y rivales en cada piso para todas. Nota = piso al que se llega${conf.prioridad !== 'pisos' ? ' + las esquirlas que se sacan (pesan más al principio)' : ''}.</p></div>`;
+        <p class="s" style="margin-top:3px">Se juega cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} partidas enteras hasta caer, jugando bien (Élite hasta que los que pelean estén al Nv.100; luego tesoros, misterios y descansos) y con las mismas puertas y rivales en cada piso para todas. Nota = piso al que se llega${conf.prioridad !== 'pisos' ? ' + las esquirlas que se sacan (pesan más al principio)' : ''}.</p></div>`;
     }
     if (P && P.tipo === 'puerta') { const o = ordenRecomendado(P); if (o && o.cambia) h += `<div class="caja"><p class="oro-t">🔀 Mejor orden: ${o.orden.map((x, k) => `${k + 1}. ${kEsc(x.nombre)}`).join(' · ')}</p><p class="s">Gana ${pct(o.v)} de los combates que vienen (ahora ${pct(o.actual)}). ${conf.reordenar && arrastreFallos < 2 ? 'El piloto lo pone solo.' : 'Arrástralos tú desde ⠿ (van numerados).'}</p></div>`; }
     if (P && P.tipo === 'lobby') {
@@ -1793,7 +1794,7 @@
     const celda = v => `<td class="num" style="color:${v >= 0.6 ? '#7FD18B' : v < 0.35 ? '#E07A7A' : 'inherit'}">${Math.round(v * 100)}</td>`;
     h += `<div class="caja"><p><b>🏆 Los mejores para toda la bajada</b> <span class="s">calidad al Nv.100 contra lo que sale en cada bioma en lo hondo (piso 70), con tus bendiciones · 100 = gana sin despeinarse</span></p>
       <table style="margin-top:4px"><tr><th>Pokémon</th><th class="num">total</th>${BL.map(b => `<th class="num">${kEsc(b.ico)}</th>`).join('')}</tr>${rank.slice(0, 20).map(x => `<tr><td>${kEsc(x.e.nombre)}</td>${celda(x.c.total)}${BL.map(b => celda(x.c.porBioma[b.id] || 0)).join('')}</tr>`).join('')}</table>
-      <p class="s">Al reclutar solo me quedo con los que están arriba: los flojos no merecen la pena aunque hoy tengan buen nivel (al 100 llegan todos).</p></div>`;
+      <p class="s">Al reclutar solo me quedo con los que están arriba: los flojos no merecen la pena aunque hoy tengan buen nivel (al Nv.100 llegan todos).</p></div>`;
     h += '<div class="caja"><p><b>🗺️ Qué sale en cada bioma</b> <span class="s">(los mejores para reclutar, primero)</span></p>';
     for (const b of BL) {
       const pool = esp.filter(e => e.biomas && e.biomas[b.id]).map(e => ({ e, v: calidad(e, efA).total })).sort((x, y) => y.v - x.v);
