@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.7.0
+// @version      1.7.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.7.0';
+  const VERSION = '1.7.1';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -1008,10 +1008,18 @@
   // con el equipo; si no, sustituye al de peor calidad si el nuevo es claramente mejor.
   function reclutarSim(S, e, L) {
     // (dentro de las simulaciones, la calidad sin bendiciones: basta para comparar especies y va mucho más rápido)
-    const cn = calidad(e, null).total, cs = S.eq.map(y => calidadDe(y, null));
+    const cN = calidad(e, null), cn = cN.total, cO = S.eq.map(y => calidadObj(y, null)), cs = cO.map(c => c.total);
     const hueco = S.eq.length < S.plazas;
     let peor = 0; cs.forEach((c, k) => { if (c < cs[peor]) peor = k; });
-    if (hueco ? cs.length && cn < AJ.recluta * media(cs) : !(cn > cs[peor] + 0.06)) return;
+    if (hueco) { if (cs.length && cn < AJ.recluta * media(cs)) return; }
+    else if (!(cn > cs[peor] + 0.06)) {
+      // no es mejor de media que el peor… pero quizá tapa el bioma flojo del equipo (p. ej. un Lucha para el Glaciar)
+      if (!AJ.cobertura) return;
+      const base = coberturaDe(cO); let mejor = -1, mv = base + AJ.cobMin;
+      cO.forEach((_, k) => { const v = coberturaDe(cO.map((c, j) => j === k ? cN : c)); if (v > mv) { mv = v; mejor = k; } });
+      if (mejor < 0) return;
+      peor = mejor;
+    }
     const nivel = Math.min(100, L + (S.ef.reclutaNiv || 0) + (S.mej.reclutaNiv || 0));
     const x = luchadorDe(e, nivel, true, S.ef, { piso: S.piso, mej: S.mej }); x.vida = S.ef.reclutaLlenos ? 1 : 0.6;
     if (hueco) S.eq.push(x); else S.eq[peor] = x;
@@ -1022,7 +1030,7 @@
   // · Curar al ganar (Sanguijuela) vale mucho hasta que entre todo cura ~100% por victoria; luego ya no suma.
   // · Subir niveles vale poco (al 100 se llega igual y ahí no hace nada). Botín vale más cuanto más queda por bajar.
   // Ajustes de la estrategia (los que se afinan en el laboratorio: miles de bajadas simuladas con los mismos dados)
-  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0.2, recluta: 0.7, nivelesPeso: 0.5, curarPeleando: 0, pelearLleno: 0, antesGuardian: 0, misterioPrimero: 0 };
+  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0.2, recluta: 0.7, nivelesPeso: 0.5, curarPeleando: 0, pelearLleno: 0, antesGuardian: 0, misterioPrimero: 0, cobertura: 0, cobMin: 0.03 };
   function valorRapidoBend(S, e) {
     if (!e) return 0.01;
     const eq = S.eq, n = Math.max(1, eq.length);
@@ -1227,7 +1235,16 @@
     memoCal.set(clave, c);
     return c;
   }
-  const calidadDe = (x, ef) => calidad(x.e || { num: x.num, nombre: x.nombre, tipos: x.tipos, movs: {} }, ef).total;
+  const calidadObj = (x, ef) => calidad(x.e || { num: x.num, nombre: x.nombre, tipos: x.tipos, movs: {} }, ef);
+  const calidadDe = (x, ef) => calidadObj(x, ef).total;
+  // Cobertura del equipo: en cada bioma, lo que rinden los tres mejores para él (pelean los tres primeros y se ordenan
+  // según el bioma); nota = mitad la media de los biomas y mitad el PEOR bioma (donde se cae). Así un Pokémon que tapa el
+  // bioma flojo del equipo (p. ej. un Lucha para el Glaciar) vale aunque de media no sea el mejor.
+  function coberturaDe(cals) {
+    const ids = listaBiomas().map(b => b.id);
+    const v = ids.map(b => { const xs = cals.map(c => c.porBioma[b] || 0).sort((a, c) => c - a); while (xs.length < 3) xs.push(0); return media(xs.slice(0, 3)); });
+    return 0.5 * media(v) + 0.5 * Math.min(...v);
+  }
 
   /* ══════════ 6 · IA: cada opción se juega entera, muchas veces ══════════
    * Para cada opción: se aplica al estado de verdad (tu equipo con su vida, tus bendiciones, el piso) y se juegan R
@@ -1319,9 +1336,10 @@
     let mejor = lp, porque = regla;
     // Antes del 100 la Élite manda (lo que se gana en niveles no lo ve del todo la simulación); solo se cambia si la
     // propia Élite se pierde a menudo.
-    // Ya al Nv.100: Élite nunca (no da niveles y quita vida; en tu bajada del 110, la Élite del 64 costó dos caídos en el
-    // guardián del 65); Combate solo si casi no hay riesgo y rinde claramente más (para reclutar a uno bueno).
-    const segura = x => x.o.clase !== 'elite' && (x.o.clase !== 'combate' || x.pierde <= 0.08);
+    // Ya al Nv.100: ni Élite ni Combate (no dan niveles y quitan vida; en la bajada del 110 la Élite del 64 costó dos
+    // caídos en el guardián del 65): solo se cambia entre tesoro, misterio y descanso.
+    // (en la bajada del 85, dos combates «seguros» en los pisos 82 y 84 dejaron al equipo tocado para el guardián)
+    const segura = x => !['elite', 'combate'].includes(x.o.clase);
     const alt = t.al100 ? lista.find(x => segura(x)) : top;
     const cambiar = !lp || (pc === 'elite' ? lp.pierde > 0.15 && top.v > lp.v : alt && alt !== lp && alt.v - lp.v > (t.al100 ? 3 : 2));
     if (cambiar && t.al100 && lp) top = alt;
@@ -1338,7 +1356,8 @@
     const S0 = estadoActual(P);
     const e = especie(P.cand.nombre, P.cand.num, P.cand.tipos);
     const nuevo = S => { const x = luchadorDe(e, P.cand.L, true, S.ef, { hpMax: P.cand.hpMax, piso: S.piso, mej: S.mej }); x.vida = P.cand.hpMax ? P.cand.hp / P.cand.hpMax : 0.6; return x; };
-    const cn = calidad(e, S0.ef), cs = S0.eq.map(x => calidadDe(x, S0.ef));
+    const cn = calidad(e, S0.ef), cO = S0.eq.map(x => calidadObj(x, S0.ef)), cs = cO.map(c => c.total);
+    const cob0 = coberturaDe(cO), cobCon = k => coberturaDe(k == null ? [...cO, cn] : cO.map((c, j) => j === k ? cn : c));
     const ops = [{ nombre: 'Dejarlo', dejar: true }];
     if (S0.eq.length < S0.plazas) ops.push({ nombre: 'Reclutarlo', meter: true });
     else S0.eq.forEach((m, k) => ops.push({ nombre: `Reclutarlo y dejar a ${m.nombre}`, cambia: k, quien: m.nombre }));
@@ -1349,7 +1368,8 @@
       const gana = x.v - dej.v;
       const m = cs.length ? media(cs) : 0;
       if (x.o.meter) return (cn.total >= AJ.recluta * m && gana >= 0.3) || (cn.total >= (AJ.recluta - 0.2) * m && gana >= 2);
-      return cn.total > cs[x.o.cambia] + 0.06 && gana >= 0.5;
+      // cambiar a uno: tiene que subir la cobertura del equipo (sobre todo en su bioma más flojo) y rendir más jugándolo
+      return (cn.total > cs[x.o.cambia] + 0.06 || (AJ.cobertura && cobCon(x.o.cambia) > cob0 + AJ.cobMin)) && gana >= 0.5;
     };
     const i0 = lista.findIndex(vale);
     if (i0 > 0) lista.unshift(lista.splice(i0, 1)[0]);
