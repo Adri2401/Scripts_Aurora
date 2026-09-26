@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.2.0
+// @version      1.3.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
-// @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Piensa a largo plazo (el «techo»: hasta qué piso aguanta tu equipo con sus bendiciones, bioma a bioma): Élite pronto para llegar antes al 100, bendiciones que duran toda la partida, Botín al principio, solo reclutas que sirvan. Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
+// @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta el 100 y, con todos al 100, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -288,10 +288,10 @@
    *                   cuántas esquirlas da.
    *   4. MODELO       combate por turnos con las fórmulas del juego + lo aprendido + reglas del bioma + bendiciones.
    *   5. SIMULADOR    juega pisos (y bajadas enteras) con dados, para mirar hacia delante.
-   *   6. IA           en cada decisión mira cada opción a corto plazo (la juega muchas veces unos pisos hacia delante,
-   *                   Monte Carlo: ¿sobrevives a lo que viene?) y a largo (su TECHO: hasta qué piso aguanta ese equipo
-   *                   con esas bendiciones, bioma a bioma, con todos al 100 y los rivales hinchándose). Nota = piso final
-   *                   esperado + esquirlas según la prioridad (en «equilibrio», Botín pesa al principio).
+   *   6. IA           juega cada opción ENTERA muchas veces (hasta caer), con la vida arrastrándose de piso en piso y
+   *                   las mismas puertas y rivales para todas las opciones. Política: Élite hasta el 100; con todos al
+   *                   100, tesoros, misterios y descansos (pelear ya no da nada). Reclutas solo buenos: su calidad al
+   *                   Nv.100 bioma a bioma. Sanguijuela hasta ×6 (ajustable). Botín pesa al principio.
    *   7. MEJORAS      simula bajadas enteras con y sin cada mejora del campamento: cuánto rinde cada esquirla.
    *   8. PILOTO       juega solo con las decisiones de la IA; se para ante lo que no conoce. Nunca «Retirarse».
    *   9. PANEL        pestañas: Ahora · Saber · Mejoras · Historial · Datos.
@@ -371,7 +371,7 @@
   kb.templeObs = kb.templeObs || []; kb.subidaPuerta = kb.subidaPuerta || {};
   let tGuardar = null;
   const guardaKb = () => { clearTimeout(tGuardar); tGuardar = setTimeout(() => { if (!lsPut(LS_KB, kb)) { kb.niveles = kb.niveles.slice(-300); lsPut(LS_KB, kb); } }, 400); };
-  const conf = Object.assign({ prioridad: 'equilibrio', empezarGratis: true, usarPases: false, reordenar: true, velocidad: 'normal', esfuerzo: 'normal', comprar: false }, lsGet(LS_CONF, {}));
+  const conf = Object.assign({ prioridad: 'equilibrio', empezarGratis: true, usarPases: false, reordenar: true, velocidad: 'normal', esfuerzo: 'normal', comprar: false, sanguijuelas: 6 }, lsGet(LS_CONF, {}));
   // 1.2: la prioridad por defecto pasa a «equilibrio» (bajar mucho y que rinda en esquirlas: Botín pronto)
   if (!conf.v12) { if (conf.prioridad === 'pisos') conf.prioridad = 'equilibrio'; conf.v12 = true; lsPut(LS_CONF, conf); }
   // Cuánto vale una esquirla frente a un piso, según la prioridad (en «pisos» de la bajada). En «equilibrio» pesa al
@@ -828,7 +828,7 @@
   // o: { hpMax (el de verdad), vida, piso (para lo que suma Sangre de la veta), mej (mejoras; por defecto las de ahora) }
   function luchadorDe(e, L, mio, ef, o = {}) {
     const b = baseDe(e), st = stats(b, L);
-    const x = { num: e.num, nombre: e.nombre, L, tipos: e.tipos, mio, fis: st.fis, b, movs: movsDe(e), raw: { hp: st.hp, atk: st.atk, def: st.def, esp: st.esp, spe: st.spe }, m: { hp: 1, atk: 1, def: 1, esp: 1, spe: 1 } };
+    const x = { num: e.num, nombre: e.nombre, e, L, tipos: e.tipos, mio, fis: st.fis, b, movs: movsDe(e), raw: { hp: st.hp, atk: st.atk, def: st.def, esp: st.esp, spe: st.spe }, m: { hp: 1, atk: 1, def: 1, esp: 1, spe: 1 } };
     if (mio) {
       const t = multMio(o.piso || 1, o.mej || mejAhora()) - 1 + (o.extraTemple || 0);
       for (const c of CS) x.m[c] += t;
@@ -954,7 +954,7 @@
   /* ══════════ 5 · SIMULADOR (un piso, con dados) ══════════ */
   // Estado de una bajada: { piso, eq:[luchadores], ef (bendiciones), bend:[nombres], mej (mejoras), pluma, esq, vivo, plazas }
   const clonar = S => ({ ...S, eq: S.eq.map(x => ({ ...x, raw: x.raw && { ...x.raw }, m: x.m && { ...x.m } })), ef: JSON.parse(JSON.stringify(S.ef)), bend: S.bend.slice() });
-  function rngDe(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
+  function rngDe(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; s = (s * 16807) % 2147483647; s = (s * 16807) % 2147483647; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
   const vidaMedia = S => S.eq.length ? media(S.eq.map(x => x.vida)) : 0;
   const potencia = x => (x.hp * (x.def + x.esp) / 2) * Math.max(x.atk, x.esp) * (1 + x.spe / 300) * (x.vida > 0 ? 0.5 + x.vida / 2 : 0.3);
   // Niveles que da cada puerta al ganarla (aprendido; al principio Élite 3, Combate 2, Guardián 3,3)
@@ -978,13 +978,17 @@
     for (const x of S.eq) if (x.m) { for (const c of CS) x.m[c] += pd; recalc(x); }
   }
   function curar(S, vivos, caidos) { for (const x of S.eq) x.vida = x.vida > 0 ? Math.min(1, x.vida + vivos) : caidos; }
-  // Recluta: si hay hueco entra; si no, sustituye al más flojo si el nuevo es claramente mejor
+  // Recluta (en las simulaciones): solo si es bueno a la larga (su calidad al Nv.100). Con hueco entra si no desentona
+  // con el equipo; si no, sustituye al de peor calidad si el nuevo es claramente mejor.
   function reclutarSim(S, e, L) {
+    // (dentro de las simulaciones, la calidad sin bendiciones: basta para comparar especies y va mucho más rápido)
+    const cn = calidad(e, null).total, cs = S.eq.map(y => calidadDe(y, null));
+    const hueco = S.eq.length < S.plazas;
+    let peor = 0; cs.forEach((c, k) => { if (c < cs[peor]) peor = k; });
+    if (hueco ? cs.length && cn < 0.85 * media(cs) : !(cn > cs[peor] + 0.06)) return;
     const nivel = Math.min(100, L + (S.ef.reclutaNiv || 0) + (S.mej.reclutaNiv || 0));
     const x = luchadorDe(e, nivel, true, S.ef, { piso: S.piso, mej: S.mej }); x.vida = S.ef.reclutaLlenos ? 1 : 0.6;
-    if (S.eq.length < S.plazas) { S.eq.push(x); return; }
-    let peor = 0; S.eq.forEach((y, k) => { if (potencia(y) < potencia(S.eq[peor])) peor = k; });
-    if (potencia(x) > potencia(S.eq[peor]) * 1.08) S.eq[peor] = x;
+    if (hueco) S.eq.push(x); else S.eq[peor] = x;
   }
   // Valor rápido de una bendición (el que usan las partidas simuladas), pensado a largo plazo:
   // · Todo se SUMA en un solo multiplicador, así que un +15% rinde más en lo que menos tienes (15 ÷ lo que ya llevas):
@@ -1084,105 +1088,99 @@
     for (let i = 0; i < 12 && out.length < 3; i++) { const c = elige(cat, rng).k; if (!out.includes(c)) out.push(c); }
     return out;
   }
-  // Política rápida (la que se usa dentro de las simulaciones)
-  function politicaRapida(S, ops, rng) {
-    if (ops.length === 1) return ops[0];
-    const v = vidaMedia(S), hueco = S.eq.length < S.plazas;
-    const fuerte = S.eq.filter(x => x.vida > 0).length >= Math.min(3, S.eq.length) && v > 0.7;
-    const orden = [];
-    if (v < 0.5 && ops.includes('descanso')) orden.push('descanso');
-    if (hueco && ops.includes('combate') && v > 0.45) orden.push('combate');
-    // Élite siempre que el equipo esté entero y con vida: +3 niveles (al 100 antes) y casi el doble de esquirlas
-    if (fuerte && ops.includes('elite')) orden.push('elite');
-    if (conf.prioridad !== 'pisos' && ops.includes('tesoro')) orden.push('tesoro');
-    orden.push('tesoro', 'combate', 'misterio', 'descanso', 'elite', 'oculta');
-    return orden.find(c => ops.includes(c)) || ops[Math.floor(rng() * ops.length)];
+  /* ══════════ 5b · POLÍTICA: cómo se juega una puerta (en las simulaciones, y la base de lo que hace el piloto) ══════════
+   * · Mientras alguno no esté al 100: ÉLITE siempre que los que pelean estén enteros (+3 niveles por piso en vez de 2 y
+   *   casi el doble de esquirlas). Si no, descanso para recuperarse; combate si no queda otra.
+   * · Con TODOS al 100 (o casi: desde el 97, los guardianes dan el resto) pelear ya no da nada (ni niveles) y solo quita vida: tesoros, misterios y descansos; combate o
+   *   élite solo si no hay otra cosa. Se pelea con los guardianes (obligatorio) y poco más.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+  function estadoEquipo(S) {
+    const n = Math.min(3, S.eq.length), vivos = S.eq.filter(x => x.vida > 0), top = vivos.slice(0, 3);
+    return { h: top.length ? media(top.map(x => x.vida)) : 0, falta: n - top.length, al100: S.eq.length > 0 && S.eq.every(x => x.L >= 97), minL: S.eq.length ? Math.min(...S.eq.map(x => x.L)) : 0, minVida: S.eq.length ? Math.min(...S.eq.map(x => x.vida)) : 0 };
   }
-  // Juega hasta `pisos` pisos con la política rápida; devuelve lo avanzado
-  function rodar(S, pisos, rng) {
-    const p0 = S.piso;
-    for (let n = 0; n < pisos * 3 && S.vivo && S.piso < p0 + pisos; n++) jugarPuerta(S, politicaRapida(S, puertasDe(S.piso, rng), rng), rng);
+  function politica(S, ops) {
+    if (ops.length === 1) return ops[0];
+    const t = estadoEquipo(S), hay = c => ops.includes(c);
+    let orden;
+    if (!t.al100) {
+      if (hay('elite') && t.h >= 0.6 && !t.falta) return 'elite';
+      if (hay('descanso') && (t.h < 0.55 || t.falta)) return 'descanso';
+      // sin Élite: Combate (2 niveles) si aún queda mucho para el 100; si ya casi, lo que da esquirlas sin pelear
+      orden = t.h >= 0.45 && !t.falta && t.minL < 90 ? ['combate', 'tesoro', 'misterio', 'oculta', 'descanso', 'elite'] : ['tesoro', 'misterio', 'descanso', 'oculta', 'combate', 'elite'];
+    } else {
+      if (hay('descanso') && (t.h < 0.9 || t.falta || t.minVida < 0.7)) return 'descanso';
+      orden = ['tesoro', 'misterio', 'oculta', 'descanso', 'combate', 'elite'];
+    }
+    return orden.find(hay) || ops[0];
+  }
+  const politicaRapida = politica;
+  // Juega desde S hasta caer (o hasta `tope`). Los dados de cada piso salen de (vida, piso): así dos opciones distintas
+  // se encuentran las mismas puertas y los mismos rivales en cada piso y la comparación es justa.
+  function recorrer(S, base, tope) {
+    let ult = -1, intento = 0;
+    for (let n = 0; S.vivo && S.piso < tope && n < 4 * (tope - S.piso) + 20; n++) {
+      if (S.piso !== ult) { ult = S.piso; intento = 0; } else intento++;
+      const rng = rngDe(base + S.piso * 7919 + intento * 104729);
+      jugarPuerta(S, politica(S, puertasDe(S.piso, rng)), rng);
+    }
     return S;
   }
-  // Esquirlas que se sacan de media por piso con estas bendiciones y mejoras
-  const esqPorPiso = S => (0.45 * esqPuerta('elite') + 0.3 * esqPuerta('combate') + 0.25 * esqPuerta('tesoro')) * multEsquirlas(S.ef, S.mej);
-  const nivelMedio = S => S.eq.length ? media(S.eq.map(x => x.L)) : 0;
-  // Nota de una partida simulada = piso final esperado (si sigue viva al acabar, lo que marque el techo de la opción)
-  // + las esquirlas (las ganadas y las que quedan hasta ese piso) en «pisos» según la prioridad + un poco por niveles
-  function puntuar(S0, S, techoOp) {
-    const fin = S.vivo ? Math.max(S.piso, techoOp || S.piso) : S.piso;
-    const esq = (S.esq - S0.esq) + (S.vivo ? Math.max(0, fin - S.piso) * esqPorPiso(S) : 0);
-    return fin + pesoEsq(S0.piso) * esq / Math.max(1, esqPorPiso(S0)) + 0.12 * (nivelMedio(S) - nivelMedio(S0)) + (S.vivo ? 0.5 * vidaMedia(S) : 0);
-  }
+  const rodar = (S, pisos, rng) => recorrer(S, Math.floor(rng() * 1e6), S.piso + pisos);
+  // Esquirlas que se sacan de media por piso con estas bendiciones y mejoras (para pasar esquirlas a «pisos»)
+  const esqPorPiso = S => (0.4 * esqPuerta('elite') + 0.3 * esqPuerta('tesoro') + 0.3 * esqPuerta('combate')) * multEsquirlas(S.ef, S.mej);
+  // Nota de una partida simulada entera = piso al que llega + las esquirlas que saca (en «pisos», según la prioridad)
+  const puntuar = (S0, S) => S.piso + (S.vivo ? 3 : 0) + pesoEsq(S0.piso) * (S.esq - S0.esq) / Math.max(1, esqPorPiso(S0));
 
-  /* ══════════ 5b · TECHO: hasta qué piso aguanta este equipo a la larga ══════════
-   * Se juega cada bloque de 5 pisos (un bioma) por delante — combate, élite, combate, descanso y guardián — con el equipo
-   * entero al empezar el bloque, en el nivel al que habrá llegado (unos 2 por piso hasta el 100), con lo que Sangre de la
-   * veta le habrá sumado y con los rivales de ese piso (más nivel y más «hinchados» cada piso). Techo = piso de salida +
-   * 5 × Σ probabilidad de haber pasado todos los bloques hasta ahí. Así cuenta lo que dura TODA la partida: las
-   * bendiciones que suman para siempre, curar al ganar, y que el equipo sirva en todos los biomas.
-   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
-  const ritmoNivel = () => 0.5 * subePuerta('elite') + 0.3 * subePuerta('combate') + 0.2 * 0.6;
-  function proyectar(S0, p) {
-    const dp = Math.max(0, p - S0.piso), ritmo = ritmoNivel(), D = S0.mej.sangreDesde || 46;
-    const dm = pendMio(S0.mej) * (Math.max(0, p - D) - Math.max(0, S0.piso - D));
-    return S0.eq.map(x => {
-      const y = { ...x, raw: x.raw && { ...x.raw }, m: x.m && { ...x.m }, vida: 1 };
-      if (y.m && dm) { for (const c of CS) y.m[c] += dm; recalc(y); }
-      const L = Math.min(100, Math.round(x.L + ritmo * dp));
-      if (L > x.L) ponNivel(y, L);
-      return y;
-    });
-  }
-  const PLAN_BLOQUE = ['combate', 'elite', 'combate', 'descanso', 'guardian'];
-  // Un bloque con daño medio (sin dados en los golpes; los dados solo eligen qué rivales salen). Devuelve hasta dónde
-  // llega: 5 si lo pasa entero; si no, el piso del bloque en que cae + lo que tumbó de ese combate.
-  function bloque(S0, p0, rng) {
-    const eq = proyectar(S0, p0), T = { eq }, out = {};
-    const cura = S0.ef.curaVictoria + S0.mej.curaVictoria, dx = S0.ef.descansoX * (1 + S0.mej.descansoMas);
-    for (let f = 0; f < 5; f++) {
-      const piso = p0 + f, r = biomaDePiso(piso).reglas, c = PLAN_BLOQUE[f];
-      if (c === 'descanso') curar(T, 0.4 * dx, 0.25 * dx);
-      else {
-        if (!combate(eq, rivalesDe(piso, c, rng), r, null, S0.ef, out)) return f + out.prog;
-        if (cura) curar(T, cura, 0);
-      }
-      if (r.desgaste) eq.forEach(x => { if (x.vida > 0 && !x.tipos.includes(r.desgaste.salvo)) x.vida = Math.max(0.01, x.vida - r.desgaste.p); });
-    }
-    return 5;
-  }
-  // R «vidas»: cada una baja bloque a bloque (rivales sorteados con dados fijos, los mismos para todas las opciones: la
-  // comparación es justa y sin ruido) hasta el primero que no pasa. Techo = media de dónde cae cada una.
-  function techo(S0, { R = 12, tope = 600 } = {}) {
-    if (!S0.eq.length) return { piso: S0.piso, exacto: S0.piso, curva: [] };
-    const k0 = Math.floor((S0.piso - 1) / 5) + 1;
-    const llega = [], pasa = [];
-    let suma = 0;
+  /* ══════════ 5c · TECHO: hasta dónde llega este equipo jugando bien ══════════
+   * R partidas enteras desde aquí con la política de arriba (la vida se arrastra de piso en piso: curar al ganar cuenta,
+   * los descansos cuentan, cada bioma cuenta). Techo = piso medio en que se cae; y dónde se cae más. */
+  const semillaVida = r => 500009 + r * 1000003;
+  function techo(S0, { R = 16, tope = 600 } = {}) {
+    if (!S0.eq.length) return { piso: S0.piso, exacto: S0.piso, caidas: {} };
+    const fin = [], caidas = {};
     for (let r = 0; r < R; r++) {
-      let fin = tope;
-      for (let k = k0; 5 * k + 1 < tope; k++) {
-        const p = 5 * k + 1, i = k - k0, a = bloque(S0, p, rngDe(7777 + k * 131 + r * 7919));
-        llega[i] = (llega[i] || 0) + 1;
-        if (a >= 5) { pasa[i] = (pasa[i] || 0) + 1; continue; }
-        fin = p + a; break;
-      }
-      suma += fin;
+      const S = recorrer(clonar(S0), semillaVida(r), Math.min(tope, S0.piso + 200));
+      fin.push(S.piso);
+      if (!S.vivo) { const b = biomaDePiso(S.piso).id; caidas[b] = (caidas[b] || 0) + 1; }
     }
-    const exacto = suma / R;
-    return { piso: Math.round(exacto), exacto, curva: llega.map((n, i) => [5 * (k0 + i) + 1, (pasa[i] || 0) / n]) };
+    const exacto = media(fin);
+    return { piso: Math.round(exacto), exacto, caidas, fin };
   }
 
+  /* ══════════ 5d · CALIDAD DE CADA ESPECIE, bioma a bioma ══════════
+   * Lo que de verdad importa de un Pokémon a la larga: cómo le va al Nv.100 contra lo que sale en cada bioma en lo hondo
+   * (piso 70, rivales ya hinchados), uno contra uno, con tus bendiciones. 0 = no hace nada · 1 = gana sin despeinarse. */
+  const memoCal = new Map();
+  function calidad(e, ef) {
+    const clave = (e.num || e.nombre) + '|' + JSON.stringify(ef ? ef.porTipo : {}) + '|' + JSON.stringify(ef ? ef.stats : {}) + '|' + Object.keys(kb.especies).length;
+    let c = memoCal.get(clave);
+    if (c) return c;
+    const P = 70, h = hinchaRival(P), porBioma = {};
+    for (const b of listaBiomas()) {
+      const pool = poolBioma(b.id).slice().sort((x, y) => y.w - x.w).slice(0, 10);
+      const tot = pool.reduce((s, x) => s + x.w, 0) || 1;
+      let v = 0;
+      for (const { e: re, w } of pool) {
+        const x = luchadorDe(e, 100, true, ef, { piso: P }), out = {};
+        const gana = combate([x], [hinchar(luchadorDe(re, 100, false, null), h)], b.reglas, null, ef, out);
+        v += w * (gana ? 0.5 + 0.5 * Math.max(0, x.vida) : 0.5 * out.prog);
+      }
+      porBioma[b.id] = v / tot;
+    }
+    c = { total: media(Object.values(porBioma)), porBioma };
+    if (memoCal.size > 800) memoCal.clear();
+    memoCal.set(clave, c);
+    return c;
+  }
+  const calidadDe = (x, ef) => calidad(x.e || { num: x.num, nombre: x.nombre, tipos: x.tipos, movs: {} }, ef).total;
 
-  /* ══════════ 6 · IA: valorar cada opción a corto y a largo plazo ══════════
-   * Para cada opción: se aplica al estado de verdad (tu equipo con su vida, tus bendiciones, el piso) y
-   *  · a corto: se juegan R partidas de H pisos con dados (¿sobrevives a lo que viene con la vida que tienes?);
-   *  · a largo: su TECHO (hasta qué piso aguanta ese equipo con esas bendiciones, bioma a bioma, cuando todos estén al
-   *    100 y los rivales sigan hinchándose).
-   * Nota = piso final esperado (si la partida sigue viva, el techo) + esquirlas en «pisos» según la prioridad.
-   * Todas las opciones usan los MISMOS dados (así la comparación es justa aunque R sea pequeño).
+  /* ══════════ 6 · IA: cada opción se juega entera, muchas veces ══════════
+   * Para cada opción: se aplica al estado de verdad (tu equipo con su vida, tus bendiciones, el piso) y se juegan R
+   * partidas ENTERAS hasta caer, con la política buena (Élite hasta el 100; luego tesoros y descansos). La vida se
+   * arrastra de piso en piso (así cuenta curar al ganar), y en cada piso todas las opciones se encuentran las MISMAS
+   * puertas y los MISMOS rivales (la comparación es justa). Nota = piso al que se llega + esquirlas según la prioridad.
    * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
-  // R partidas por opción, cada una hasta caer o H pisos; T dados por bloque en el techo
-  const ESFUERZO = { rapido: { R: 24, H: 20, T: 6 }, normal: { R: 48, H: 30, T: 10 }, alto: { R: 100, H: 45, T: 16 } };
+  const ESFUERZO = { rapido: { R: 16 }, normal: { R: 32 }, alto: { R: 64 } };
   // El estado de verdad, leído de la pantalla
   function estadoActual(P) {
     const cab = (P && P.cab) || ultimaCab;
@@ -1197,38 +1195,31 @@
     });
     return { piso: cab ? cab.piso : 1, eq, ef, bend: bend.map(b => b.nombre), mej, pluma: cab ? cab.pluma : true, esq: cab && cab.esquirlas || 0, vivo: true, plazas: eqL ? eqL.plazas : 4 + mej.plazas };
   }
-  // o.azar: la opción depende de dados (volver a tirar): su techo es la media de varias tiradas
-  async function valorar(S0, opciones, aplicar, { R, H, T } = ESFUERZO[conf.esfuerzo] || ESFUERZO.normal, { conTecho = true } = {}) {
-    const res = opciones.map(o => ({ o, suma: 0, vivos: 0, n: 0, techo: null }));
-    const t0 = techo(S0, { R: T });
-    for (const x of res) {
-      if (!conTecho) { x.techo = t0.exacto; continue; }
-      const tiradas = x.o.azar ? 5 : 1; let s = 0;
-      for (let i = 0; i < tiradas; i++) { const S = clonar(S0); aplicar(S, x.o, rngDe(99 + i * 17)); s += techo(S, { R: T }).exacto; }
-      x.techo = s / tiradas;
-      await sleep(0);
-    }
-    const semilla = 1000 + S0.piso * 7919;
+  async function valorar(S0, opciones, aplicar, { R } = ESFUERZO[conf.esfuerzo] || ESFUERZO.normal) {
+    const res = opciones.map(o => ({ o, suma: 0, fin: 0, vivos: 0, n: 0, pierde: 0 }));
+    const tope = Math.min(600, S0.piso + 200);
     for (let r = 0; r < R; r++) {
       for (const x of res) {
-        const rng = rngDe(semilla + r * 104729);
-        const S = clonar(S0);
-        S.techo = x.techo;
-        aplicar(S, x.o, rng);
-        if (S.vivo) rodar(S, H, rng);
-        x.suma += puntuar(S0, S, x.techo); x.vivos += S.vivo ? 1 : 0; x.n++;
+        const S = clonar(S0), base = semillaVida(r);
+        aplicar(S, x.o, rngDe(base + S0.piso * 7919 + 31337));     // lo de ahora, con los dados de este piso
+        if (S.piso === S0.piso && S.eq.some((y, k) => y.vida <= 0 && !(S0.eq[k] && S0.eq[k].vida <= 0)) || !S.vivo) x.pierde++;   // (puertas) la pierde
+        recorrer(S, base, tope);
+        x.suma += puntuar(S0, S); x.fin += S.piso; x.vivos += S.vivo ? 1 : 0; x.n++;
       }
-      if (r % 8 === 7) await sleep(0);
+      if (r % 4 === 3) await sleep(0);
     }
-    return res.map(x => ({ o: x.o, v: x.suma / x.n, vivo: x.vivos / x.n, techo: x.techo, dTecho: x.techo - t0.exacto })).sort((a, b) => b.v - a.v);
+    const out = res.map(x => ({ o: x.o, v: x.suma / x.n, techo: x.fin / x.n, vivo: x.vivos / x.n, pierde: x.pierde / x.n }));
+    const base = Math.max(...out.map(x => x.techo));
+    out.forEach(x => { x.dTecho = x.techo - base; });
+    return out.sort((a, b) => b.v - a.v);
   }
-  const explica = (lista, nombre) => lista.map(x => `${nombre(x.o)}: ${x.v.toFixed(1)} (techo piso ${Math.round(x.techo)}${Math.abs(x.dTecho) >= 0.5 ? ` ${x.dTecho > 0 ? '+' : ''}${Math.round(x.dTecho)}` : ''} · vivo en ${ESFUERZO[conf.esfuerzo] ? ESFUERZO[conf.esfuerzo].H : 30} pisos ${pct(x.vivo)})`).join(' · ');
+  const explica = (lista, nombre) => lista.map(x => `${nombre(x.o)}: ${x.v.toFixed(1)} (llega al piso ${x.techo.toFixed(0)})`).join(' · ');
 
   async function decidirPrestado(P) {
     const S0 = estadoActual(P);
     const ops = P.opciones.map(o => ({ ...o, e: especie(o.nombre, o.num, o.tipos) }));
     const lista = await valorar(S0, ops, (S, o) => { const x = luchadorDe(o.e, o.L, true, S.ef, { hpMax: o.hpMax, piso: S.piso, mej: S.mej }); S.eq = [x]; });
-    return { mejor: lista[0].o, lista, texto: explica(lista, o => o.nombre), porque: `con él se baja más: ${lista[0].v.toFixed(1)} pisos de media frente a ${lista.slice(1).map(x => x.v.toFixed(1)).join(' y ')}` };
+    return { mejor: lista[0].o, lista, texto: explica(lista, o => o.nombre), porque: `con él se llega más hondo (piso ${lista[0].techo.toFixed(0)} de media frente a ${lista.slice(1).map(x => x.techo.toFixed(0)).join(' y ')})` };
   }
   // Volver a tirar: una vez por piso como mucho (el juego lo permite una vez por bioma y quita el botón; por si acaso)
   let rerollEn = null;
@@ -1240,38 +1231,71 @@
     for (const o of ops) if (!o.reroll) { const b = kb.bendiciones[o.nombre]; if (b && !efectoDe(o.desc)) b.noEntendida = true; }
     // volver a tirar solo si rinde claramente más (se pierde lo que hay y solo se puede una vez por bioma)
     if (lista[0].o.reroll && lista.length > 1 && lista[0].v - lista[1].v < 0.3) [lista[0], lista[1]] = [lista[1], lista[0]];
+    // Sanguijuela (curar al ganar): se coge hasta tener las que digas (Datos) salvo que sea claramente peor (> 3 pisos)
+    let regla = '';
+    const cura = lista.find(x => { const e = !x.o.reroll && efectoDe(x.o.desc || ''); return e && e.curaVictoria; });
+    if (cura && cura !== lista[0]) {
+      const e = efectoDe(cura.o.desc), tiene = Math.round(S0.ef.curaVictoria / e.curaVictoria);
+      if (tiene < (+conf.sanguijuelas || 0) && lista[0].v - cura.v <= 3) {
+        regla = `la cojo hasta tener ×${conf.sanguijuelas} (llevas ×${tiene}); jugándolas enteras, ${lista[0].o.nombre} llegaría al piso ${lista[0].techo.toFixed(0)} y esta al ${cura.techo.toFixed(0)}`;
+        lista.splice(lista.indexOf(cura), 1); lista.unshift(cura);
+      }
+    }
     const mejor = lista[0].o;
     const dif = lista.length > 1 ? Math.abs(lista[0].v - lista[1].v) : 0;
     const l0 = lista[0];
-    return { mejor, tirar: !!mejor.reroll, lista, texto: explica(lista, o => o.nombre), porque: mejor.reroll ? `las tres que hay rinden menos que tirar otra vez (+${dif.toFixed(1)})` : `es la que más rinde para toda la partida (techo piso ${Math.round(l0.techo)}${l0.dTecho >= 0.5 ? `, +${Math.round(l0.dTecho)} pisos` : ''}; +${dif.toFixed(1)} sobre la siguiente)` };
+    const otra = lista.find(x => x !== l0 && !x.o.reroll);
+    return { mejor, tirar: !!mejor.reroll, lista, texto: explica(lista, o => o.nombre), porque: regla ? regla : mejor.reroll ? `las tres que hay rinden menos que tirar otra vez (+${dif.toFixed(1)})` : otra && otra.techo > l0.techo + 0.5 ? `con ${otra.o.nombre} se llegaría algo más hondo (piso ${otra.techo.toFixed(0)} frente a ${l0.techo.toFixed(0)}), pero las esquirlas que da el resto de la partida lo compensan de sobra (a estas alturas pesan mucho)` : `es la que más rinde para toda la partida: con ella se llega de media al piso ${l0.techo.toFixed(0)}${otra ? ` (con ${otra.o.nombre}, al ${otra.techo.toFixed(0)})` : ''}` };
   }
+  // Puerta: la de la política (Élite hasta el 100; luego tesoros, misterios y descansos) salvo que jugarlas enteras diga
+  // que otra es claramente mejor (más de un piso y medio), p. ej. porque el equipo va muy tocado para una Élite.
   async function decidirPuerta(P) {
     const S0 = estadoActual(P);
     const ops = P.opciones.map(o => ({ ...o }));
-    if (ops.length === 1) return { mejor: ops[0], lista: [{ o: ops[0], v: 0, vivo: 1 }], texto: ops[0].nombre, porque: 'es la única' };
-    // una puerta no cambia el techo (lo que cambia es el riesgo de ahora, las esquirlas y los niveles): se calcula una vez
-    const lista = await valorar(S0, ops, (S, o, rng) => jugarPuerta(S, o.clase, rng), undefined, { conTecho: false });
-    return { mejor: lista[0].o, lista, texto: explica(lista, o => o.nombre), porque: `con ella se baja más (${lista[0].v.toFixed(1)} pisos de media; la siguiente, ${lista[1].v.toFixed(1)})` };
+    if (ops.length === 1) return { mejor: ops[0], lista: [{ o: ops[0], v: 0, techo: 0, vivo: 1, dTecho: 0 }], texto: ops[0].nombre, porque: 'es la única' };
+    const lista = await valorar(S0, ops, (S, o, rng) => jugarPuerta(S, o.clase, rng));
+    const t = estadoEquipo(S0), pc = politica(S0, ops.map(o => o.clase));
+    const lp = lista.find(x => x.o.clase === pc), top = lista[0];
+    const regla = !t.al100 ? (pc === 'elite' ? 'aún no estáis todos al 100: Élite da 3 niveles por piso (Combate, 2) y más esquirlas' : t.falta || t.h < 0.55 ? 'el equipo va tocado: primero recuperarse' : 'sin Élite a mano, lo que más sube sin arriesgar')
+      : pc === 'descanso' ? 'todos al 100 y alguno tocado: a curarse' : 'todos al 100: pelear ya no da niveles, solo quita vida; mejor lo que da esquirlas sin pelear';
+    let mejor = lp, porque = regla;
+    // Antes del 100 la Élite manda (lo que se gana en niveles no lo ve del todo la simulación); solo se cambia si la
+    // propia Élite se pierde a menudo. Con todos al 100, otra puerta si jugándolas enteras es claramente mejor (p. ej.
+    // un combate para reclutar a uno bueno).
+    const cambiar = !lp || (pc === 'elite' ? lp.pierde > 0.15 && top.v > lp.v : top.v - lp.v > 2);
+    if (cambiar && pc === 'elite' && lp) { mejor = top; porque = `la Élite se pierde ${pct(lp.pierde)} de las veces con el equipo así: mejor ${top.o.nombre}`; }
+    else if (cambiar) { mejor = top; porque = lp ? `normalmente iría a ${lp.o.nombre} (${regla}), pero jugándolas enteras esta rinde claramente más (piso ${top.techo.toFixed(0)} frente a ${lp.techo.toFixed(0)})` : 'es la que más lejos llega'; }
+    if (mejor !== lista[0]) lista.splice(lista.indexOf(mejor), 1), lista.unshift(mejor);
+    return { mejor: mejor.o, lista, texto: explica(lista, o => o.nombre), porque };
   }
   // Reclutar: quedárselo (y a quién dejar si no cabe) o dejarlo
+  // Reclutar: solo Pokémon buenos a la larga. Se mira su CALIDAD al Nv.100 bioma a bioma (a ese nivel llegan todos) y se
+  // juega entero con él y sin él. Con hueco entra si no desentona con el equipo y suma; para dejar a uno tiene que ser
+  // claramente mejor que él (en calidad y jugándolo entero).
   async function decidirRecluta(P) {
     const S0 = estadoActual(P);
     const e = especie(P.cand.nombre, P.cand.num, P.cand.tipos);
     const nuevo = S => { const x = luchadorDe(e, P.cand.L, true, S.ef, { hpMax: P.cand.hpMax, piso: S.piso, mej: S.mej }); x.vida = P.cand.hpMax ? P.cand.hp / P.cand.hpMax : 0.6; return x; };
+    const cn = calidad(e, S0.ef), cs = S0.eq.map(x => calidadDe(x, S0.ef));
     const ops = [{ nombre: 'Dejarlo', dejar: true }];
     if (S0.eq.length < S0.plazas) ops.push({ nombre: 'Reclutarlo', meter: true });
     else S0.eq.forEach((m, k) => ops.push({ nombre: `Reclutarlo y dejar a ${m.nombre}`, cambia: k, quien: m.nombre }));
     const lista = await valorar(S0, ops, (S, o) => { if (o.meter) S.eq.push(nuevo(S)); else if (o.cambia != null) S.eq[o.cambia] = nuevo(S); });
-    // Solo buenos Pokémon: cambiar a uno del equipo tiene que rendir claramente más (no por azar) y sin bajar el techo
-    // (que sirva en los biomas que vienen), salvo que a corto plazo salve la partida
     const dej = lista.find(x => x.o.dejar);
-    const vale = x => x.o.dejar || (x.v - dej.v >= (x.o.cambia != null ? 0.4 : 0.2) && (x.dTecho >= -0.5 || x.v - dej.v >= 1.5));
+    const vale = x => {
+      if (x.o.dejar) return true;
+      const gana = x.v - dej.v;
+      const m = cs.length ? media(cs) : 0;
+      if (x.o.meter) return (cn.total >= 0.85 * m && gana >= 0.3) || (cn.total >= 0.65 * m && gana >= 2);
+      return cn.total > cs[x.o.cambia] + 0.06 && gana >= 0.5;
+    };
     const i0 = lista.findIndex(vale);
     if (i0 > 0) lista.unshift(lista.splice(i0, 1)[0]);
-    const mejor = lista[0].o;
-    const sin = dej.v;
-    const l0 = lista[0];
-    return { mejor, lista, texto: explica(lista, o => o.nombre), porque: mejor.dejar ? 'no mejora a tu equipo a la larga (con él no se llega más hondo en los biomas que vienen)' : `con él se llega más hondo (techo piso ${Math.round(l0.techo)}${l0.dTecho >= 0.5 ? `, +${Math.round(l0.dTecho)}` : ''}; nota ${l0.v.toFixed(1)} frente a ${sin != null ? sin.toFixed(1) : '?'} sin él)` };
+    const mejor = lista[0].o, l0 = lista[0];
+    const bien = Object.entries(cn.porBioma).filter(([, v]) => v >= 0.6).map(([b]) => kb.biomas[b] ? kb.biomas[b].ico : b).join('');
+    const mal = Object.entries(cn.porBioma).filter(([, v]) => v < 0.35).map(([b]) => kb.biomas[b] ? kb.biomas[b].ico : b).join('');
+    const ficha = `calidad al Nv.100 ${Math.round(cn.total * 100)} (tu equipo ${cs.map(c => Math.round(c * 100)).join('/')})${bien ? ` · bueno en ${bien}` : ''}${mal ? ` · flojo en ${mal}` : ''}`;
+    return { mejor, lista, calidad: cn, texto: explica(lista, o => o.nombre), porque: mejor.dejar ? `no merece la pena: ${ficha}` : `merece la pena: ${ficha}; con él se llega al piso ${l0.techo.toFixed(0)} (sin él, ${dej.techo.toFixed(0)})` };
   }
   // Orden del equipo (los tres primeros que sigan en pie pelean): el que más gana contra lo de los próximos pisos
   let memoOrden = { clave: '', r: null };
@@ -1302,14 +1326,16 @@
     }
     return { orden: mejor.orden, v: mejor.v, actual: actual.v, cambia: mejor.v > actual.v + 0.02 };
   }
-  // Hasta dónde llega este equipo (el techo, con más dados) y qué biomas le cuestan
+  // Hasta dónde llega este equipo jugando bien (partidas enteras) y en qué biomas cae
   async function prediccion(P) {
     const S0 = estadoActual(P);
     if (!S0.eq.length) return null;
     await sleep(0);
-    const t = techo(S0, { R: 16 });
-    const flojos = t.curva.filter(([, p]) => p < 0.75).slice(0, 3).map(([p, x]) => ({ piso: p, bioma: biomaDePiso(p), p: x }));
-    return { media: t.piso, curva: t.curva, flojos };
+    const t = techo(S0, { R: 24 });
+    const tot = Object.values(t.caidas).reduce((a, b) => a + b, 0) || 1;
+    const flojos = Object.entries(t.caidas).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id, n]) => ({ bioma: { id, ...(kb.biomas[id] || {}) }, p: n / tot }));
+    const fin = t.fin.slice().sort((a, b) => a - b);
+    return { media: t.exacto, p25: fin[Math.floor(fin.length * 0.25)], p75: fin[Math.floor(fin.length * 0.75)], flojos };
   }
   async function decidir(P) {
     try {
@@ -1344,7 +1370,7 @@
   async function calcularMejoras() {
     const N = 160;
     const fotos = [];
-    const correr = async extra => { const out = []; for (let r = 0; r < N; r++) { const S = bajadaEntera(extra, rngDe(313 + r * 101)); out.push([S.esq, S.piso]); if (!extra && S.foto && fotos.length < 16) fotos.push(S.foto); if (r % 16 === 15) await sleep(0); } return out; };
+    const correr = async extra => { const out = []; for (let r = 0; r < N; r++) { const S = bajadaEntera(extra, rngDe(313 + r * 101)); out.push([S.esq, S.piso]); if (!extra && S.foto && fotos.length < 16) fotos.push(S.foto); if (r % 4 === 3) await sleep(0); } return out; };
     const b0 = await correr(null);
     // Techo: con los equipos que llegan al piso 41, cuánto más hondo aguantan con un nivel más de la mejora
     const M = modeloMio(), techoBase = fotos.map(F => techo(F, { R: 8 }).exacto);
@@ -1739,15 +1765,15 @@
       const sig = [1, 2].map(k => ({ b: L[(i + k) % L.length], p: (i + k) * 5 + 1 }));
       h += `<div class="caja"><p><b>${kEsc(cab.bioma.ico)} ${kEsc(cab.bioma.nombre)} · piso ${cab.piso}</b> <span class="s">vuelta ${cab.vuelta}${cab.esquirlas != null ? ` · 💎 ${cab.esquirlas}` : ''}${cab.pluma ? ' · 🪶' : ''}</span></p><p class="s">${kEsc(cab.bioma.efecto)}</p>
         <p class="s" style="margin-top:4px">Luego: ${sig.map(x => `${kEsc(x.b.ico)} ${kEsc(x.b.nombre)} (piso ${x.p})`).join(' · ')} · rivales ~Nv.${nivelRival(cab.piso + 1)} en el siguiente piso</p>
-        ${pred.r ? `<p class="s" style="margin-top:4px">🏔️ Techo de este equipo: <b>piso ${Math.round(pred.r.media)}</b> (con todos al 100 y los rivales hinchándose)${pred.r.flojos.length ? ` · le cuesta: ${pred.r.flojos.map(f => `${kEsc(f.bioma.ico)} piso ${f.piso} (pasa ${pct(f.p)})`).join(', ')}` : ''}.</p>` : ''}</div>`;
+        ${pred.r ? `<p class="s" style="margin-top:4px">🏔️ Jugando bien, este equipo llega de media al <b>piso ${Math.round(pred.r.media)}</b> (entre ${pred.r.p25} y ${pred.r.p75})${pred.r.flojos.length ? ` · donde más cae: ${pred.r.flojos.map(f => `${kEsc(f.bioma.ico || '')} ${kEsc(f.bioma.nombre || f.bioma.id)} (${pct(f.p)})`).join(', ')}` : ''}.</p>` : ''}</div>`;
     }
     const R = decision.R;
-    if (decision.calculando) h += `<div class="caja oro"><p class="oro-t">🤔 Pensando… (jugando cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} veces hacia delante)</p></div>`;
+    if (decision.calculando) h += `<div class="caja oro"><p class="oro-t">🤔 Pensando… (jugando cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} partidas enteras)</p></div>`;
     else if (R && P && ['prestado', 'bendicion', 'puerta', 'reclutar', 'sustituir'].includes(P.tipo)) {
       const nombre = R.mejor.nombre;
       h += `<div class="caja oro"><p class="oro-t">⭐ ${kEsc(R.tirar ? '🎲 Volver a tirar' : nombre)}</p><p class="s">Porque ${kEsc(R.porque)}.</p>
-        <table style="margin-top:4px"><tr><th>Opción</th><th class="num">nota</th><th class="num">techo</th><th class="num">vivo</th></tr>${R.lista.map(x => `<tr><td>${kEsc(x.o.nombre)}</td><td class="num">${x.v.toFixed(1)}</td><td class="num">${x.techo != null ? Math.round(x.techo) + (Math.abs(x.dTecho) >= 0.5 ? ` <span class="s">(${x.dTecho > 0 ? '+' : ''}${Math.round(x.dTecho)})</span>` : '') : '—'}</td><td class="num">${pct(x.vivo)}</td></tr>`).join('')}</table>
-        <p class="s" style="margin-top:3px">Nota = piso final esperado: se juega cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} veces ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).H} pisos (¿sobrevives a lo de ahora?) y, si sigues vivo, cuenta su techo (hasta dónde aguanta ese equipo con esas bendiciones, bioma a bioma)${conf.prioridad !== 'pisos' ? ' + las esquirlas que dan hasta ahí' : ''}. «Vivo» = sigues en pie tras esos pisos.</p></div>`;
+        <table style="margin-top:4px"><tr><th>Opción</th><th class="num">nota</th><th class="num">llega al piso</th></tr>${R.lista.map(x => `<tr><td>${kEsc(x.o.nombre)}</td><td class="num">${x.v.toFixed(1)}</td><td class="num">${x.techo ? x.techo.toFixed(0) : '—'}</td></tr>`).join('')}</table>
+        <p class="s" style="margin-top:3px">Se juega cada opción ${(ESFUERZO[conf.esfuerzo] || ESFUERZO.normal).R} partidas enteras hasta caer, jugando bien (Élite hasta el 100; luego tesoros, misterios y descansos) y con las mismas puertas y rivales en cada piso para todas. Nota = piso al que se llega${conf.prioridad !== 'pisos' ? ' + las esquirlas que se sacan (pesan más al principio)' : ''}.</p></div>`;
     }
     if (P && P.tipo === 'puerta') { const o = ordenRecomendado(P); if (o && o.cambia) h += `<div class="caja"><p class="oro-t">🔀 Mejor orden: ${o.orden.map((x, k) => `${k + 1}. ${kEsc(x.nombre)}`).join(' · ')}</p><p class="s">Gana ${pct(o.v)} de los combates que vienen (ahora ${pct(o.actual)}). ${conf.reordenar && arrastreFallos < 2 ? 'El piloto lo pone solo.' : 'Arrástralos tú desde ⠿ (van numerados).'}</p></div>`; }
     if (P && P.tipo === 'lobby') {
@@ -1761,9 +1787,16 @@
     const esp = Object.values(kb.especies);
     let h = `<div class="caja"><p class="s">Llevo vistas <b>${esp.length}</b> especies, <b>${Object.keys(kb.movs).length}</b> movimientos, <b>${Object.keys(kb.bendiciones).length}</b> bendiciones, <b>${Object.keys(kb.puertas).length}</b> puertas, <b>${Object.keys(kb.eventos).length}</b> sucesos y <b>${Object.keys(kb.mejoras).length}</b> mejoras, en ${kb.vistas} pantallas.</p>
       <p class="s">Modelo: rivales ≈ Nv.${(memoNivel.a || 8).toFixed(1)} + ${(memoNivel.b || 2).toFixed(2)}·piso (tope 100) y desde ahí se hinchan (piso 50: ×${hinchaRival(50).toFixed(2)}, piso 60: ×${hinchaRival(60).toFixed(2)}, piso 75: ×${hinchaRival(75).toFixed(2)}) · tus mejoras +${Math.round((multMio(1) - 1) * 100)}% a todo${pendMio() ? ` y +${(pendMio() * 100).toFixed(1)}% más por piso desde el 46 (piso 100: +${Math.round((multMio(100) - 1) * 100)}%)` : ''} (se suma con bendiciones y bioma) · daño aprendido: tuyos ${kLado('mio-F').toFixed(2)}/${kLado('mio-E').toFixed(2)}, rivales ${kLado('riv-F').toFixed(2)}/${kLado('riv-E').toFixed(2)} (físico/especial) · subís ${subePuerta('elite').toFixed(1)} niveles por Élite, ${subePuerta('combate').toFixed(1)} por Combate y ${subePuerta('guardian').toFixed(1)} por Guardián.</p></div>`;
+    // Los mejores para reclutar: calidad al Nv.100 en cada bioma (con tus bendiciones de ahora)
+    const efA = efectosActivos(ultimasBendiciones), BL = listaBiomas();
+    const rank = esp.filter(e => e.vistos).map(e => ({ e, c: calidad(e, efA) })).sort((x, y) => y.c.total - x.c.total);
+    const celda = v => `<td class="num" style="color:${v >= 0.6 ? '#7FD18B' : v < 0.35 ? '#E07A7A' : 'inherit'}">${Math.round(v * 100)}</td>`;
+    h += `<div class="caja"><p><b>🏆 Los mejores para toda la bajada</b> <span class="s">calidad al Nv.100 contra lo que sale en cada bioma en lo hondo (piso 70), con tus bendiciones · 100 = gana sin despeinarse</span></p>
+      <table style="margin-top:4px"><tr><th>Pokémon</th><th class="num">total</th>${BL.map(b => `<th class="num">${kEsc(b.ico)}</th>`).join('')}</tr>${rank.slice(0, 20).map(x => `<tr><td>${kEsc(x.e.nombre)}</td>${celda(x.c.total)}${BL.map(b => celda(x.c.porBioma[b.id] || 0)).join('')}</tr>`).join('')}</table>
+      <p class="s">Al reclutar solo me quedo con los que están arriba: los flojos no merecen la pena aunque hoy tengan buen nivel (al 100 llegan todos).</p></div>`;
     h += '<div class="caja"><p><b>🗺️ Qué sale en cada bioma</b> <span class="s">(los mejores para reclutar, primero)</span></p>';
-    for (const b of listaBiomas()) {
-      const pool = esp.filter(e => e.biomas && e.biomas[b.id]).map(e => ({ e, v: potencia(luchadorDe(e, 60, true, null)) })).sort((x, y) => y.v - x.v);
+    for (const b of BL) {
+      const pool = esp.filter(e => e.biomas && e.biomas[b.id]).map(e => ({ e, v: calidad(e, efA).total })).sort((x, y) => y.v - x.v);
       h += `<p style="margin-top:6px"><b>${kEsc(b.ico)} ${kEsc(b.nombre)}</b> <span class="s">${kEsc(b.efecto)}</span></p><div class="chips">${pool.length ? pool.map(x => chip(x.e, '×' + x.e.biomas[b.id])).join('') : '<span class="s">nada aún</span>'}</div>`;
     }
     h += '</div>';
@@ -1800,6 +1833,7 @@
     const op = (k, v, t) => `<option value="${v}"${conf[k] === v ? ' selected' : ''}>${t}</option>`;
     return `<div class="caja"><p><b>⚙️ Cómo juega</b></p>
       <label>Prioridad <select data-c="prioridad">${op('prioridad', 'equilibrio', 'equilibrio (bajar mucho y Botín pronto)')}${op('prioridad', 'pisos', 'solo bajar')}${op('prioridad', 'esquirlas', 'más 💎')}</select></label>
+      <label>Sanguijuela: cogerla hasta <select data-c="sanguijuelas">${['0', '3', '4', '5', '6', '8'].map(v => `<option value="${v}"${String(conf.sanguijuelas) === v ? ' selected' : ''}>${v === '0' ? 'lo que diga la IA' : '×' + v}</option>`).join('')}</select></label>
       <label>Cuánto piensa <select data-c="esfuerzo">${op('esfuerzo', 'rapido', 'rápido')}${op('esfuerzo', 'normal', 'normal')}${op('esfuerzo', 'alto', 'a fondo')}</select></label>
       <label>Velocidad del piloto <select data-c="velocidad">${op('velocidad', 'rapida', 'rápida')}${op('velocidad', 'normal', 'normal')}${op('velocidad', 'tranquila', 'tranquila')}</select></label>
       <label><input type="checkbox" data-c="empezarGratis"${conf.empezarGratis ? ' checked' : ''}> empezar solo si bajar es gratis</label>
@@ -1878,5 +1912,5 @@
     clearTimeout(tMontar); tMontar = setTimeout(montar, 250);
   }).observe(document.documentElement, { childList: true, subtree: true });
   setTimeout(montar, 900);
-  window.__axEntranas = { ponerOrden, equipoLeido, combate, luchadorDe, especie, hinchar, hinchaRival, efectosActivos, rivalesDe, nivelRival, kLado, multMio, pantalla, decidir, estadoActual, valorar, kb: () => kb, calcularMejoras, prediccion, ordenRecomendado, exportar, reaprender, efectoDe, reglasBioma, bajadaEntera, rodar, clonar, rngDe, techo, modeloMio, pendMio, proyectar, puntuar, valorRapidoBend, aplicarBendicion, mejAhora, jugarPuerta, puertasDe, politicaRapida, darBendicion };
+  window.__axEntranas = { ponerOrden, equipoLeido, combate, luchadorDe, especie, hinchar, hinchaRival, efectosActivos, rivalesDe, nivelRival, kLado, multMio, pantalla, decidir, estadoActual, valorar, kb: () => kb, calcularMejoras, prediccion, ordenRecomendado, exportar, reaprender, efectoDe, reglasBioma, bajadaEntera, rodar, clonar, rngDe, techo, modeloMio, pendMio, puntuar, calidad, politica, recorrer, estadoEquipo, valorRapidoBend, aplicarBendicion, mejAhora, jugarPuerta, puertasDe, politicaRapida, darBendicion };
 })();
