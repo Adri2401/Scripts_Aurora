@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Huerto de Bayas (automático)
 // @namespace    auroradex-huerto
-// @version      1.3.0
+// @version      1.3.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
 // @description  En el Huerto de Bayas: eliges una baya (solo su icono) y con un botón cosecha lo que esté listo, planta esa baya en todo lo vacío y riega todo, con los botones de la propia página.
@@ -321,52 +321,76 @@
   const registro = [];
   const log = t => { registro.push([Date.now(), t]); if (registro.length > 40) registro.shift(); kLog(document.querySelector('#axh-panel .axh-log'), t); };
 
+  // Tras cada botón la página se queda «ocupada» (todos los botones apagados) hasta que el servidor responde y se
+  // vuelve a pintar: antes de pulsar el siguiente se espera a que esté libre (si no, se saltaba el riego)
+  // (se nota en que un botón que debería estar activo según el huerto está apagado)
+  const ocupada = () => {
+    const e = estadoHuerto(); if (!e) return true;
+    const apagado = b => !b || b.disabled;
+    return (listas(e).length > 0 && apagado(bCosechar())) || (regables(e).length > 0 && apagado(bRegar())) || (vacias(e).length > 0 && apagado(bPlantar()));
+  };
+  async function esperarLibre(ms = 12000) { await sleep(300); await esperarA(() => !ocupada(), ms); await sleep(250); }
+  let desdeMarcha = 0;
   async function hacerTodo() {
-    if (enMarcha) return;
+    if (enMarcha && Date.now() - desdeMarcha < 90000) return;      // por si alguna vez se quedara colgado
     let e = estadoHuerto();
     if (!e) return;
-    enMarcha = true; pintar();
+    enMarcha = true; desdeMarcha = Date.now();
     const hecho = [];
     try {
-      // 1) cosechar
-      if (listas(e).length && libre(bCosechar())) {
-        const n = listas(e).reduce((x, p) => x + (p.cosecha || 0), 0);
-        bCosechar().click();
-        await esperarA(() => { const x = estadoHuerto(); return x && !listas(x).length; });
-        hecho.push(`🧺 ${n} baya${n === 1 ? '' : 's'} cosechada${n === 1 ? '' : 's'}`);
-        log(`🧺 Cosechado (${n}).`);
-        await sleep(400);
+      pintar();
+      // hasta 3 vueltas: al cosechar o plantar puede quedar algo nuevo que regar
+      for (let vuelta = 0; vuelta < 3; vuelta++) {
+        let algo = false;
+        await esperarLibre();
         e = estadoHuerto() || e;
-      }
-      // 2) plantar la baya elegida en todo lo vacío
-      const baya = lsGet(LS_BAYA, null), cat = baya && e.catalogo.find(c => c.id === baya);
-      if (vacias(e).length) {
-        if (!cat) log('⚠ Elige arriba qué baya plantar.');
-        else if (e.dinero < cat.semilla * vacias(e).length) log(`⚠ No llega el dinero para plantar ${vacias(e).length} ${cat.nombre} (${cat.semilla * vacias(e).length} $).`);
-        else if (libre(bPlantar())) {
-          const cuantas = vacias(e).length;
-          const lista = () => $$('main section').find(s => /qu[eé] plantas en las/i.test(s.textContent || ''));
-          if (!lista()) { bPlantar().click(); await esperarA(lista, 4000); }
-          const li = lista() && $$('li', lista()).find(l => { const p = l.querySelector('p'); return p && p.textContent.trim().startsWith(cat.nombre); });
-          const b = li && li.querySelector('button');
-          if (!libre(b)) log(`⚠ No encuentro el botón para plantar ${cat.nombre}.`);
-          else {
-            b.click();
-            await esperarA(() => { const x = estadoHuerto(); return x && !vacias(x).length; });
-            hecho.push(`🌱 ${cuantas} ${cat.nombre} plantada${cuantas === 1 ? '' : 's'}`);
-            log(`🌱 Plantadas ${cuantas} ${cat.nombre} (${cat.semilla * cuantas} $).`);
-            await sleep(400);
-            e = estadoHuerto() || e;
+        // 1) cosechar
+        if (listas(e).length && libre(bCosechar())) {
+          const n = listas(e).reduce((x, p) => x + (p.cosecha || 0), 0);
+          bCosechar().click();
+          await esperarA(() => { const x = estadoHuerto(); return x && !listas(x).length; });
+          await esperarLibre();
+          hecho.push(`🧺 ${n} baya${n === 1 ? '' : 's'} cosechada${n === 1 ? '' : 's'}`);
+          log(`🧺 Cosechado (${n}).`);
+          e = estadoHuerto() || e; algo = true;
+        }
+        // 2) plantar la baya elegida en todo lo vacío
+        const baya = lsGet(LS_BAYA, null), cat = baya && e.catalogo.find(c => c.id === baya);
+        if (vacias(e).length) {
+          if (!cat) log('⚠ Elige arriba qué baya plantar.');
+          else if (e.dinero < cat.semilla * vacias(e).length) log(`⚠ No llega el dinero para plantar ${vacias(e).length} ${cat.nombre} (${cat.semilla * vacias(e).length} $).`);
+          else if (libre(bPlantar())) {
+            const cuantas = vacias(e).length;
+            const lista = () => $$('main section').find(s => /qu[eé] plantas en las/i.test(s.textContent || ''));
+            if (!lista()) { bPlantar().click(); await esperarA(lista, 4000); }
+            const boton = () => { const li = lista() && $$('li', lista()).find(l => { const p = l.querySelector('p'); return p && p.textContent.trim().startsWith(cat.nombre); }); return li && li.querySelector('button'); };
+            const b = await esperarA(() => libre(boton()) && boton(), 5000);
+            if (!b) log(`⚠ No encuentro el botón para plantar ${cat.nombre}.`);
+            else {
+              b.click();
+              await esperarA(() => { const x = estadoHuerto(); return x && !vacias(x).length; });
+              await esperarLibre();
+              hecho.push(`🌱 ${cuantas} ${cat.nombre} plantada${cuantas === 1 ? '' : 's'}`);
+              log(`🌱 Plantadas ${cuantas} ${cat.nombre} (${cat.semilla * cuantas} $).`);
+              e = estadoHuerto() || e; algo = true;
+            }
           }
         }
-      }
-      // 3) regar todo lo que se pueda
-      if (regables(e).length && libre(bRegar())) {
-        const n = regables(e).length;
-        bRegar().click();
-        await esperarA(() => { const x = estadoHuerto(); return x && !regables(x).length; });
-        hecho.push(`💧 ${n} regada${n === 1 ? '' : 's'}`);
-        log(`💧 Regadas ${n}.`);
+        // 3) regar todo lo que se pueda
+        if (regables(e).length) {
+          const b = await esperarA(() => libre(bRegar()) && bRegar(), 5000);
+          if (!b) log('⚠ Hay plantas por regar pero el botón «Regar todo» no se activa.');
+          else {
+            const n = regables(e).length;
+            b.click();
+            await esperarA(() => { const x = estadoHuerto(); return x && !regables(x).length; });
+            await esperarLibre();
+            hecho.push(`💧 ${n} regada${n === 1 ? '' : 's'}`);
+            log(`💧 Regadas ${n}.`);
+            e = estadoHuerto() || e; algo = true;
+          }
+        }
+        if (!algo) break;
       }
       if (!hecho.length) log('Nada que hacer ahora mismo.');
     } catch (err) {
@@ -374,9 +398,11 @@
       log('⚠ Error: ' + (err && err.message));
       kAviso({ tipo: 'error', app: 'Huerto de Bayas', titulo: 'El huerto automático se ha parado', texto: String(err && err.message) });
     } finally {
-      enMarcha = false; pintar();
+      enMarcha = false;
+      try { pintar(); } catch (err) { console.warn('[axh]', err); }
     }
   }
+
 
   /* ------------------------------------------------------------------ *
    *  PANEL (en «El terreno», debajo de las pestañas)
