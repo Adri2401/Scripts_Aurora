@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.5.0
+// @version      1.6.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que los que pelean estén al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.5.0';
+  const VERSION = '1.6.0';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -373,6 +373,10 @@
   const guardaKb = () => { clearTimeout(tGuardar); tGuardar = setTimeout(() => { if (!lsPut(LS_KB, kb)) { kb.niveles = kb.niveles.slice(-300); lsPut(LS_KB, kb); } }, 400); };
   const conf = Object.assign({ prioridad: 'progreso', empezarGratis: true, usarPases: false, reordenar: true, velocidad: 'normal', esfuerzo: 'normal', comprar: false, sanguijuelas: 6, eliteHasta: 'equipo' }, lsGet(LS_CONF, {}));
   // 1.2: la prioridad por defecto pasa a «equilibrio» (bajar mucho y que rinda en esquirlas: Botín pronto)
+  // 1.6: la estrategia no se elige: siempre lo más óptimo según el laboratorio (miles de bajadas simuladas con tu base).
+  // · progreso: esquirlas mientras Sangre de la veta no esté al máximo, luego bajar · Élite hasta que los tres que pelean
+  //   estén al Nv.100 · Sanguijuela, lo que diga la IA (forzarla no cambia nada) · pensar a fondo · ordenar el equipo solo
+  Object.assign(conf, { prioridad: 'progreso', eliteHasta: 'equipo', sanguijuelas: 0, esfuerzo: 'alto', reordenar: true });
   // 1.5: «progreso» pasa a ser lo de por defecto (lo que más rápido lleva hondo, según el laboratorio)
   if (!conf.v15) { if (conf.prioridad === 'equilibrio' || conf.prioridad === 'pisos') conf.prioridad = 'progreso'; conf.v15 = true; lsPut(LS_CONF, conf); }
   if (!conf.v12) { if (conf.prioridad === 'pisos') conf.prioridad = 'equilibrio'; conf.v12 = true; lsPut(LS_CONF, conf); }
@@ -1864,16 +1868,7 @@
       <table style="margin-top:4px"><tr><th>Cuándo</th><th>Prestado</th><th class="num">piso</th><th class="num">💎</th><th>Dónde cayó</th></tr>${b.slice(0, 25).map(x => `<tr><td>${x.t ? new Date(x.t).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '—'}</td><td>${kEsc(x.prestado || '')}</td><td class="num">${x.piso}</td><td class="num">${x.esq ?? '—'}</td><td>${kEsc(x.causa || '')}</td></tr>`).join('')}</table></div>`;
   }
   function htmlDatos() {
-    const op = (k, v, t) => `<option value="${v}"${conf[k] === v ? ' selected' : ''}>${t}</option>`;
-    return `<div class="caja"><p><b>⚙️ Cómo juega</b></p>
-      <label>Prioridad <select data-c="prioridad">${op('prioridad', 'progreso', 'progreso: 💎 hasta tener Sangre de la veta al máximo, luego bajar (recomendado)')}${op('prioridad', 'equilibrio', 'equilibrio (bajar mucho y Botín pronto)')}${op('prioridad', 'pisos', 'solo bajar')}${op('prioridad', 'esquirlas', 'más 💎')}</select></label>
-      <label>Élites hasta que estén al Nv.100 <select data-c="eliteHasta">${op('eliteHasta', 'equipo', 'los tres que pelean (recomendado)')}${op('eliteHasta', 'principal', 'solo el principal (el prestado)')}</select></label>
-      <label>Sanguijuela (mientras suben de nivel): cogerla hasta <select data-c="sanguijuelas">${['0', '3', '4', '5', '6', '8'].map(v => `<option value="${v}"${String(conf.sanguijuelas) === v ? ' selected' : ''}>${v === '0' ? 'lo que diga la IA' : '×' + v}</option>`).join('')}</select></label>
-      <label>Cuánto piensa <select data-c="esfuerzo">${op('esfuerzo', 'rapido', 'rápido')}${op('esfuerzo', 'normal', 'normal')}${op('esfuerzo', 'alto', 'a fondo')}</select></label>
-      <label>Velocidad del piloto <select data-c="velocidad">${op('velocidad', 'rapida', 'rápida')}${op('velocidad', 'normal', 'normal')}${op('velocidad', 'tranquila', 'tranquila')}</select></label>
-      <label><input type="checkbox" data-c="empezarGratis"${conf.empezarGratis ? ' checked' : ''}> empezar solo si bajar es gratis</label>
-      <label><input type="checkbox" data-c="usarPases"${conf.usarPases ? ' checked' : ''}> gastar pases para empezar</label>
-      <label><input type="checkbox" data-c="reordenar"${conf.reordenar ? ' checked' : ''}> ordenar el equipo solo (arrastrando)</label></div>
+    return `<div class="caja"><p><b>⚙️ Cómo juega</b></p><p class="s">Siempre lo más óptimo según el laboratorio (miles de bajadas simuladas con lo aprendido de las tuyas): esquirlas mientras Sangre de la veta no esté al máximo (${sangrePendiente() ? 'ahora' : 'ya está: ahora a bajar'}), Élite hasta que los tres que pelean estén al Nv.100 y luego tesoros, misterios y descansos, solo reclutas buenos para los biomas, y cada decisión pensada a fondo.</p></div>
       <div class="caja"><p><b>💾 Datos</b></p><p class="s">Diario: <span class="n-diario">…</span> pasos. Todo se queda en este navegador; exporta para pasármelo o para llevarlo a otro.</p>
       <div class="fila" style="margin-top:6px"><button type="button" class="exp" style="flex:1">📤 Exportar</button><button type="button" class="imp" style="flex:1">📥 Importar</button><button type="button" class="cop" style="flex:1">📋 HTML</button></div>
       <div class="fila" style="margin-top:6px"><button type="button" class="reset" style="flex:1">🗑️ Borrar lo aprendido</button></div>
