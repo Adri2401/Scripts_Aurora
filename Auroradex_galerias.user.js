@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.21.0
-// @description  Solo en /castillo. Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) para ir directo a la escalera aunque esté a oscuras, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
+// @version      0.22.0
+// @description  Solo en /castillo. Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_galerias.user.js
@@ -90,8 +90,53 @@
     }
     if (choque) { console.log('[axg] la planta', n, 'no coincide con lo guardado: la vuelvo a aprender'); m = mapas[n] = { w: t.cols, h: t.filas, c: {} }; }
     for (const [k, v] of nuevos) if (m.c[k] !== v) { m.c[k] = v; cambio = true; }
+    // Cómo se ve cada casilla (la imagen del propio juego), para dibujarla igual cuando esté a oscuras
+    m.est = m.est || []; m.g = m.g || {}; m.ent = m.ent || {};
+    for (const cel of t.celdas.values()) {
+      if (cel.tipo === 'niebla' || !/url\(/.test(cel.aspecto)) continue;
+      let i = m.est.indexOf(cel.aspecto);
+      if (i < 0) { m.est.push(cel.aspecto); i = m.est.length - 1; }
+      const k = cel.c + ',' + cel.f;
+      if (m.g[k] !== i) { m.g[k] = i; cambio = true; }
+    }
+    // Las cosas del tablero (tumbas, puertas, jarrones, personajes, remolinos…): se apunta cómo se dibujan. Si su casilla
+    // se ve y ya no están (un jarrón roto), se quitan de la memoria.
+    const ahora = new Set();
+    for (const e of t.entidades) {
+      if (!e.el) continue;
+      const k = e.tipo + '|' + e.c + ',' + e.f;
+      ahora.add(k);
+      const d = { c: e.c, f: e.f, tipo: e.tipo, tag: e.el.tagName === 'IMG' ? 'img' : 'span', src: e.el.tagName === 'IMG' ? e.el.getAttribute('src') : '', cls: String(e.el.className || '').replace(/\banimate-\S+/g, '').trim(), css: e.el.style.cssText };
+      const antes = m.ent[k];
+      if (!antes || antes.css !== d.css || antes.src !== d.src) { m.ent[k] = d; cambio = true; }
+    }
+    for (const [k, d] of Object.entries(m.ent)) {
+      const cel = t.celdas.get(d.c + ',' + d.f);
+      if (!ahora.has(k) && cel && cel.tipo !== 'niebla') { delete m.ent[k]; cambio = true; }
+    }
     if (cambio) { m.t = Date.now(); guardarMapas(); }
   }
+  // Lo recordado que ahora está a oscuras: casillas (con su imagen) y cosas, algo apagado para que se note que es memoria
+  function memoriaHTML(t) {
+    const m = memPlanta();
+    if (!m || !m.g) return '';
+    const osc = k => { const cel = t.celdas.get(k); return !cel || cel.tipo === 'niebla'; };
+    let h = '';
+    for (const [k, i] of Object.entries(m.g)) {
+      if (!osc(k)) continue;
+      const [bg, bs, bp, br] = (m.est[i] || '').replace(/"/g, "'").split(';');
+      const [c, f] = k.split(',').map(Number);
+      h += `<span style="position:absolute;left:${c * t.w}px;top:${f * t.w}px;width:${t.w}px;height:${t.w}px;background-image:${bg};background-size:${bs || 'cover'};background-position:${bp || 'center'};background-repeat:${br || 'no-repeat'};image-rendering:pixelated;opacity:.62;filter:saturate(.7) brightness(.85)"></span>`;
+    }
+    for (const d of Object.values(m.ent || {})) {
+      if (!osc(d.c + ',' + d.f)) continue;
+      const css = (d.css || '') + ';opacity:.8;filter:saturate(.8) brightness(.9);pointer-events:none';
+      h += d.tag === 'img' ? `<img src="${String(d.src).replace(/"/g, '&quot;')}" alt="" class="${d.cls.replace(/"/g, '')}" style="${css.replace(/"/g, "'")}">` : `<span class="${d.cls.replace(/"/g, '')}" style="${css.replace(/"/g, "'")}"></span>`;
+    }
+    return h;
+  }
+  // Las cosas recordadas que ahora están a oscuras (para marcarlas y contarlas en el panel)
+  const cosasRecordadas = t => { const m = memPlanta(); return m && m.ent ? Object.values(m.ent).filter(d => { const cel = t.celdas.get(d.c + ',' + d.f); return !cel || cel.tipo === 'niebla'; }).map(d => ({ c: d.c, f: d.f, tipo: d.tipo, recordado: true })) : []; };
   const escalerasMem = m => m ? Object.entries(m.c).filter(([, v]) => v === 'e' || v === 'm').map(([k]) => { const [c, f] = k.split(',').map(Number); return { c, f }; }) : [];
   const conocidoPct = m => m ? Math.round(100 * Object.keys(m.c).length / (m.w * m.h)) : 0;
   function leerTablero() {
@@ -113,7 +158,8 @@
       else if (RE_SUELO.test(img)) tipo = 'suelo';
       else tipo = 'otro';
       const pisable = b.style.cursor === 'pointer' && tipo !== 'niebla';
-      celdas.set(c + ',' + f, { c, f, tipo, img, pisable, btn: b });
+      const aspecto = [b.style.backgroundImage, b.style.backgroundSize, b.style.backgroundPosition, b.style.backgroundRepeat].join(';');
+      celdas.set(c + ',' + f, { c, f, tipo, img, pisable, btn: b, aspecto });
       maxC = Math.max(maxC, c); maxF = Math.max(maxF, f);
     }
     // Jugador: el centro de la luz de la antorcha («circle at 168px 168px») cae en su casilla. Otros sprites de
@@ -148,7 +194,7 @@
         tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : /lapida|tumba|sepultura/i.test(nombre) ? 'lapida' : /jarron|vasija|urna|tinaja/i.test(nombre) ? 'jarron' : /movediza|arena|cienaga|pantano/i.test(nombre) ? 'movediza' : /puerta/i.test(nombre) ? 'puerta' : 'objeto';
         pos = { c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w) };
       }
-      entidades.push({ c: pos.c, f: pos.f, tipo, nombre });
+      entidades.push({ c: pos.c, f: pos.f, tipo, nombre, el });
     }
     // La escalera sobre la que apareces es la de entrada (subida), no la de bajada: no cuenta como objetivo.
     // Solo al llegar a la planta (la primera lectura): si no, pisar la de bajada la confundiría con la de subida.
@@ -237,7 +283,7 @@
       t.raiz.appendChild(ov);
     }
     const marca = (cel, estilo) => `<span style="position:absolute;left:${cel.c * t.w}px;top:${cel.f * t.w}px;width:${t.w}px;height:${t.w}px;${estilo}"></span>`;
-    let html = '';
+    let html = memoriaHTML(t);
     if (ruta) ruta.slice(1).forEach((cel, i) => {
       html += marca(cel, `display:grid;place-items:center;color:#fff;font:800 11px system-ui;background:rgba(255,214,64,.38);box-shadow:inset 0 0 0 2px rgba(255,214,64,.9)`).replace('></span>', `>${i + 1}</span>`);
     });
@@ -341,7 +387,7 @@
     if (!t) return null;
     recordar(t);
     let escaleras = [...t.celdas.values()].filter(c => c.tipo === 'escalera');
-    const otros = [...[...t.celdas.values()].filter(c => c.tipo === 'otro').map(c => ({ c: c.c, f: c.f, tipo: 'objeto' })), ...t.entidades];
+    const otros = [...[...t.celdas.values()].filter(c => c.tipo === 'otro').map(c => ({ c: c.c, f: c.f, tipo: 'objeto' })), ...t.entidades, ...cosasRecordadas(t)];
     let ruta = escaleras.length ? rutaA(t, c => c.tipo === 'escalera') : null, deMemoria = false;
     if (!escaleras.length) {                                   // a oscuras, pero recordada de otra vez
       const es = escalerasMem(memPlanta());
