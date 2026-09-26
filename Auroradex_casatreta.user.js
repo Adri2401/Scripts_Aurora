@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Casa Treta Auto-Solver
 // @namespace    auroradex-casatreta-autosolver
-// @version      1.1.1
+// @version      1.2.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_casatreta.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_casatreta.user.js
 // @description  Resuelve «La Casa Treta»: izquierda/derecha por búsqueda binaria y frío/caliente con la estrategia óptima. Panel con el estado de las 8 plantas.
@@ -295,7 +295,7 @@
   // Pide permiso de notificaciones (solo al arrancar algo largo: una macro, un bucle…)
   function kPedirPermiso() { try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* nada */ } }
 
-  const SCRIPT_VERSION = '1.1.0';
+  const SCRIPT_VERSION = '1.2.0';
   const CFG = {
     panelId: 'ct-embedded-panel',
     titleSelector: 'h1',
@@ -503,30 +503,59 @@
     return Array.from(card.querySelectorAll('button')).find((b) => regex.test(b.textContent.trim()));
   }
 
+  const SIN_INTENTOS_RE = /se te acabaron los intentos|sin intentos (?:para )?hoy|no te quedan intentos/i;
+  const HECHA_RE = /subida hoy|ya (?:la )?has subido|superada|completad|conseguid|✅|✓/i;
+  // Espera a que se cumpla `cond` (hasta `ms`), mirando cada 150 ms
+  async function esperarA(cond, ms) {
+    const t0 = Date.now();
+    for (;;) {
+      if (!state.running) throw new Error('DETENIDO');
+      const v = cond();
+      if (v || Date.now() - t0 > ms) return v;
+      await sleep(150);
+    }
+  }
+  // Cierra cualquier planta que siga abierta (la web solo deja entrar en una a la vez)
+  async function cerrarOtras(floorNumber) {
+    for (const f of CFG.floors) {
+      if (f.n === floorNumber) continue;
+      const c = findFloorCard(f.n);
+      if (c && getDoors(c).length) { log(`  Cierro la Planta ${f.n}, que seguía abierta.`); await exitFloor(f.n); }
+    }
+  }
   async function enterFloor(floorNumber) {
     let card = findFloorCard(floorNumber);
     if (!card) { log(`No encuentro la Planta ${floorNumber} en la página.`); return null; }
-    const text = card.textContent;
-    if (/se te acabaron los intentos de hoy/i.test(text)) {
-      log(`⏳ Planta ${floorNumber}: sin intentos hoy, la salto.`);
-      return 'SIN_INTENTOS';
+    await cerrarOtras(floorNumber);
+    // la tarjeta se queda un momento a medio pintar al salir de la anterior: se espera a que diga qué pasa con ella
+    const estado = await esperarA(() => {
+      const c = findFloorCard(floorNumber);
+      if (!c) return null;
+      if (getDoors(c).length) return 'ABIERTA';
+      const b = findButtonByText(c, /^entrar/i);
+      if (b && !b.disabled) return 'ENTRAR';
+      if (SIN_INTENTOS_RE.test(c.textContent)) return 'SIN_INTENTOS';
+      if ((!b || b.disabled) && HECHA_RE.test(c.textContent)) return 'YA_HOY';
+      return null;
+    }, 6000);
+    card = findFloorCard(floorNumber);
+    if (estado === 'SIN_INTENTOS') { log(`⏳ Planta ${floorNumber}: sin intentos hoy, la salto.`); return 'SIN_INTENTOS'; }
+    if (estado === 'YA_HOY') { log(`✅ Planta ${floorNumber}: ya estaba subida hoy.`); return 'YA_HOY'; }
+    if (estado === 'ABIERTA') { log(`Planta ${floorNumber} ya estaba abierta, sigo desde ahí.`); return card; }
+    if (estado === 'ENTRAR') {
+      findButtonByText(card, /^entrar/i).click();
+      // se espera a que salgan las puertas
+      const abierta = await esperarA(() => { const c = findFloorCard(floorNumber); return c && getDoors(c).length ? c : null; }, 6000);
+      if (abierta) return abierta;
+      log(`⚠ Planta ${floorNumber}: pulsé «Entrar» pero no salen las puertas.`);
+      console.log('[CasaTreta] tarjeta tras «Entrar»:', card && card.outerHTML);
+      return null;
     }
-    const yaAbierta = getDoors(card).length > 0;
-    if (!yaAbierta) {
-      const enterBtn = findButtonByText(card, /^entrar/i);
-      if (!enterBtn) {
-        // Sin «Entrar», sin puertas y sin aviso de intentos: ya está subida hoy
-        log(`✅ Planta ${floorNumber}: ya estaba subida hoy.`);
-        return 'YA_HOY';
-      }
-      enterBtn.click();
-      await sleep(CFG.stepDelayMs);
-      if (!state.running) throw new Error('DETENIDO');
-      card = findFloorCard(floorNumber);
-    } else {
-      log(`Planta ${floorNumber} ya estaba abierta, sigo desde ahí.`);
-    }
-    return card;
+    // 6 s después sigue sin puertas ni «Entrar»: ya está subida hoy (como antes, pero sin prisas)
+    const txt = (card && card.textContent || '').replace(/\s+/g, ' ').trim();
+    console.log('[CasaTreta] Planta ' + floorNumber + ' sin «Entrar» (la doy por subida):', txt);
+    log(`✅ Planta ${floorNumber}: ya estaba subida hoy.`);
+    return 'YA_HOY';
   }
 
   function isHouseLocked() {
@@ -537,7 +566,10 @@
     const card = findFloorCard(floorNumber);
     if (!card) return;
     const salirBtn = findButtonByText(card, /^salir$/i);
-    if (salirBtn) { salirBtn.click(); await sleep(CFG.stepDelayMs); }
+    if (salirBtn) salirBtn.click();
+    await sleep(CFG.stepDelayMs);
+    await esperarA(() => { const c = findFloorCard(floorNumber); return !c || !getDoors(c).length; }, 4000);
+    await sleep(250);
   }
 
   function getDoors(card) {
@@ -628,6 +660,7 @@
       if (dir === -1) hi = Math.min(hi, n - 1);
       else if (dir === 1) lo = Math.max(lo, n + 1);
     }
+    if (lo > hi) { lo = 1; hi = doors; }
     if (Object.keys(known).length) log(`  Pistas de hoy: la puerta está entre ${lo} y ${hi}.`);
     for (let i = 0; i < attempts && lo <= hi; i++) {
       const guess = Math.floor((lo + hi) / 2);
@@ -655,6 +688,7 @@
     };
     let cands = [];
     for (let d = 1; d <= doors; d++) if (!tried.has(d)) cands.push(d);
+    if (!cands.length) { tried.clear(); for (let d = 1; d <= doors; d++) cands.push(d); }
 
     // Primera puerta: la del centro (su pista no compara con nada)
     const center = Math.ceil(doors / 2);
@@ -699,19 +733,24 @@
     state.current = floor.n;
     setFloor(floor.n, 'run');
     log(`— Planta ${floor.n} · ${floor.doors} puertas · ${floor.type === 'lado' ? 'izquierda/derecha' : 'frío/caliente'}`);
-    const card = await enterFloor(floor.n);
-    if (card === 'YA_HOY') { setFloor(floor.n, 'ok', 'ya subida hoy'); return true; }
-    if (card === 'SIN_INTENTOS') { setFloor(floor.n, 'skip', 'sin intentos hoy'); return false; }
-    if (!card) { setFloor(floor.n, 'fail', 'no encontrada'); return false; }
+    let ok = false, vuelta = 0, motivo = 'sin resolver';
+    for (; vuelta < 12 && !ok; vuelta++) {
+      if (vuelta) { log(`🔁 Planta ${floor.n}: lo vuelvo a intentar (intento nº ${vuelta + 1}).`); setFloor(floor.n, 'run', `reintento ${vuelta + 1}`); }
+      const card = await enterFloor(floor.n);
+      if (card === 'YA_HOY') { setFloor(floor.n, 'ok', 'ya subida hoy'); return true; }
+      if (card === 'SIN_INTENTOS') { motivo = vuelta ? 'se acabaron los intentos' : 'sin intentos hoy'; break; }
+      if (!card) { motivo = 'no pude entrar'; break; }
 
-    const known = getKnownHints(card);
-    const attempts = getRemainingAttempts(card, floor.attempts);
-    const ok = floor.type === 'lado'
-      ? await solveLado(floor.n, floor.doors, attempts, known)
-      : await solveFrioCaliente(floor.n, floor.doors, attempts, known);
-    if (!ok) log(`❌ Planta ${floor.n}: no resuelta con los intentos disponibles.`);
-    setFloor(floor.n, ok ? 'ok' : 'fail', ok ? 'subida' : 'sin resolver');
-    await exitFloor(floor.n);
+      const known = getKnownHints(card);
+      const attempts = getRemainingAttempts(card, floor.attempts);
+      ok = floor.type === 'lado'
+        ? await solveLado(floor.n, floor.doors, attempts, known)
+        : await solveFrioCaliente(floor.n, floor.doors, attempts, known);
+      if (!ok) log(`❌ Planta ${floor.n}: esta vez no ha salido.`);
+      await exitFloor(floor.n);
+    }
+    if (ok) setFloor(floor.n, 'ok', vuelta > 1 ? `subida al ${vuelta}.º intento` : 'subida');
+    else { log(`❌ Planta ${floor.n}: ${motivo}.`); setFloor(floor.n, motivo === 'sin intentos hoy' ? 'skip' : 'fail', motivo); }
     return ok;
   }
 
