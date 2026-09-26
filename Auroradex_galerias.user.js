@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.20.1
-// @description  Solo en /castillo. Minijuego de bajar plantas: resalta la escalera y el camino más corto, explora solo (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
+// @version      0.21.0
+// @description  Solo en /castillo. Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) para ir directo a la escalera aunque esté a oscuras, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_galerias.user.js
@@ -56,6 +56,44 @@
   }
 
   const entradas = new Set();                    // escaleras de entrada por planta (planta|columna,fila)
+  let plantaLeida = '';                          // planta de la última lectura del tablero (para saber cuándo se llega a otra)
+
+  /* ------------------------------------------------------------------ *
+   *  MEMORIA DE PLANTAS: los mapas no cambian (la planta N siempre es igual), así que se guarda todo lo que se ve.
+   *  Por casilla: '#' pared · '.' suelo · 'u' escalera de subida (por donde entras) · 'e' escalera de bajada ·
+   *  'm' arena movediza (también baja). Si algo visto choca con lo guardado (pared donde había suelo…), esa planta
+   *  se olvida y se vuelve a aprender.
+   * ------------------------------------------------------------------ */
+  const LS_MAPAS = 'axg-mapas';
+  let mapas = (() => { try { return JSON.parse(localStorage.getItem(LS_MAPAS) || '{}') || {}; } catch { return {}; } })();
+  let guardarMapasT = null;
+  const guardarMapas = () => { clearTimeout(guardarMapasT); guardarMapasT = setTimeout(() => { try { localStorage.setItem(LS_MAPAS, JSON.stringify(mapas)); } catch { /* sin storage */ } }, 400); };
+  let plantaMemo = { t: 0, v: null };
+  const plantaN = () => { if (Date.now() - plantaMemo.t > 500) plantaMemo = { t: Date.now(), v: numPlanta() }; return plantaMemo.v; };
+  const memPlanta = () => { const n = plantaN(); return n == null ? null : mapas[n] || null; };
+  const PISABLE_MEM = new Set(['.', 'u', 'e', 'm']);
+  function recordar(t) {
+    const n = plantaN();
+    if (n == null || !t) return;
+    let m = mapas[n];
+    if (!m || m.w !== t.cols || m.h !== t.filas) m = mapas[n] = { w: t.cols, h: t.filas, c: {} };
+    let cambio = false, choque = false;
+    const nuevos = [];
+    for (const cel of t.celdas.values()) {
+      if (cel.tipo === 'niebla' || (cel.tipo === 'otro' && !cel.pisable)) continue;   // lo raro no pisable no se apunta
+      const v = cel.tipo === 'pared' ? '#' : cel.tipo === 'escalera' ? (cel.movediza ? 'm' : 'e') : cel.entrada ? 'u' : (cel.tipo === 'suelo' || cel.pisable) ? '.' : '#';
+      const k = cel.c + ',' + cel.f, antes = m.c[k];
+      if (antes === v || (antes && v === '.' && antes !== '#')) continue;   // la escalera o la arena se recuerdan aunque ahora se vean como suelo
+      if (antes === 'e' && v === 'u') continue;                              // la de bajada no pasa a ser de subida
+      if (antes && (antes === '#') !== (v === '#')) choque = true;
+      nuevos.push([k, v]);
+    }
+    if (choque) { console.log('[axg] la planta', n, 'no coincide con lo guardado: la vuelvo a aprender'); m = mapas[n] = { w: t.cols, h: t.filas, c: {} }; }
+    for (const [k, v] of nuevos) if (m.c[k] !== v) { m.c[k] = v; cambio = true; }
+    if (cambio) { m.t = Date.now(); guardarMapas(); }
+  }
+  const escalerasMem = m => m ? Object.entries(m.c).filter(([, v]) => v === 'e' || v === 'm').map(([k]) => { const [c, f] = k.split(',').map(Number); return { c, f }; }) : [];
+  const conocidoPct = m => m ? Math.round(100 * Object.keys(m.c).length / (m.w * m.h)) : 0;
   function leerTablero() {
     const raiz = raizTablero();
     if (!raiz) return null;
@@ -112,10 +150,13 @@
       }
       entidades.push({ c: pos.c, f: pos.f, tipo, nombre });
     }
-    // La escalera sobre la que apareces es la de entrada (subida), no la de bajada: no cuenta como objetivo
+    // La escalera sobre la que apareces es la de entrada (subida), no la de bajada: no cuenta como objetivo.
+    // Solo al llegar a la planta (la primera lectura): si no, pisar la de bajada la confundiría con la de subida.
     const pk = plantaActual(), cj = jugador && celdas.get(jugador.c + ',' + jugador.f);
-    if (cj && cj.tipo === 'escalera') entradas.add(pk + '|' + cj.c + ',' + cj.f);
-    for (const cel of celdas.values()) if (cel.tipo === 'escalera' && entradas.has(pk + '|' + cel.c + ',' + cel.f)) { cel.tipo = 'suelo'; cel.entrada = true; }
+    const llegando = pk !== plantaLeida; plantaLeida = pk;
+    if (cj && cj.tipo === 'escalera' && llegando) entradas.add(pk + '|' + cj.c + ',' + cj.f);
+    const memE = memPlanta();
+    for (const cel of celdas.values()) if (cel.tipo === 'escalera' && (entradas.has(pk + '|' + cel.c + ',' + cel.f) || (memE && memE.c[cel.c + ',' + cel.f] === 'u'))) { cel.tipo = 'suelo'; cel.entrada = true; }
     // Las arenas movedizas se pisan como suelo normal (el botón puede no marcarse como pisable)
     for (const e of entidades) if (e.tipo === 'movediza') { const c = celdas.get(e.c + ',' + e.f); if (c) { c.pisable = true; c.tipo = 'escalera'; c.movediza = true; } }   // lleva a otro piso: cuenta como escalera
     const ocupadas = new Set(entidades.filter(e => e.tipo !== 'objeto' && e.tipo !== 'movediza').map(e => e.c + ',' + e.f));
@@ -156,10 +197,32 @@
   // Casilla pisable que toca la niebla: el mejor sitio al que ir a descubrir más mapa
   const rutaA = (t, esMeta) => camino(t, esMeta, true) || camino(t, esMeta, false);
 
-  const esFrontera = t => cel => cel.pisable && !(t.ocupadas && t.ocupadas.has(cel.c + ',' + cel.f)) && VECINOS.some(([dc, df]) => {
-    const n = t.celdas.get((cel.c + dc) + ',' + (cel.f + df));
-    return n && n.tipo === 'niebla';
-  });
+  // Niebla que merece la pena: la que no se sabe (por la memoria) que es pared
+  const nieblaUtil = (t, n) => { if (!n || n.tipo !== 'niebla') return false; const m = memPlanta(); return !m || m.c[n.c + ',' + n.f] !== '#'; };
+  const esFrontera = t => cel => cel.pisable && !(t.ocupadas && t.ocupadas.has(cel.c + ',' + cel.f)) && VECINOS.some(([dc, df]) => nieblaUtil(t, t.celdas.get((cel.c + dc) + ',' + (cel.f + df))));
+
+  // Camino más corto contando también la niebla que se recuerda como suelo (para ir a la escalera a oscuras)
+  function caminoMem(t, esMeta, evitar = true) {
+    const m = memPlanta();
+    if (!t.jugador || !m) return null;
+    const ini = t.jugador.c + ',' + t.jugador.f;
+    const prev = new Map([[ini, null]]), cola = [ini];
+    const pasa = k => { const cel = t.celdas.get(k); if (cel && cel.tipo !== 'niebla') return cel.pisable || cel.tipo === 'escalera'; return PISABLE_MEM.has(m.c[k]); };
+    while (cola.length) {
+      const k = cola.shift();
+      const [c, f] = k.split(',').map(Number);
+      if (k !== ini && esMeta(c, f)) { const ruta = []; for (let x = k; x; x = prev.get(x)) { const [xc, xf] = x.split(',').map(Number); ruta.push({ c: xc, f: xf }); } return ruta.reverse(); }
+      for (const [dc, df] of VECINOS) {
+        const nk = (c + dc) + ',' + (f + df);
+        if (prev.has(nk) || !pasa(nk)) continue;
+        if (evitar && t.ocupadas && t.ocupadas.has(nk) && !esMeta(c + dc, f + df)) continue;
+        prev.set(nk, k); cola.push(nk);
+      }
+    }
+    return null;
+  }
+  const rutaMem = (t, esMeta) => caminoMem(t, esMeta, true) || caminoMem(t, esMeta, false);
+  const rutaEscaleraMem = t => { const es = escalerasMem(memPlanta()); return es.length ? rutaMem(t, (c, f) => es.some(e => e.c === c && e.f === f)) : null; };
 
   /* ------------------------------------------------------------------ *
    *  DIBUJO SOBRE EL TABLERO
@@ -178,7 +241,7 @@
     if (ruta) ruta.slice(1).forEach((cel, i) => {
       html += marca(cel, `display:grid;place-items:center;color:#fff;font:800 11px system-ui;background:rgba(255,214,64,.38);box-shadow:inset 0 0 0 2px rgba(255,214,64,.9)`).replace('></span>', `>${i + 1}</span>`);
     });
-    for (const e of escaleras) html += marcar(e, 'box-shadow:inset 0 0 0 3px #3ddc84,0 0 14px 4px rgba(61,220,132,.8);background:rgba(61,220,132,.28)');
+    for (const e of escaleras) html += marcar(e, e.btn ? 'box-shadow:inset 0 0 0 3px #3ddc84,0 0 14px 4px rgba(61,220,132,.8);background:rgba(61,220,132,.28)' : 'outline:3px dashed #3ddc84;outline-offset:-4px;background:rgba(61,220,132,.18)');
     const ESTILO = {
       entrenador: 'box-shadow:inset 0 0 0 2px #ff9800;background:rgba(255,152,0,.25)',
       remolino: 'box-shadow:inset 0 0 0 2px #b388ff;background:rgba(179,136,255,.28)',
@@ -276,10 +339,16 @@
   function analizar() {
     const t = leerTablero();
     if (!t) return null;
-    const escaleras = [...t.celdas.values()].filter(c => c.tipo === 'escalera');
+    recordar(t);
+    let escaleras = [...t.celdas.values()].filter(c => c.tipo === 'escalera');
     const otros = [...[...t.celdas.values()].filter(c => c.tipo === 'otro').map(c => ({ c: c.c, f: c.f, tipo: 'objeto' })), ...t.entidades];
-    const ruta = escaleras.length ? rutaA(t, c => c.tipo === 'escalera') : null;
-    return { t, escaleras, otros, ruta };
+    let ruta = escaleras.length ? rutaA(t, c => c.tipo === 'escalera') : null, deMemoria = false;
+    if (!escaleras.length) {                                   // a oscuras, pero recordada de otra vez
+      const es = escalerasMem(memPlanta());
+      if (es.length) { escaleras = es; ruta = rutaEscaleraMem(t); deMemoria = true; }
+    }
+    const m = memPlanta();
+    return { t, escaleras, otros, ruta, deMemoria, pct: conocidoPct(m) };
   }
 
   function pintar() {
@@ -290,7 +359,8 @@
     if (!a) { estado.textContent = 'No veo el tablero.'; return; }
     if (mostrar) dibujar(a.t, a.ruta, a.escaleras, a.otros); else quitarDibujo();
     const partes = [];
-    partes.push(a.escaleras.length ? `🪜 Escalera a la vista${a.ruta ? ` · ${pasos(a.ruta)} pasos` : ' (sin camino conocido)'}` : '🪜 Escalera (o arena movediza) aún no descubierta');
+    partes.push(a.escaleras.length ? `🪜 Escalera ${a.deMemoria ? 'recordada (a oscuras)' : 'a la vista'}${a.ruta ? ` · ${pasos(a.ruta)} pasos` : ' (sin camino conocido)'}` : '🪜 Escalera (o arena movediza) aún no descubierta');
+    if (plantaN() != null) partes.push(`🗺️ Planta ${plantaN()} memorizada al ${a.pct}%`);
     const cuenta = tp => a.otros.filter(o => o.tipo === tp).length;
     if (cuenta('entrenador')) partes.push(`👤 ${cuenta('entrenador')} entrenador(es)`);
     if (cuenta('mercader')) partes.push(`🛒 mercader`);
@@ -303,7 +373,10 @@
     if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} objeto(s)`);
     estado.textContent = partes.join(' · ');
     panel.querySelector('.axg-msg').textContent = msg + (ultimaParada && !explorando && msg !== ultimaParada ? ' · Última parada: ' + ultimaParada : '');
-    panel.querySelector('[data-a="auto"]').textContent = explorando ? '■ Parar exploración' : '🧭 Explorar hasta la escalera';
+    panel.querySelector('[data-a="auto"]').textContent = explorando && modoExplorar === 'escalera' ? '■ Parar exploración' : '🧭 Explorar hasta la escalera';
+    panel.querySelector('[data-a="todo"]').textContent = explorando && modoExplorar === 'todo' ? '■ Parar exploración' : '🗺️ Explorar todo lo oscuro y luego bajar';
+    panel.querySelector('[data-a="auto"]').disabled = explorando && modoExplorar !== 'escalera';
+    panel.querySelector('[data-a="todo"]').disabled = explorando && modoExplorar !== 'todo';
   }
 
   const norm = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -853,6 +926,22 @@
     return false;
   }
 
+  // Un paso con las flechas hacia una casilla vecina (vale también a oscuras); true si el jugador se ha movido o sale otra pantalla
+  async function pasoA(cel, t) {
+    if (!t.jugador) return false;
+    const antes = t.jugador.c + ',' + t.jugador.f;
+    if (!(await andar(cel.c - t.jugador.c, cel.f - t.jugador.f))) return false;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 2500 && explorando) {
+      await sleep(100);
+      const n = leerTablero();
+      if (!n) return true;
+      if (ventanaCaptura() || botonesVisibles().some(x => /^\s*(despedirse|seguir)\s*$/i.test(x.textContent || ''))) return true;
+      if (n.jugador && n.jugador.c + ',' + n.jugador.f !== antes) return true;
+    }
+    return false;
+  }
+
   // Sin zonas nuevas a la vista: si un entrenador, personaje, lápida… está pegado a la niebla, se choca con él (máx. 3 veces cada uno)
   const bloqueadores = {};
   async function empujarBloqueador(t) {
@@ -875,12 +964,15 @@
     return false;
   }
 
-  let ultimaParada = '';
-  async function explorar() {
+  let ultimaParada = '', modoExplorar = 'escalera';
+  const memFallo = {};                           // planta → el camino recordado a la escalera no funciona: se explora normal
+  // modo 'escalera': directo a la escalera (la recordada, aunque esté a oscuras) · 'todo': antes, todo lo oscuro
+  async function explorar(modo = 'escalera') {
     if (explorando) { explorando = false; msg = 'Exploración parada.'; pintar(); return; }
+    modoExplorar = modo;
     explorando = true;
     mostrarPildora(true);
-    { const pl = plantaActual(); delete puertaFin[pl]; delete puertaIntentos[pl]; delete escFallo[pl]; for (const k of Object.keys(puertaVisitas)) if (k.startsWith(pl + '|')) delete puertaVisitas[k]; if (contadoresPlanta.planta === pl) contadoresPlanta.puerta = 0; }
+    { const pl = plantaActual(); delete puertaFin[pl]; delete puertaIntentos[pl]; delete escFallo[pl]; delete memFallo[pl]; for (const k of Object.keys(puertaVisitas)) if (k.startsWith(pl + '|')) delete puertaVisitas[k]; if (contadoresPlanta.planta === pl) contadoresPlanta.puerta = 0; }
     let sinCambio = 0, sinPantalla = 0;
     while (explorando) {
       if (await atenderPantallas()) { sinPantalla = 0; continue; }
@@ -891,6 +983,7 @@
         continue;
       }
       sinPantalla = 0;
+      recordar(t);
       if (await gestionarLuz()) continue;
 
       // Objetivos con los que chocar: entrenadores (combate), remolinos (encuentro salvaje) y jarrones (reliquias)
@@ -948,7 +1041,10 @@
 
       // En las plantas con puerta de canción no se baja hasta abrirla: se sigue explorando (sin escalera) hasta encontrarla
       const esperaPuerta = camaraPendiente();
-      let esc = esperaPuerta || escFallo[plantaActual()] ? null : [...t.celdas.values()].find(c => c.tipo === 'escalera');
+      // «Explorar todo»: mientras quede niebla por descubrir (que no se sepa que es pared) no se va a la escalera
+      const frontera = rutaA(t, esFrontera(t));
+      const quedaOscuro = modoExplorar === 'todo' && frontera && frontera.length >= 2;
+      let esc = esperaPuerta || quedaOscuro || escFallo[plantaActual()] ? null : [...t.celdas.values()].find(c => c.tipo === 'escalera');
       let r = esc ? rutaA(t, c => c.tipo === 'escalera') : null;
       // Si el camino a la escalera pasa por un personaje que no se mueve (arqueólogo, mercader, puerta, lápida…), no vale: se busca otra ruta
       if (r && r.slice(1, -1).some(c => { const en = t.entidades.find(x => x.c === c.c && x.f === c.f); return en && !['entrenador', 'remolino', 'objeto', 'movediza'].includes(en.tipo); })) { esc = null; r = null; }
@@ -963,11 +1059,21 @@
         }
         msg = '🪜 Ya estás en la escalera o sin camino. Parado.'; break;
       }
-      const meta = rutaA(t, esFrontera(t));
+      // Escalera a oscuras pero recordada de otra vez: se va derecho con las flechas
+      if (!esperaPuerta && !quedaOscuro && !escFallo[plantaActual()] && !memFallo[plantaActual()]) {
+        const rm = rutaEscaleraMem(t);
+        if (rm && rm.length > 1) {
+          msg = `🗺️ Escalera recordada a ${pasos(rm)} pasos (a oscuras): voy.`; pintar();
+          if (!(await pasoA(rm[1], t))) { if (++sinCambio > 3) { memFallo[plantaActual()] = true; sinCambio = 0; msg = 'El camino recordado no sirve: exploro normal.'; } } else sinCambio = 0;
+          await pausa(150, 300);
+          continue;
+        }
+      }
+      const meta = frontera;
       if ((!meta || meta.length < 2) && esperaPuerta) { puertaFin[plantaActual()] = true; continue; }   // no aparece la puerta: se baja igualmente
       if ((!meta || meta.length < 2) && (await empujarBloqueador(t))) continue;   // algo tapa el paso hacia la niebla: se prueba a chocar con ello
       if (!meta || meta.length < 2) { msg = 'No queda nada por explorar desde aquí (sin ruta a zonas nuevas). Parado.'; console.log('[axg] parado: sin frontera', t.jugador, t.entidades); break; }
-      msg = esperaPuerta ? `🚪 Planta con puerta: busco la puerta… (${pasos(meta)} pasos)` : `Explorando… (${pasos(meta)} pasos al siguiente hueco)`; pintar();
+      msg = esperaPuerta ? `🚪 Planta con puerta: busco la puerta… (${pasos(meta)} pasos)` : quedaOscuro ? `🗺️ Explorando todo lo oscuro… (${pasos(meta)} pasos al siguiente hueco)` : `Explorando… (${pasos(meta)} pasos al siguiente hueco)`; pintar();
       const destino = meta[meta.length - 1];
       if (!(await clicCelda(destino, t))) { if (++sinCambio > 3) { msg = 'El juego no responde a los clics. Parado.'; break; } } else sinCambio = 0;
       await pausa(600, 1000);
@@ -1026,6 +1132,8 @@
       <label class="flex items-center justify-between gap-2 text-[11px] font-extrabold text-tinta-500">🪔 Aceite (o cuerda si no queda) con ≤
         <input type="number" min="0" class="axg-luz w-20 rounded-card border-2 border-crema-200 bg-crema-50 px-2 py-1 text-sm font-semibold text-tinta-600 outline-none"> pasos</label>
       <button type="button" class="boton-principal w-full !py-2 text-[11px]" data-a="auto"></button>
+      <button type="button" class="boton-secundario w-full !py-2 text-[11px]" data-a="todo"></button>
+      <p class="text-[10px] font-semibold text-tinta-400">🗺️ Cada planta se guarda al verla (siempre son iguales): la próxima vez va derecho a la escalera aunque esté a oscuras. «Explorar todo» descubre antes toda la zona oscura (lo que se sepa que es pared se lo salta) y después baja.</p>
       <p class="text-[10px] font-semibold text-tinta-400">Al explorar: combate a todos los entrenadores (pulsa SEGUIR), pisa los remolinos (encuentro salvaje), captura con Poké Ball a todos los Pokémon. Si sale un variocolor o legendario, se para del todo, avisa (vibra una vez) y la Master Ball la tiras tú.</p>
       <button type="button" class="boton-suave w-full !py-2 text-[11px]" data-a="diag">📋 Copiar diagnóstico del juego</button>
       <p class="axg-msg text-[11px] font-semibold text-tinta-400"></p>`;
@@ -1036,7 +1144,8 @@
     campoLuz.value = String(umbralLuz());
     campoLuz.addEventListener('input', () => { try { localStorage.setItem(LS_LUZ, campoLuz.value.trim()); } catch { /* sin storage */ } });
     on('[data-a="recoger"]', () => { recoger = !recoger; sec.querySelector('[data-a="recoger"]').textContent = recoger ? '🏺 Jarrones y tumbas: sí' : '🏺 Jarrones y tumbas: no'; });
-    on('[data-a="auto"]', explorar);
+    on('[data-a="auto"]', () => explorar('escalera'));
+    on('[data-a="todo"]', () => explorar('todo'));
     on('[data-a="diag"]', async () => {
       const txt = diagnostico();
       try { await navigator.clipboard.writeText(txt); msg = 'Diagnóstico copiado: pégamelo en el chat.'; }
@@ -1056,7 +1165,7 @@
   }
 
   // Para probar sin la web
-  window.__axGalerias = { andar, mostrarPildora, explorar, leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, gestionarLuz, leerLuz, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas, atenderPuerta };
+  window.__axGalerias = { mapas: () => mapas, recordar, rutaEscaleraMem, andar, mostrarPildora, explorar, leerTablero, camino, esFrontera, diagnostico, asegurarPanel, despedirse, gestionarLuz, leerLuz, ventanaCaptura, leerRareza, atenderCaptura, atenderCombate, atenderPantallas, atenderPuerta };
 
   // Botón «Resolver solo» dentro de la ventana de la puerta (para usarlo en manual)
   let resolviendo = false;
