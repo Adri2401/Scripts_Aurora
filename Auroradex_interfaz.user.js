@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.7.0
+// @version      1.7.1
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -791,34 +791,42 @@
   /* ─── Huerto: «Recolectar» si se puede cosechar ya; si no, cuánto falta ─── */
   const HUERTO_KEY = 'adx-accesos-huerto';
   let huertoPidiendo = false, huertoIntento = 0;
-  function leerHuerto(raiz) {
-    const main = raiz.querySelector('main');
-    if (!main) return null;
-    const botones = [...main.querySelectorAll('button')];
-    const cosechar = botones.find(b => /cosechar todo/i.test(b.textContent || ''));
-    if (!cosechar) return null;                                      // no es el huerto (otra región, error…)
-    const listo = !cosechar.disabled;
-    // lo que falta para la primera cosecha: el tiempo más corto que enseñe la página («2 h 10 min», «35 min»…)
-    let menor = null;
-    for (const el of main.querySelectorAll('p, span, div')) {
-      if (el.children.length) continue;
-      const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!/\d\s*(?:d|h|min|s)\b/i.test(t) || t.length > 60 || /\$/.test(t)) continue;
-      const ms = tiempoAMs(t);
-      if (ms != null && ms > 0 && (menor == null || ms < menor)) menor = ms;
+  // Las parcelas del huerto: en la propia página, de los datos de React; pedida en segundo plano, de los datos de Next.js
+  function parcelasEnPantalla() {
+    const h1 = [...document.querySelectorAll('main h1')].find(h => /huerto de bayas/i.test(h.textContent || ''));
+    const k = h1 && Object.keys(h1).find(x => x.startsWith('__reactFiber$'));
+    for (let f = k && h1[k], i = 0; f && i < 40; f = f.return, i++) {
+      const pr = f.memoizedProps;
+      if (pr && pr.estado && Array.isArray(pr.estado.parcelas)) return pr.estado.parcelas;
     }
-    return { listo, listoAt: !listo && menor ? Date.now() + menor : null };
+    return null;
+  }
+  function resumenParcelas(ps) {
+    if (!Array.isArray(ps)) return null;
+    const plantadas = ps.filter(q => q.bayaId);
+    const listo = plantadas.some(q => q.lista || (q.listaEn && Date.parse(q.listaEn) <= Date.now()));
+    const at = plantadas.filter(q => !q.lista && q.listaEn).map(q => Date.parse(q.listaEn)).sort((x, y) => x - y)[0] || null;
+    return { listo, vacias: ps.length - plantadas.length, listoAt: listo ? null : at };
+  }
+  function leerHuerto(raiz, html) {
+    if (html) { const r = resumenParcelas(sacarLista(textoFlight(html), 'parcelas')); if (r) return r; }
+    else { const r = resumenParcelas(parcelasEnPantalla()); if (r) return r; }
+    // si no hay datos: por el botón «Cosechar todo» (se activa cuando hay algo listo)
+    const main = raiz.querySelector('main');
+    const cosechar = main && [...main.querySelectorAll('button')].find(x => /cosechar todo/i.test(x.textContent || ''));
+    return cosechar ? { listo: !cosechar.disabled, vacias: 0, listoAt: null } : null;
   }
   function guardarHuerto(e) {
     if (!e) return;
     const g = lsJSON(HUERTO_KEY, null);
     lsPut(HUERTO_KEY, { ...e, t: Date.now() });
-    if (!g || g.listo !== e.listo || Math.abs((g.listoAt || 0) - (e.listoAt || 0)) > 6e4) repintarPanel();
+    if (!g || g.listo !== e.listo || g.vacias !== e.vacias || Math.abs((g.listoAt || 0) - (e.listoAt || 0)) > 6e4) repintarPanel();
   }
   function pillHuerto() {
     const g = lsJSON(HUERTO_KEY, null);
     if (!g) return null;
     if (g.listo || (g.listoAt && Date.now() >= g.listoAt)) return 'Recolectar';
+    if (g.vacias) return 'Plantar';
     return null;
   }
   function subHuerto() {
@@ -835,7 +843,7 @@
     huertoPidiendo = true;
     try {
       const html = await pedirPagina('/huerto');
-      if (html) guardarHuerto(leerHuerto(new DOMParser().parseFromString(html, 'text/html')));
+      if (html) guardarHuerto(leerHuerto(new DOMParser().parseFromString(html, 'text/html'), html));
     } catch { /* sin red */ }
     finally { huertoPidiendo = false; }
   }
@@ -1029,8 +1037,8 @@
     if (pill) {
       tag = hecho
         ? `<span class="ax-tag pastilla border-2 border-crema-200 bg-crema-50 text-tinta-400">✓</span>`
-        : pill === 'Recolectar'
-          ? `<span class="ax-tag pastilla border-2 border-hoja-400 bg-hoja-500 text-white">🧺 Recolectar</span>`
+        : pill === 'Recolectar' || pill === 'Plantar'
+          ? `<span class="ax-tag pastilla border-2 border-hoja-400 bg-hoja-500 text-white">${pill === 'Plantar' ? '🌱' : '🧺'} ${pill}</span>`
           : `<span class="ax-tag pastilla border-2 border-hoja-300 bg-hoja-50 text-hoja-700">${kEsc(pill.replace(/\s*hoy$/i, ''))}</span>`;
     }
     const req = regionNecesaria(item);
