@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Casa Treta Auto-Solver
 // @namespace    auroradex-casatreta-autosolver
-// @version      1.2.0
+// @version      1.2.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_casatreta.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_casatreta.user.js
 // @description  Resuelve «La Casa Treta»: izquierda/derecha por búsqueda binaria y frío/caliente con la estrategia óptima. Panel con el estado de las 8 plantas.
@@ -764,6 +764,16 @@
     }
     state.current = 0;
     log(`🎉 Recorrido completo: ${subidas}/8 plantas subidas.`);
+    // En Accesos directos cuenta como hecha hoy si no queda nada que hacer (todas subidas, bloqueadas o sin intentos)
+    if (Object.values(state.floors).every(f => f.s === 'ok' || f.s === 'skip' || /intentos/.test(f.note || ''))) {
+      try {
+        const d = new Date(), dia = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+        const h = JSON.parse(localStorage.getItem('adx-accesos-hechos') || 'null');
+        const keys = h && h.dia === dia ? h.keys : [];
+        if (!keys.includes('/casa')) keys.push('/casa');
+        localStorage.setItem('adx-accesos-hechos', JSON.stringify({ dia, keys }));
+      } catch { /* sin storage */ }
+    }
     const sinHacer = Object.values(state.floors).filter(f => f.s === 'fail').length, bloqueadas = Object.values(state.floors).filter(f => f.s === 'skip').length;
     kAviso({
       tipo: sinHacer ? 'aviso' : 'exito', app: 'Casa Treta', icono: '🗝️',

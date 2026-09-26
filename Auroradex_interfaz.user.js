@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.6.1
+// @version      1.7.0
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -342,6 +342,7 @@
       { href: '/buceo',          icon: '🤿', label: 'Buceo' },
       { href: '/jessie-y-james', icon: '🎈', label: 'Jessie y James' },
       { href: '/salon',          icon: '🎴', label: 'Salón' },
+      { href: '/casa',           icon: '🚪', label: 'Casa Treta', region: 'hoenn', regionLabel: 'Hoenn' },
       SAFARI('kanto', 'Kanto'), SAFARI('johto', 'Johto'), SAFARI('hoenn', 'Hoenn'), SAFARI('sinnoh', 'Sinnoh'), SAFARI('teselia', 'Teselia'),
     ] },
     { id: 'extra', titulo: 'Extra', icono: '🧰', items: [
@@ -351,7 +352,6 @@
       { href: '/concurso',   icon: '🎣', label: 'Concurso de Captura' },
       { href: '/trigal',     icon: '🎰', label: 'Voltorb Flip' },
       { href: '/ruinas',     icon: '👁️', label: 'Ruinas Alfa' },
-      { href: '/casa',       icon: '🚪', label: 'Casa Treta' },
       { href: '/casino',     icon: '🎰', label: 'Casino' },
       { href: '/hielo',      icon: '❄️', label: 'Suelo Helado' },
       { href: '/fondo',      icon: '🏮', label: 'Fondo Comunitario' },
@@ -470,8 +470,11 @@
     lsPut(MENUS_KEY, menus);
   }
 
+  // MissingNo. aparece en el Menú de la región donde estés, pero no es de ninguna
+  const esMissingNo = it => /missing/i.test((it.href || '') + ' ' + (it.label || ''));
   // Región a la que hay que viajar para usar el acceso, o null si sirve donde estás
   function regionNecesaria(item) {
+    if (esMissingNo(item)) return null;
     const cur = regionActual();
     if (item.region) return cur === item.region ? null : { id: item.region, label: item.regionLabel || cap(item.region) };
     const menus = lsJSON(MENUS_KEY, {});
@@ -531,10 +534,11 @@
     const conocidos = hrefsConocidos();
     const extras = lsJSON(EXTRAS_KEY, {});
     for (const href of Object.keys(extras)) {
-      const destino = FORZAR_BLOQUE[href] || ALIAS_BLOQUE[extras[href].bloque] || extras[href].bloque;
+      const mn = esMissingNo({ href, label: extras[href].label });
+      const destino = mn ? 'pve' : FORZAR_BLOQUE[href] || ALIAS_BLOQUE[extras[href].bloque] || extras[href].bloque;
       if (destino === b.id && !conocidos.has(href) && !ya.has(href)) {
         const it = { href, icon: extras[href].icon, label: extras[href].label };
-        if (extras[href].region) { it.region = extras[href].region; it.regionLabel = cap(extras[href].region); }
+        if (extras[href].region && !mn) { it.region = extras[href].region; it.regionLabel = cap(extras[href].region); }
         items.push(it);
       }
     }
@@ -725,6 +729,122 @@
     finally { solarPidiendo = false; }
   }
 
+  /* ─── MissingNo.: si está hoy, tu daño y si ya cobraste ───
+   * Al entrar en su página cuenta como hecho hasta el día siguiente; «no está» también cuenta como hecho. */
+  const MISSING_KEY = 'adx-accesos-missingno';
+  let missingPidiendo = false, missingIntento = 0;
+  function leerMissingNo(raiz) {
+    const main = raiz.querySelector('main');
+    const nombre = main && main.querySelector('.glitch-nombre');
+    if (!nombre || !/missing/i.test(nombre.textContent || '')) return null;
+    const txt = main.textContent.replace(/\s+/g, ' ');
+    const cifra = re => { const li = [...main.querySelectorAll('li')].find(l => re.test(l.textContent || '')); const b = li && li.querySelector('span'); return b ? b.textContent.trim() : null; };
+    const mejorLi = [...main.querySelectorAll('li')].find(l => /tu mejor/i.test(l.textContent || ''));
+    const intentos = mejorLi ? ((mejorLi.textContent.match(/\((\d+)\s*intentos?\)/i) || [])[1] || null) : null;
+    const ps = (txt.match(/([\d.]+)\s*\/\s*([\d.]+)\s*PS/i) || txt.match(/([\d.]+)\s*\/\s*([\d.]+)/) || []);
+    return {
+      ausente: /ahora mismo no est[aá]/i.test(txt),
+      cobrado: /ya cobraste/i.test(txt),
+      mejor: cifra(/tu mejor/i), intentos: intentos ? +intentos : null, peleando: cifra(/peleando/i),
+      vida: ps[1] ? ps[1] + ' / ' + ps[2] : null,
+    };
+  }
+  function guardarMissingNo(e, href) {
+    if (!e) return;
+    const g = lsJSON(MISSING_KEY, null);
+    const nuevo = { ...e, href: href || (g && g.href) || null, dia: hoy(), t: Date.now() };
+    lsPut(MISSING_KEY, nuevo);
+    if (!g || JSON.stringify({ ...g, t: 0 }) !== JSON.stringify({ ...nuevo, t: 0 })) repintarPanel();
+  }
+  function missingDeHoy() { const g = lsJSON(MISSING_KEY, null); return g && g.dia === hoy() ? g : null; }
+  function pillMissingNo() {
+    const g = missingDeHoy();
+    if (!g) return null;
+    if (g.ausente) return 'hecho · no está';
+    if (g.cobrado) return 'hecho · cobrado';
+    if (hechosHoy().some(k => /missing/i.test(k))) return 'hecho hoy';
+    return 'te toca';
+  }
+  function subMissingNo() {
+    const g = missingDeHoy();
+    if (!g) return '';
+    const linea = g.ausente ? 'Hoy no está' : g.cobrado ? `Cobrado · 💥 ${g.mejor || '?'}` : g.mejor ? `💥 ${g.mejor}${g.intentos ? ` (${g.intentos} int.)` : ''}` : g.vida ? `PS ${g.vida}` : '';
+    return linea ? `<span class="ax-sub"><span>${kEsc(linea)}</span></span>` : '';
+  }
+  async function refrescarMissingNo(forzar = false) {
+    const aqui = leerMissingNo(document);
+    if (aqui) { marcarHecho({ href: location.pathname }); guardarMissingNo(aqui, location.pathname); return; }
+    const g = lsJSON(MISSING_KEY, null);
+    const extras = lsJSON(EXTRAS_KEY, {});
+    const href = (g && g.href) || Object.keys(extras).find(h => esMissingNo({ href: h, label: extras[h].label }));
+    if (!href || missingPidiendo || (!forzar && !document.getElementById(PANEL_ID))) return;
+    if (!forzar && (Date.now() - missingIntento < 60000 || (g && g.dia === hoy() && Date.now() - g.t < MENU_REFRESCO))) return;
+    missingIntento = Date.now();
+    missingPidiendo = true;
+    try {
+      const html = await pedirPagina(href);
+      if (html) guardarMissingNo(leerMissingNo(new DOMParser().parseFromString(html, 'text/html')), href);
+    } catch { /* sin red */ }
+    finally { missingPidiendo = false; }
+  }
+
+  /* ─── Huerto: «Recolectar» si se puede cosechar ya; si no, cuánto falta ─── */
+  const HUERTO_KEY = 'adx-accesos-huerto';
+  let huertoPidiendo = false, huertoIntento = 0;
+  function leerHuerto(raiz) {
+    const main = raiz.querySelector('main');
+    if (!main) return null;
+    const botones = [...main.querySelectorAll('button')];
+    const cosechar = botones.find(b => /cosechar todo/i.test(b.textContent || ''));
+    if (!cosechar) return null;                                      // no es el huerto (otra región, error…)
+    const listo = !cosechar.disabled;
+    // lo que falta para la primera cosecha: el tiempo más corto que enseñe la página («2 h 10 min», «35 min»…)
+    let menor = null;
+    for (const el of main.querySelectorAll('p, span, div')) {
+      if (el.children.length) continue;
+      const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!/\d\s*(?:d|h|min|s)\b/i.test(t) || t.length > 60 || /\$/.test(t)) continue;
+      const ms = tiempoAMs(t);
+      if (ms != null && ms > 0 && (menor == null || ms < menor)) menor = ms;
+    }
+    return { listo, listoAt: !listo && menor ? Date.now() + menor : null };
+  }
+  function guardarHuerto(e) {
+    if (!e) return;
+    const g = lsJSON(HUERTO_KEY, null);
+    lsPut(HUERTO_KEY, { ...e, t: Date.now() });
+    if (!g || g.listo !== e.listo || Math.abs((g.listoAt || 0) - (e.listoAt || 0)) > 6e4) repintarPanel();
+  }
+  function pillHuerto() {
+    const g = lsJSON(HUERTO_KEY, null);
+    if (!g) return null;
+    if (g.listo || (g.listoAt && Date.now() >= g.listoAt)) return 'Recolectar';
+    return null;
+  }
+  function subHuerto() {
+    const g = lsJSON(HUERTO_KEY, null);
+    if (!g || g.listo || !g.listoAt || Date.now() >= g.listoAt) return '';
+    return `<span class="ax-sub"><span>🧺 en ${kEsc(textoRestante(g.listoAt - Date.now()))}</span></span>`;
+  }
+  async function refrescarHuerto(forzar = false) {
+    if (/^\/huerto\/?$/.test(location.pathname)) { guardarHuerto(leerHuerto(document)); return; }
+    if (huertoPidiendo || (!forzar && !document.getElementById(PANEL_ID))) return;
+    const g = lsJSON(HUERTO_KEY, null);
+    if (!forzar && (Date.now() - huertoIntento < 60000 || (g && Date.now() - g.t < MENU_REFRESCO))) return;
+    huertoIntento = Date.now();
+    huertoPidiendo = true;
+    try {
+      const html = await pedirPagina('/huerto');
+      if (html) guardarHuerto(leerHuerto(new DOMParser().parseFromString(html, 'text/html')));
+    } catch { /* sin red */ }
+    finally { huertoPidiendo = false; }
+  }
+
+  /* ─── Tren de Biscuit: con visitarlo ya cuenta como hecho hasta mañana ─── */
+  function anotarTren() {
+    if (/^\/tren\/?$/.test(location.pathname) && !hechosHoy().includes('/tren')) { marcarHecho({ href: '/tren' }); repintarPanel(); }
+  }
+
   function repintarPanel() {
     const panel = document.getElementById(PANEL_ID);
     if (panel) panel.replaceWith(crearPanel());
@@ -751,6 +871,9 @@
     if (!keys.includes(k)) { keys.push(k); lsPut(HECHOS_KEY, { dia: hoy(), keys }); }
   }
   const pillDe = (it, est) => {
+    if (esMissingNo(it)) { const pm = pillMissingNo(); if (pm) return pm; }
+    if (!it.porRegion && hechosHoy().includes(it.href)) return 'hecho hoy';
+    if (it.href === '/huerto') { const ph = pillHuerto(); if (ph) return ph; }
     if (it.href === '/salon') return pillSalon();
     if (it.href === '/solar') { const sp = pillSolar(); if (sp) return sp; }
     if (it.href === '/golf') { const g = lsJSON(GOLF_KEY, null); if (g && g.n > 0) return `${g.n} reto${g.n > 1 ? 's' : ''}`; }
@@ -906,7 +1029,9 @@
     if (pill) {
       tag = hecho
         ? `<span class="ax-tag pastilla border-2 border-crema-200 bg-crema-50 text-tinta-400">✓</span>`
-        : `<span class="ax-tag pastilla border-2 border-hoja-300 bg-hoja-50 text-hoja-700">${kEsc(pill.replace(/\s*hoy$/i, ''))}</span>`;
+        : pill === 'Recolectar'
+          ? `<span class="ax-tag pastilla border-2 border-hoja-400 bg-hoja-500 text-white">🧺 Recolectar</span>`
+          : `<span class="ax-tag pastilla border-2 border-hoja-300 bg-hoja-50 text-hoja-700">${kEsc(pill.replace(/\s*hoy$/i, ''))}</span>`;
     }
     const req = regionNecesaria(item);
     a.title = item.label + (pill ? ` · ${pill}` : '') + (req ? ` · en ${req.label}` : '');
@@ -915,6 +1040,8 @@
       <span class="ax-ico" aria-hidden="true">${item.icon}</span>
       <span class="ax-lbl">${kEsc(item.label)}</span>
       ${item.href === '/subasta' ? subastaHTML() : ''}
+      ${esMissingNo(item) ? subMissingNo() : ''}
+      ${item.href === '/huerto' ? subHuerto() : ''}
       ${req ? `<span class="text-[9px] font-extrabold uppercase tracking-wide text-cielo-600">${kEsc(req.label)}</span>` : ''}`;
 
     if (item.porRegion) a.addEventListener('click', (ev) => { if (ev.button === 0) marcarHecho(item); });   // Safari: al pulsarlo cuenta como hecho hoy
@@ -990,7 +1117,7 @@
       if (ev.button !== 0 || ev.metaKey || ev.ctrlKey) return;
       ev.preventDefault();
       enlace.textContent = 'actualizando…';
-      Promise.all([refrescarMenu(true), refrescarGolf(true), refrescarSolar(true)]).then(() => repintarPanel());
+      Promise.all([refrescarMenu(true), refrescarGolf(true), refrescarSolar(true), refrescarHuerto(true), refrescarMissingNo(true)]).then(() => repintarPanel());
     });
     return wrapper;
   }
@@ -1027,6 +1154,9 @@
       refrescarGolf();
       leerRetosGolfEnPantalla();
       refrescarSolar();
+      refrescarHuerto();
+      refrescarMissingNo();
+      anotarTren();
     }, 150);
   });
 
@@ -1040,9 +1170,12 @@
     refrescarMenu();
     refrescarGolf();
     refrescarSolar();
+    refrescarHuerto();
+    refrescarMissingNo();
+    anotarTren();
     // Cada minuto: se pide el Menú si toca y se repinta (para que «hace N min» y las ✓ estén al día)
-    setInterval(() => { refrescarMenu(); refrescarGolf(); refrescarSolar(); if (document.visibilityState === 'visible') repintarPanel(); }, 60000);
-    const alVolver = () => { menuIntento = golfIntento = solarIntento = 0; refrescarMenu(); refrescarGolf(); refrescarSolar(); refrescarSalon(); };
+    setInterval(() => { refrescarMenu(); refrescarGolf(); refrescarSolar(); refrescarHuerto(); refrescarMissingNo(); if (document.visibilityState === 'visible') repintarPanel(); }, 60000);
+    const alVolver = () => { menuIntento = golfIntento = solarIntento = huertoIntento = missingIntento = 0; refrescarMenu(); refrescarGolf(); refrescarSolar(); refrescarSalon(); refrescarHuerto(); refrescarMissingNo(); };
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') alVolver(); });
     window.addEventListener('online', alVolver);
     window.addEventListener('pageshow', e => { if (e.persisted) alVolver(); });
