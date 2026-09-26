@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.11.0
+// @version      2.12.0
 // @description  Auto-explora y captura; ante shiny/legendario vibra, notifica y PARA la macro para captura manual. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1106,7 +1106,7 @@
   // Resumen de la sesión para los avisos
   function lineasResumen() {
     const l = [`🔍 ${S.explores} exploraciones · ⚡ ${S.spent} de energía · ⏱ ${fmtTime((S.endedAt || Date.now()) - S.startedAt)}`];
-    const extra = [S.hatched ? `🥚 ${S.hatched} huevo${S.hatched > 1 ? 's' : ''}` : null, S.shiny ? `✨ ${S.shiny} shiny` : null, S.legendary ? `👑 ${S.legendary} legendario${S.legendary > 1 ? 's' : ''}` : null, S.trainers ? `🎌 ${S.trainers} entrenador${S.trainers > 1 ? 'es' : ''}` : null].filter(Boolean);
+    const extra = [S.hatched ? `🥚 ${S.hatched} huevo${S.hatched > 1 ? 's' : ''}` : null, S.shiny ? `✨ ${S.shiny} shiny` : null, S.legendary ? `👑 ${S.legendary} legendario${S.legendary > 1 ? 's' : ''}` : null, S.trainers ? `🎌 ${S.trainers} entrenador${S.trainers > 1 ? 'es' : ''}` : null, S.pociones ? `🧪 ${S.pociones} Poci${S.pociones > 1 ? 'ones' : 'ón'}` : null].filter(Boolean);
     if (extra.length) l.push(extra.join(' · '));
     const en = readEnergy();
     if (en) l.push(`Te queda ⚡ ${en.normal}${en.vet ? ' · 🌿 ' + en.vet : ''}`);
@@ -1128,7 +1128,7 @@
     Object.assign(S, {
       running: true, phase: 'on', explores: 0, throws: 0, sinceNursery: 0, hatched: 0, shiny: 0, legendary: 0, noBallsSince: 0,
       nurseryIn: CONFIG.NURSERY_FALLBACK_EXPLORES, nurseryDue: true, encThrows: 0, encKey: '', noEffect: 0, lastProgress: Date.now(), disabledSince: 0,
-      modalSince: 0, noBallUsableSince: 0, spent: 0, lastActionAt: 0, emptyExplores: 0,
+      modalSince: 0, noBallUsableSince: 0, spent: 0, lastActionAt: 0, emptyExplores: 0, pociones: 0, pocionFalloAt: 0, sinPocionAvisado: false,
       startedAt: Date.now(), endedAt: 0, eggMax: 0, last: null,
     });
     const run = ++S.run;
@@ -1389,6 +1389,9 @@
     if (isDisabled(ex)) return exploreBlocked(ex);
     S.disabledSince = 0;
 
+    // 6b) El 2.º del equipo debilitado → Poción (no la energía) antes de explorar
+    if (await curarSegundo(run)) return true;
+
     await waitAnimations(run);
     await pause(run, ...CONFIG.EXPLORE_DELAY);
     if (Math.random() < CONFIG.LONG_PAUSE_CHANCE) await pause(run, ...CONFIG.LONG_PAUSE);
@@ -1425,6 +1428,58 @@
       const es = energyState(findExplore() || ex2);
       if (es.noEnergy || avisoSinEnergia()) throw new Fail(es.en ? noEnergyMsg(es) : 'Sin energía: el juego dice que no te queda.');
       if (S.emptyExplores >= 4) throw new Fail(`¡EXPLORAR! no hace nada tras ${S.emptyExplores} intentos seguidos (¿sin energía?). Macro parada.`);
+    }
+    return true;
+  }
+  /* ── Poción para el 2.º del equipo ──
+   * Sección «Equipo de exploración»: cada li tiene la barra de PS y el texto «actual/máx»; debajo,
+   * «Curar · ⚡ −1» (energía, no se toca) y «Poción (N)», que cura al instante. */
+  function seccionEquipo() {
+    const h = $$('h3.titulo-seccion').find(x => /equipo de exploraci[oó]n/i.test(x.textContent || ''));
+    return h && h.closest('section');
+  }
+  // PS del 2.º del equipo: { nombre, ps, max } o null si no se ve
+  function psSegundo() {
+    const sec = seccionEquipo();
+    const li = sec && $$('ul > li[data-id]', sec)[1];
+    if (!li) return null;
+    const nombre = ((li.querySelector('span.truncate') || {}).textContent || (li.querySelector('img[alt]') || {}).alt || '2.º del equipo').trim();
+    const txt = $$('span', li).map(s => (s.textContent || '').trim()).find(t => /^\d+\s*\/\s*\d+$/.test(t));
+    if (txt) { const [ps, max] = txt.split('/').map(n => parseInt(n, 10)); return { nombre, ps, max }; }
+    const barra = li.querySelector('.barra-ps[aria-valuenow]');
+    return barra ? { nombre, ps: parseFloat(barra.getAttribute('aria-valuenow')) || 0, max: 100 } : null;
+  }
+  function botonPocion() {
+    const sec = seccionEquipo();
+    return sec && $$('button', sec).find(b => b.querySelector('img[src*="/items/potion"]') || /^\s*poci[oó]n\b/i.test(labelOf(b)));
+  }
+  // true si ha hecho algo (curar); avisa una sola vez si no quedan Pociones
+  async function curarSegundo(run) {
+    const p = psSegundo();
+    if (!p || p.ps > 0) { S.sinPocionAvisado = false; return false; }
+    if (S.pocionFalloAt && Date.now() - S.pocionFalloAt < 60000) return false;
+    const b = botonPocion();
+    const quedan = b ? parseInt((labelOf(b).match(/\((\d+)\)/) || [])[1], 10) : 0;
+    if (!b || isDisabled(b) || quedan === 0) {
+      if (!S.sinPocionAvisado) {
+        S.sinPocionAvisado = true;
+        log('Poción: el 2.º está debilitado y no quedan Pociones.');
+        avisar({ tipo: 'aviso', titulo: 'Sin Pociones', lineas: [`${p.nombre} está debilitado y no te quedan Pociones para curarlo.`, 'La macro sigue explorando igual.'] });
+      }
+      return false;
+    }
+    await waitAnimations(run);
+    log(`Poción: ${p.nombre} está a 0 PS → uso una Poción (quedan ${Number.isFinite(quedan) ? quedan : '?'}).`);
+    setMsg(`🧪 ${p.nombre} debilitado: uso una Poción…`);
+    await clickWithPause(run, b, labelOf(b));
+    const ok = await waitFor(run, () => { const q = psSegundo(); return q && q.ps > 0; }, 5000, 150);
+    if (ok) {
+      S.pociones = (S.pociones || 0) + 1;
+      S.pocionFalloAt = 0;
+      setMsg(`🧪 ${p.nombre} curado con una Poción.`);
+    } else {
+      S.pocionFalloAt = Date.now();
+      log('Poción: pulsada, pero el 2.º sigue a 0 PS. Lo reintento en 1 minuto.');
     }
     return true;
   }
