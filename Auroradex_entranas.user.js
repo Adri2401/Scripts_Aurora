@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.6.0
+// @version      1.6.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que los que pelean estén al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.6.0';
+  const VERSION = '1.6.1';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -1293,14 +1293,19 @@
     if (ops.length === 1) return { mejor: ops[0], lista: [{ o: ops[0], v: 0, techo: 0, vivo: 1, dTecho: 0 }], texto: ops[0].nombre, porque: 'es la única' };
     const lista = await valorar(S0, ops, (S, o, rng) => jugarPuerta(S, o.clase, rng));
     const t = estadoEquipo(S0), pc = politica(S0, ops.map(o => o.clase));
-    const lp = lista.find(x => x.o.clase === pc), top = lista[0];
+    const lp = lista.find(x => x.o.clase === pc);
+    let top = lista[0];
     const regla = !t.al100 ? (pc === 'elite' ? `${t.flojo.nombre}${t.flojo === t.principal ? ' (tu principal)' : ''} aún está en Nv.${Math.round(t.flojo.L)}: Élite da 3 niveles (Combate, 2) y más esquirlas` : t.falta || t.h < 0.55 ? 'el equipo va tocado: primero recuperarse' : 'sin Élite a mano, lo que más sube sin arriesgar')
       : pc === 'descanso' ? `${conf.eliteHasta === 'principal' ? 'tu principal ya está' : 'los que pelean ya están'} al Nv.100 y hay alguien tocado: a curarse` : `${conf.eliteHasta === 'principal' ? 'tu principal ya está' : 'los que pelean ya están'} al Nv.100: una Élite no sube nada y solo quita vida; mejor lo que da esquirlas sin pelear`;
     let mejor = lp, porque = regla;
     // Antes del 100 la Élite manda (lo que se gana en niveles no lo ve del todo la simulación); solo se cambia si la
-    // propia Élite se pierde a menudo. Con el principal al Nv.100, otra puerta si jugándolas enteras es claramente mejor (p. ej.
-    // un combate para reclutar a uno bueno).
-    const cambiar = !lp || (pc === 'elite' ? lp.pierde > 0.15 && top.v > lp.v : top.v - lp.v > 2);
+    // propia Élite se pierde a menudo.
+    // Ya al Nv.100: Élite nunca (no da niveles y quita vida; en tu bajada del 110, la Élite del 64 costó dos caídos en el
+    // guardián del 65); Combate solo si casi no hay riesgo y rinde claramente más (para reclutar a uno bueno).
+    const segura = x => x.o.clase !== 'elite' && (x.o.clase !== 'combate' || x.pierde <= 0.08);
+    const alt = t.al100 ? lista.find(x => segura(x)) : top;
+    const cambiar = !lp || (pc === 'elite' ? lp.pierde > 0.15 && top.v > lp.v : alt && alt !== lp && alt.v - lp.v > (t.al100 ? 3 : 2));
+    if (cambiar && t.al100 && lp) top = alt;
     if (cambiar && pc === 'elite' && lp) { mejor = top; porque = `la Élite se pierde ${pct(lp.pierde)} de las veces con el equipo así: mejor ${top.o.nombre}`; }
     else if (cambiar) { mejor = top; porque = lp ? `normalmente iría a ${lp.o.nombre} (${regla}), pero jugándolas enteras esta rinde claramente más (piso ${top.techo.toFixed(0)} frente a ${lp.techo.toFixed(0)})` : 'es la que más lejos llega'; }
     if (mejor !== lista[0]) lista.splice(lista.indexOf(mejor), 1), lista.unshift(mejor);
