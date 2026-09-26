@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.8.1
-// @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente y embarca), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
+// @version      1.9.0
+// @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca y entra en el Frente), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_interfaz.user.js
@@ -347,7 +347,7 @@
     ] },
     { id: 'extra', titulo: 'Extra', icono: '🧰', items: [
       // Se llega en barco: Hoenn → tramo «Muelle del Frente» → «Embarcar»
-      { href: '/frontera',   icon: '🏝️', label: 'Frente Batalla', region: 'hoenn', regionLabel: 'Hoenn', zona: 'Muelle del Frente', boton: 'embarcar' },
+      { href: '/frontera',   icon: '🏝️', label: 'Frente Batalla', region: 'hoenn', regionLabel: 'Hoenn', zona: 'Muelle del Frente', boton: 'embarcar', destino: '/frontera' },
       { href: '/ranking',    icon: '🏆', label: 'Ranking' },
       { href: '/liga',       icon: '🏅', label: 'Liga' },
       { href: '/miel',       icon: '🍯', label: 'Árboles de Miel' },
@@ -434,6 +434,7 @@
     window.location.href = URL_VIAJAR;
   }
 
+  let viajePulsado = false;
   function continuarViajePendiente() {
     const raw = sessionStorage.getItem(ADX_PENDING_KEY);
     if (!raw) return;
@@ -447,12 +448,12 @@
     const yaEstamos = regionActual() === pend.region || regionEnPantallaDeViaje() === normalizarTexto(pend.etiqueta);
     if (yaEstamos) {
       sessionStorage.removeItem(ADX_PENDING_KEY);
-      window.location.href = pend.href;
+      irA(pend.href);
       return;
     }
     const buscada = normalizarTexto(pend.etiqueta);
-    const btn = [...document.querySelectorAll('button:not([disabled])')].find(b => normalizarTexto(b.textContent).includes(buscada));
-    if (btn) btn.click();
+    const btn = [...document.querySelectorAll('button:not([disabled])')].find(b => hidratado(b) && normalizarTexto(b.textContent).includes(buscada));
+    if (btn && !viajePulsado) { viajePulsado = true; btn.click(); setTimeout(() => { viajePulsado = false; }, 4000); }
   }
 
   /* ─── Accesos que están en un tramo del mapa (el Frente Batalla: Hoenn → Muelle del Frente → «Embarcar») ───
@@ -463,11 +464,56 @@
   async function esperarA(fn, ms = 8000) { for (let t = 0; t < ms; t += 200) { const v = fn(); if (v) return v; await esperaMs(200); } return fn(); }
   const textoDe = el => (el && el.textContent || '').replace(/\s+/g, ' ').trim();
   const visibleEl = el => !!el && el.getClientRects().length > 0 && !el.closest('#' + PANEL_ID) && !el.closest('[data-ax-ignore]');
-  function irAZona(item) {
-    sessionStorage.setItem(ZONA_KEY, JSON.stringify({ zona: item.zona, boton: item.boton, region: item.region, label: item.label, t: Date.now() }));
-    if (item.region && regionActual() !== item.region) { irConCambioDeRegion(item.region, item.regionLabel || cap(item.region), '/mapa'); return; }
-    if (/^\/mapa\/?$/.test(location.pathname)) continuarZona();
-    else { const en = document.querySelector('nav a[href="/mapa"]'); if (en) en.click(); else location.href = '/mapa'; }
+  // Ya lo ha montado React (tiene sus manejadores): pulsarlo antes no hace nada
+  const hidratado = el => !!el && Object.keys(el).some(k => k.startsWith('__reactProps$') || k.startsWith('__reactFiber$'));
+  // Ir a una página sin recargar (con un enlace de la web, como hace Next.js); si no hay enlace, cargándola
+  async function irA(href) {
+    if (location.pathname === href) return;
+    const a = [...document.querySelectorAll(`a[href="${href}"]`)].find(x => !x.closest('#' + PANEL_ID) && hidratado(x));
+    if (a) { a.click(); if (await esperarA(() => location.pathname === href, 5000)) return; }
+    location.href = href;
+  }
+  // Cambio de región desde el panel de medallas de la cabecera, sin pasar por la pantalla de viajar (no recarga)
+  async function cambiarRegionRapido(id, label) {
+    const med = [...document.querySelectorAll('header button')].find(b => hidratado(b) && /cambiar de|medallas/i.test(b.getAttribute('title') || ''));
+    if (!med) return false;
+    const panel = () => { const b = [...document.querySelectorAll('li button')].find(x => /toca para viajar|estas aqui/.test(normalizarTexto(textoDe(x)))); return b ? b.closest('ul') : null; };
+    const cerrar = () => {
+      const x = [...document.querySelectorAll('button')].find(b => visibleEl(b) && (/cerrar|close/i.test(b.getAttribute('aria-label') || '') || /^[✕✖×]$/.test(textoDe(b))));
+      if (x) x.click(); else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    };
+    med.click();
+    const ul = await esperarA(panel, 4000);
+    if (!ul) return false;
+    const buscada = normalizarTexto(label);
+    const btn = [...ul.querySelectorAll('li button')].find(b => normalizarTexto(textoDe(b.querySelector('span.font-extrabold') || b)).startsWith(buscada));
+    if (!btn || btn.disabled) { cerrar(); return false; }
+    if (/estas aqui/.test(normalizarTexto(textoDe(btn)))) { cerrar(); return true; }
+    btn.click();
+    await esperarA(() => !ul.isConnected, 15000);
+    lsPut(REGION_KEY, { id, t: Date.now() });
+    regionMemo = { t: 0, v: null };
+    return true;
+  }
+  async function irAZona(item) {
+    sessionStorage.setItem(ZONA_KEY, JSON.stringify({ zona: item.zona, boton: item.boton, destino: item.destino, region: item.region, label: item.label, t: Date.now() }));
+    if (item.region && regionActual() !== item.region) {
+      let ok = false;
+      try { ok = await cambiarRegionRapido(item.region, item.regionLabel || cap(item.region)); } catch (e) { console.warn('[adx región]', e); }
+      if (!ok) { irConCambioDeRegion(item.region, item.regionLabel || cap(item.region), '/mapa'); return; }
+    }
+    if (!/^\/mapa\/?$/.test(location.pathname)) await irA('/mapa');
+    continuarZona();
+  }
+  // Después de embarcar: a la página del Frente (también si al embarcar se ha recargado la página)
+  const DESTINO_KEY = 'adx-pending-destino';
+  let embarcando = false;           // mientras el juego apunta el «Embarcar», no se sale de la página
+  function continuarDestino() {
+    if (embarcando) return;
+    let d; try { d = JSON.parse(sessionStorage.getItem(DESTINO_KEY) || 'null'); } catch { d = null; }
+    if (!d) return;
+    sessionStorage.removeItem(DESTINO_KEY);
+    if (d.href && Date.now() - (d.t || 0) < 60000 && location.pathname !== d.href) irA(d.href);
   }
   const tramoAqui = () => textoDe(document.querySelector('main h1'));
   // Lista de tramos de «Ver mapa completo» (la misma que usa el script de Manadas)
@@ -487,7 +533,7 @@
     const buscada = normalizarTexto(pend.zona);
     const re = pend.boton ? new RegExp('^[^a-z0-9]*' + pend.boton, 'i') : null;
     // el botón del final («Embarcar»): si se ve, ya estás en el tramo
-    const botonFinal = () => re && [...document.querySelectorAll('main button, main a')].find(x => visibleEl(x) && !x.disabled && !x.closest('ol') && re.test(normalizarTexto(textoDe(x))));
+    const botonFinal = () => re && [...document.querySelectorAll('main button, main a')].find(x => visibleEl(x) && hidratado(x) && !x.disabled && !x.closest('ol') && re.test(normalizarTexto(textoDe(x))));
     const titulos = () => [...document.querySelectorAll('main h1, main h2')].map(h => normalizarTexto(textoDe(h)));
     const nombreDe = b => normalizarTexto(textoDe(b.querySelector('span.truncate')) || textoDe(b));
     const filaDe = ol => ol && [...ol.querySelectorAll('li button')].find(b => !/^ver que/i.test(b.getAttribute('aria-label') || '') && nombreDe(b).startsWith(buscada));
@@ -510,16 +556,24 @@
       await cerrarLista();
       const b = await esperarA(botonFinal, 8000);
       if (!b) return fallo(`Estoy en ${pend.zona} pero no encuentro «${cap(pend.boton)}».`);
-      b.click();
+      if (pend.destino) sessionStorage.setItem(DESTINO_KEY, JSON.stringify({ href: pend.destino, t: Date.now() }));
+      // se deja al juego embarcar (cambia la pantalla o la página) y luego se va al destino
+      embarcando = true;
+      try {
+        b.click();
+        if (pend.destino) { await esperarA(() => !b.isConnected || !/^\/mapa\/?$/.test(location.pathname), 6000); await esperaMs(300); }
+      } finally { embarcando = false; }
+      continuarDestino();
     };
     try {
-      await esperarA(() => botonFinal() || (tramoAqui() && regionEnChapa()), 6000);      // que acabe de pintarse el mapa
+      // que React haya montado el mapa y se vea en qué región estás
+      await esperarA(() => hidratado(document.querySelector('main')) && (botonFinal() || regionEnChapa()), 8000);
       if (estoy()) return await terminar();
-      if (pend.region && (regionEnChapa() || regionActual()) !== pend.region) return fallo(`Sigues sin estar en ${cap(pend.region)}.`);
+      if (pend.region && !await esperarA(() => (regionEnChapa() || regionActual()) === pend.region, 5000)) return fallo(`Sigues sin estar en ${cap(pend.region)}.`);
       // 1) el tramo en la lista de «Ver mapa completo»; si no sale ahí, su tarjeta en el mapa
       let ol = listaTramos();
       if (!ol) {
-        const ab = [...document.querySelectorAll('main a, main button')].find(x => visibleEl(x) && /mapa completo/i.test(textoDe(x)));
+        const ab = await esperarA(() => [...document.querySelectorAll('main a, main button')].find(x => visibleEl(x) && hidratado(x) && /mapa completo/i.test(textoDe(x))), 3000);
         if (ab) { ab.click(); ol = await esperarA(listaTramos, 6000); }
       }
       let btn = filaDe(ol);
@@ -1251,6 +1305,7 @@
   const observer = new MutationObserver(() => {
     clearTimeout(syncT);
     syncT = setTimeout(() => {
+      continuarDestino();
       continuarViajePendiente();
       continuarZona();
       leerEstadoDelMenu();
@@ -1268,6 +1323,17 @@
     }, 150);
   });
 
+  // Viaje o tramo pendiente: se sigue en cuanto React monta lo que hay que pulsar, sin esperar a que la página esté quieta
+  if ([ADX_PENDING_KEY, ZONA_KEY, DESTINO_KEY].some(k => sessionStorage.getItem(k))) {
+    const t0 = Date.now();
+    const tic = setInterval(() => {
+      if (Date.now() - t0 > 30000 || ![ADX_PENDING_KEY, ZONA_KEY, DESTINO_KEY].some(k => sessionStorage.getItem(k))) { clearInterval(tic); return; }
+      if (!hidratado(document.querySelector('main'))) return;
+      continuarDestino();
+      continuarViajePendiente();
+      continuarZona();
+    }, 300);
+  }
   esperarHidratacion().then(() => {
     observer.observe(document.body, { childList: true, subtree: true });
     continuarViajePendiente();
