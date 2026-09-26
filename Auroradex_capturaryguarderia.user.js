@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.10.0
+// @version      2.11.0
 // @description  Auto-explora y captura; ante shiny/legendario vibra, notifica y PARA la macro para captura manual. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -285,13 +285,16 @@
   // Cabecera: "⚡ 0/54" (normal) y "🌿 1/30" (veterana)
   function readEnergy() {
     const box = $('header span[title^="Tiempo para el siguiente punto"]');
-    if (!box) return null;
-    const nums = $$('span', box)
+    const nums = box ? $$('span', box)
       .map(s => s.textContent.trim())
       .filter(t => /^\d+\/\d+$/.test(t))
-      .map(t => parseInt(t, 10));
-    if (!nums.length) return null;
-    return { normal: nums[0], vet: nums[1] ?? 0 };
+      .map(t => parseInt(t, 10)) : [];
+    if (nums.length) return { normal: nums[0], vet: nums[1] ?? 0 };
+    // sin el contador de siempre (p. ej. con la energía a tope no hay temporizador): «⚡ 0/54 · 🌿 1/30» en la cabecera
+    const cab = $('header');
+    const t = cab ? cab.textContent.replace(/\s+/g, ' ') : '';
+    const n = /⚡\uFE0F?\s*(\d+)\s*\/\s*\d+/.exec(t), v = /🌿\uFE0F?\s*(\d+)\s*\/\s*\d+/.exec(t);
+    return n ? { normal: +n[1], vet: v ? +v[1] : 0 } : null;
   }
 
   function kindFromLabel(t) {
@@ -930,15 +933,17 @@
   const kEsc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   /* ── Avisos dentro del juego (tarjeta arriba + sonido de 8 bits) ─────────────────────────────────
    * kAviso({ tipo, titulo, texto, lineas, sprite, icono, app, sonido, duracion, fijo, sistema })
-   *   tipo: 'exito' · 'fin' · 'info' · 'aviso' · 'error' · 'shiny' · 'legendario'
-   *   'info' va sin sonido; 'shiny', 'legendario' y 'error' no se cierran solos.
+   *   tipo: 'exito' · 'fin' · 'info' · 'aviso' · 'energia' · 'error' · 'shiny' · 'legendario'
+   *   Cada tipo tiene su sonido (para saber qué pasa sin mirar); 'shiny', 'legendario' y 'error' no se cierran solos.
+   *   Se cierran tocando en cualquier parte del aviso.
    *   sistema: notificación del móvil/PC, solo si la pestaña no se está viendo (para no repetir el aviso).
    * El sonido se puede silenciar desde el propio aviso (🔊) y vale para todos los scripts. */
   const K_AVISO = {
     exito: { c: '#2FA84F', f: 'linear-gradient(135deg,#1F8A3E,#3CC065)', i: '✅' },
     fin: { c: '#2FA84F', f: 'linear-gradient(135deg,#1F8A3E,#3CC065)', i: '🏁' },
     info: { c: '#3BA7E0', f: 'linear-gradient(135deg,#1F7FB8,#48B6EC)', i: 'ℹ️' },
-    aviso: { c: '#E0A21E', f: 'linear-gradient(135deg,#C07A12,#F0B436)', i: '⚡' },
+    aviso: { c: '#E0A21E', f: 'linear-gradient(135deg,#C07A12,#F0B436)', i: '⚠️' },
+    energia: { c: '#F2B632', f: 'linear-gradient(135deg,#6B4E16,#C9912A 55%,#F2B632)', i: '🪫' },
     error: { c: '#E0473A', f: 'linear-gradient(135deg,#B8322A,#EE5A4B)', i: '⚠️' },
     shiny: { c: '#FFB23E', f: 'linear-gradient(120deg,#FF8A2F,#FFC94A 40%,#FFE9A6 50%,#FFC94A 60%,#FF8A2F)', i: '✨' },
     legendario: { c: '#8B5CF6', f: 'linear-gradient(135deg,#5B21B6,#8B5CF6 55%,#D4A72C)', i: '👑' },
@@ -949,7 +954,8 @@
     st.id = 'k-avisos-css-2';
     st.textContent = `
       #k-avisos{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 10px);transform:translateX(-50%);z-index:2147483600;width:min(400px,calc(100vw - 20px));display:flex;flex-direction:column;gap:8px;pointer-events:none;font-family:inherit}
-      #k-avisos .k-av{pointer-events:auto;position:relative;overflow:hidden;border-radius:20px;background:rgb(var(--lienzo,255 255 255));color:rgb(var(--tinta-800,33 36 29));border:2px solid color-mix(in srgb,var(--k-c) 55%,rgb(var(--lienzo,255 255 255)));box-shadow:0 4px 0 0 rgba(0,0,0,.08),0 16px 34px -14px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.04);animation:k-av-entra .42s cubic-bezier(.2,1.25,.4,1) both;cursor:default}
+      #k-avisos .k-av{pointer-events:auto;position:relative;overflow:hidden;border-radius:20px;background:rgb(var(--lienzo,255 255 255));color:rgb(var(--tinta-800,33 36 29));border:2px solid color-mix(in srgb,var(--k-c) 55%,rgb(var(--lienzo,255 255 255)));box-shadow:0 4px 0 0 rgba(0,0,0,.08),0 16px 34px -14px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.04);animation:k-av-entra .42s cubic-bezier(.2,1.25,.4,1) both;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
+      #k-avisos .k-av:active{transform:scale(.985)}
       #k-avisos .k-av.k-sale{animation:k-av-sale .28s ease forwards}
       @keyframes k-av-entra{from{opacity:0;transform:translateY(-18px) scale(.94)}to{opacity:1;transform:none}}
       @keyframes k-av-sale{to{opacity:0;transform:translateY(-12px) scale(.96)}}
@@ -996,6 +1002,7 @@
     fin: [[523, 0, .12, 'square'], [659, .12, .12, 'square'], [784, .24, .12, 'square'], [1047, .36, .3, 'triangle'], [784, .36, .3, 'square']],
     info: [[1175, 0, .06, 'triangle'], [1568, .07, .09, 'triangle']],
     aviso: [[880, 0, .12, 'triangle'], [698, .14, .12, 'triangle'], [880, .3, .12, 'triangle'], [698, .44, .16, 'triangle']],
+    energia: [[988, 0, .11, 'square'], [784, .12, .11, 'square'], [587, .24, .11, 'square'], [392, .36, .14, 'square'], [196, .52, .4, 'triangle']],
     error: [[233, 0, .16, 'square'], [185, .18, .3, 'square']],
     shiny: [[1319, 0, .07, 'triangle'], [1760, .07, .07, 'triangle'], [2093, .14, .07, 'triangle'], [2637, .21, .12, 'triangle'], [2093, .36, .07, 'triangle'], [2637, .43, .07, 'triangle'], [3136, .5, .1, 'triangle'], [3520, .6, .28, 'sine']],
     legendario: [[392, 0, .16, 'square'], [523, .16, .16, 'square'], [659, .32, .16, 'square'], [784, .48, .5, 'square'], [523, .48, .5, 'triangle'], [659, .48, .5, 'triangle']],
@@ -1030,7 +1037,7 @@
     kUltimos.set(clave, Date.now());
     const importante = tipo === 'shiny' || tipo === 'legendario' || tipo === 'error';
     const fijo = o.fijo ?? importante, dur = o.duracion || (lineas.length ? 9000 : 6000);
-    if (o.sonido ?? tipo !== 'info') kSonido(tipo);
+    if (o.sonido ?? true) kSonido(tipo);
     if (importante) { try { navigator.vibrate && navigator.vibrate(tipo === 'error' ? [200, 100, 200] : [300, 120, 300, 120, 500]); } catch { /* nada */ } }
     // tarjeta dentro del juego
     try {
@@ -1051,7 +1058,8 @@
         ${o.texto || lineas.length ? `<div class="k-av-cuerpo">${o.texto ? `<p>${kEsc(o.texto)}</p>` : ''}${lineas.length ? `<ul>${lineas.map(l => `<li>${kEsc(l)}</li>`).join('')}</ul>` : ''}</div>` : ''}
         ${fijo ? '' : '<div class="k-av-tiempo"></div>'}`;
       const cerrar = () => { if (!d.isConnected || d.classList.contains('k-sale')) return; d.classList.add('k-sale'); setTimeout(() => d.remove(), 300); };
-      d.querySelector('[data-k="x"]').addEventListener('click', cerrar);
+      // tocando en cualquier parte se cierra (menos en el botón del sonido)
+      d.addEventListener('click', e => { if (!e.target.closest('[data-k="son"]')) cerrar(); });
       d.querySelector('[data-k="son"]').addEventListener('click', e => {
         const callar = !kSilencio();
         try { localStorage.setItem('aurora-kit-silencio', callar ? '1' : '0'); } catch { /* nada */ }
@@ -1091,7 +1099,7 @@
   // El permiso se pide al iniciar la macro (hace falta un toque)
   const pedirPermisoNotif = kPedirPermiso;
   // Aviso completo: tarjeta arriba con sprite, título y datos + sonido + notificación si no estás mirando la pestaña.
-  // tipo: 'fin', 'aviso', 'error', 'shiny' o 'legendario'
+  // tipo: 'fin', 'energia', 'aviso', 'error', 'shiny' o 'legendario'
   function avisar({ tipo = 'fin', titulo, lineas = [], sprite = null }) {
     kAviso({ tipo, app: 'Macro de captura', icono: tipo === 'fin' ? '🎯' : null, titulo, lineas, sprite });
   }
@@ -1120,7 +1128,7 @@
     Object.assign(S, {
       running: true, phase: 'on', explores: 0, throws: 0, sinceNursery: 0, hatched: 0, shiny: 0, legendary: 0, noBallsSince: 0,
       nurseryIn: CONFIG.NURSERY_FALLBACK_EXPLORES, nurseryDue: true, encThrows: 0, encKey: '', noEffect: 0, lastProgress: Date.now(), disabledSince: 0,
-      modalSince: 0, noBallUsableSince: 0, spent: 0, lastActionAt: 0,
+      modalSince: 0, noBallUsableSince: 0, spent: 0, lastActionAt: 0, emptyExplores: 0,
       startedAt: Date.now(), endedAt: 0, eggMax: 0, last: null,
     });
     const run = ++S.run;
@@ -1146,7 +1154,7 @@
     log('Detenida:', reason || '(manual)');
     if (alert && !opts.sinAviso) {
       const r = String(reason || 'Exploración terminada');
-      const tipo = /l[ií]mite|hecho|energ/i.test(r) ? (/sin energ|no te queda|se acab/i.test(r) ? 'aviso' : 'fin') : 'error';
+      const tipo = /l[ií]mite|hecho|energ/i.test(r) ? (/sin energ|no te queda|se acab/i.test(r) ? 'energia' : 'fin') : 'error';
       const titulo = /l[ií]mite de energ/i.test(r) ? 'Límite de energía alcanzado' : /^hecho/i.test(r) ? 'Exploraciones gratis hechas' : /energ/i.test(r) ? 'Sin energía' : 'La macro se ha parado';
       avisar({ tipo, titulo, lineas: [...(tipo === 'error' || titulo === 'Sin energía' ? [r] : []), ...lineasResumen()] });
     }
@@ -1250,6 +1258,7 @@
       CONFIG.OUTCOME_MS, 50
     );
     if (!seen) log(`Sin encuentro ni diálogo tras explorar (${CONFIG.OUTCOME_MS / 1000}s).`);
+    return !!seen;
   }
 
   async function clickWithPause(run, el, label) {
@@ -1341,7 +1350,11 @@
     if (Date.now() - S.noBallsSince > 2000) S.encKey = '';   // encuentro terminado
 
     // 3) Ventana con un único botón principal que no está en mi lista: aceptarla sin esperar
+    //    (si dice que no queda energía, se para: aceptarla y volver a explorar sería un bucle sin fin)
     const gen = genericPrimary();
+    if (gen && /sin energ[ií]a|no te queda(?:n)? (?:nada de )?energ|no tienes (?:suficiente )?energ|energ[ií]a insuficiente/i.test(overlays().map(o => o.textContent).join(' '))) {
+      throw new Fail('Sin energía: el juego dice que no te queda.');
+    }
     if (gen) {
       S.disabledSince = 0;
       S.modalSince = 0;
@@ -1391,6 +1404,10 @@
       stop(lim === 0 ? `Hecho: ${S.explores} exploraciones gratis, sin gastar energía.` : `Límite de energía alcanzado: gastadas ${S.spent} de ${lim}.`, { alert: true });
       return true;
     }
+    if (n > 0) {
+      const es = energyState(ex2);
+      if (es.have !== null && es.have < n) throw new Fail(noEnergyMsg(es));
+    }
     ex2.click();
     S.spent += n;
     S.explores++;
@@ -1399,8 +1416,22 @@
     S.lastExploreAt = S.lastActionAt = Date.now();
     S.lastProgress = Date.now();
     setMsg('Explorando…');
-    await waitOutcome(run);           // atender el resultado (captura) antes de cualquier otra cosa
+    const seen = await waitOutcome(run);           // atender el resultado (captura) antes de cualquier otra cosa
+    // ¡EXPLORAR! que no hace nada varias veces seguidas: casi siempre es que no queda energía (el botón no se apaga)
+    if (seen) S.emptyExplores = 0;
+    else {
+      S.emptyExplores = (S.emptyExplores || 0) + 1;
+      if (n > 0) { S.spent -= n; S.explores--; S.sinceNursery = Math.max(0, S.sinceNursery - 1); }   // no ha contado
+      const es = energyState(findExplore() || ex2);
+      if (es.noEnergy || avisoSinEnergia()) throw new Fail(es.en ? noEnergyMsg(es) : 'Sin energía: el juego dice que no te queda.');
+      if (S.emptyExplores >= 4) throw new Fail(`¡EXPLORAR! no hace nada tras ${S.emptyExplores} intentos seguidos (¿sin energía?). Macro parada.`);
+    }
     return true;
+  }
+  // ¿El juego enseña un aviso de que no queda energía? (ventana o mensaje suelto; no cuenta el panel de la macro)
+  function avisoSinEnergia() {
+    const re = /sin energ[ií]a|no te queda(?:n)? (?:nada de )?energ|no tienes (?:suficiente )?energ|energ[ií]a insuficiente|te has quedado sin energ/i;
+    return $$('main p, main span, [role="alert"], [role="status"], div.fixed p').some(e => !e.closest('#' + CONFIG.UI_ID) && !e.closest('#k-avisos') && isVisible(e) && re.test(e.textContent || ''));
   }
 
   function modalWait() {

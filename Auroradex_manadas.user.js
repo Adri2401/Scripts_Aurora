@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Cazador de Manadas
 // @namespace    aurora-dex-manadas
-// @version      1.3.0
+// @version      1.3.1
 // @description  Lee las pistas del Canal Manadas, cambia de región solo, recorre el mapa buscando el tramo que cuadra y para en cuanto encuentra la manada.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -202,15 +202,17 @@
 
   /* ── Avisos dentro del juego (tarjeta arriba + sonido de 8 bits) ─────────────────────────────────
    * kAviso({ tipo, titulo, texto, lineas, sprite, icono, app, sonido, duracion, fijo, sistema })
-   *   tipo: 'exito' · 'fin' · 'info' · 'aviso' · 'error' · 'shiny' · 'legendario'
-   *   'info' va sin sonido; 'shiny', 'legendario' y 'error' no se cierran solos.
+   *   tipo: 'exito' · 'fin' · 'info' · 'aviso' · 'energia' · 'error' · 'shiny' · 'legendario'
+   *   Cada tipo tiene su sonido (para saber qué pasa sin mirar); 'shiny', 'legendario' y 'error' no se cierran solos.
+   *   Se cierran tocando en cualquier parte del aviso.
    *   sistema: notificación del móvil/PC, solo si la pestaña no se está viendo (para no repetir el aviso).
    * El sonido se puede silenciar desde el propio aviso (🔊) y vale para todos los scripts. */
   const K_AVISO = {
     exito: { c: '#2FA84F', f: 'linear-gradient(135deg,#1F8A3E,#3CC065)', i: '✅' },
     fin: { c: '#2FA84F', f: 'linear-gradient(135deg,#1F8A3E,#3CC065)', i: '🏁' },
     info: { c: '#3BA7E0', f: 'linear-gradient(135deg,#1F7FB8,#48B6EC)', i: 'ℹ️' },
-    aviso: { c: '#E0A21E', f: 'linear-gradient(135deg,#C07A12,#F0B436)', i: '⚡' },
+    aviso: { c: '#E0A21E', f: 'linear-gradient(135deg,#C07A12,#F0B436)', i: '⚠️' },
+    energia: { c: '#F2B632', f: 'linear-gradient(135deg,#6B4E16,#C9912A 55%,#F2B632)', i: '🪫' },
     error: { c: '#E0473A', f: 'linear-gradient(135deg,#B8322A,#EE5A4B)', i: '⚠️' },
     shiny: { c: '#FFB23E', f: 'linear-gradient(120deg,#FF8A2F,#FFC94A 40%,#FFE9A6 50%,#FFC94A 60%,#FF8A2F)', i: '✨' },
     legendario: { c: '#8B5CF6', f: 'linear-gradient(135deg,#5B21B6,#8B5CF6 55%,#D4A72C)', i: '👑' },
@@ -221,7 +223,8 @@
     st.id = 'k-avisos-css-2';
     st.textContent = `
       #k-avisos{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 10px);transform:translateX(-50%);z-index:2147483600;width:min(400px,calc(100vw - 20px));display:flex;flex-direction:column;gap:8px;pointer-events:none;font-family:inherit}
-      #k-avisos .k-av{pointer-events:auto;position:relative;overflow:hidden;border-radius:20px;background:rgb(var(--lienzo,255 255 255));color:rgb(var(--tinta-800,33 36 29));border:2px solid color-mix(in srgb,var(--k-c) 55%,rgb(var(--lienzo,255 255 255)));box-shadow:0 4px 0 0 rgba(0,0,0,.08),0 16px 34px -14px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.04);animation:k-av-entra .42s cubic-bezier(.2,1.25,.4,1) both;cursor:default}
+      #k-avisos .k-av{pointer-events:auto;position:relative;overflow:hidden;border-radius:20px;background:rgb(var(--lienzo,255 255 255));color:rgb(var(--tinta-800,33 36 29));border:2px solid color-mix(in srgb,var(--k-c) 55%,rgb(var(--lienzo,255 255 255)));box-shadow:0 4px 0 0 rgba(0,0,0,.08),0 16px 34px -14px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.04);animation:k-av-entra .42s cubic-bezier(.2,1.25,.4,1) both;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
+      #k-avisos .k-av:active{transform:scale(.985)}
       #k-avisos .k-av.k-sale{animation:k-av-sale .28s ease forwards}
       @keyframes k-av-entra{from{opacity:0;transform:translateY(-18px) scale(.94)}to{opacity:1;transform:none}}
       @keyframes k-av-sale{to{opacity:0;transform:translateY(-12px) scale(.96)}}
@@ -268,6 +271,7 @@
     fin: [[523, 0, .12, 'square'], [659, .12, .12, 'square'], [784, .24, .12, 'square'], [1047, .36, .3, 'triangle'], [784, .36, .3, 'square']],
     info: [[1175, 0, .06, 'triangle'], [1568, .07, .09, 'triangle']],
     aviso: [[880, 0, .12, 'triangle'], [698, .14, .12, 'triangle'], [880, .3, .12, 'triangle'], [698, .44, .16, 'triangle']],
+    energia: [[988, 0, .11, 'square'], [784, .12, .11, 'square'], [587, .24, .11, 'square'], [392, .36, .14, 'square'], [196, .52, .4, 'triangle']],
     error: [[233, 0, .16, 'square'], [185, .18, .3, 'square']],
     shiny: [[1319, 0, .07, 'triangle'], [1760, .07, .07, 'triangle'], [2093, .14, .07, 'triangle'], [2637, .21, .12, 'triangle'], [2093, .36, .07, 'triangle'], [2637, .43, .07, 'triangle'], [3136, .5, .1, 'triangle'], [3520, .6, .28, 'sine']],
     legendario: [[392, 0, .16, 'square'], [523, .16, .16, 'square'], [659, .32, .16, 'square'], [784, .48, .5, 'square'], [523, .48, .5, 'triangle'], [659, .48, .5, 'triangle']],
@@ -302,7 +306,7 @@
     kUltimos.set(clave, Date.now());
     const importante = tipo === 'shiny' || tipo === 'legendario' || tipo === 'error';
     const fijo = o.fijo ?? importante, dur = o.duracion || (lineas.length ? 9000 : 6000);
-    if (o.sonido ?? tipo !== 'info') kSonido(tipo);
+    if (o.sonido ?? true) kSonido(tipo);
     if (importante) { try { navigator.vibrate && navigator.vibrate(tipo === 'error' ? [200, 100, 200] : [300, 120, 300, 120, 500]); } catch { /* nada */ } }
     // tarjeta dentro del juego
     try {
@@ -323,7 +327,8 @@
         ${o.texto || lineas.length ? `<div class="k-av-cuerpo">${o.texto ? `<p>${kEsc(o.texto)}</p>` : ''}${lineas.length ? `<ul>${lineas.map(l => `<li>${kEsc(l)}</li>`).join('')}</ul>` : ''}</div>` : ''}
         ${fijo ? '' : '<div class="k-av-tiempo"></div>'}`;
       const cerrar = () => { if (!d.isConnected || d.classList.contains('k-sale')) return; d.classList.add('k-sale'); setTimeout(() => d.remove(), 300); };
-      d.querySelector('[data-k="x"]').addEventListener('click', cerrar);
+      // tocando en cualquier parte se cierra (menos en el botón del sonido)
+      d.addEventListener('click', e => { if (!e.target.closest('[data-k="son"]')) cerrar(); });
       d.querySelector('[data-k="son"]').addEventListener('click', e => {
         const callar = !kSilencio();
         try { localStorage.setItem('aurora-kit-silencio', callar ? '1' : '0'); } catch { /* nada */ }
@@ -809,26 +814,11 @@
 
   const DURACION_ERROR = 4200;
 
-  // Mensaje discreto: texto casi transparente abajo, dura 2 s y desaparece (sin sonido, vibración ni notificación)
+  // Mensaje breve con el aviso del kit (con su sonido de información)
   function toastDiscreto(msg) {
     clearTimeout(temporizadorCierre);
     borrarE();
-    const viejo = document.getElementById('mh-toast');
-    if (viejo) viejo.remove();
-    const t = document.createElement('div');
-    t.id = 'mh-toast';
-    t.setAttribute('role', 'status');
-    t.style.cssText = 'position:fixed;left:50%;bottom:calc(var(--nav-alto,4rem) + 1.25rem);transform:translate(-50%,8px);z-index:2147483000;' +
-      'max-width:88vw;padding:7px 14px 7px 12px;border-radius:999px;text-align:center;pointer-events:none;display:flex;align-items:center;gap:8px;' +
-      'font-weight:800;font-size:13px;line-height:1.3;color:rgb(var(--tinta-700));background:rgb(var(--lienzo) / .94);' +
-      'border:2px solid rgb(var(--hoja-100));box-shadow:0 10px 24px -12px rgba(0,0,0,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);' +
-      'opacity:0;transition:opacity .25s ease,transform .3s cubic-bezier(.2,1.2,.4,1)';
-    t.innerHTML = '<span style="width:8px;height:8px;border-radius:999px;background:#2FA84F;box-shadow:0 0 0 3px rgba(47,168,79,.22);flex-shrink:0"></span>';
-    t.appendChild(document.createTextNode(msg));
-    document.body.appendChild(t);
-    requestAnimationFrame(() => { t.style.opacity = '1'; t.style.transform = 'translate(-50%,0)'; });
-    setTimeout(() => { t.style.opacity = '0'; }, 1700);
-    setTimeout(() => t.remove(), 2000);
+    kAviso({ tipo: 'info', app: 'Cazador de Manadas', icono: '🐾', titulo: msg, duracion: 3500, sistema: false });
   }
 
   function encontrada() {
@@ -841,7 +831,10 @@
 
   function terminar(ok, msg) {
     if (ok) toastDiscreto(msg);
-    else finalizarAviso({ running: false, ok, err: true, msg, sub: '' }, DURACION_ERROR);
+    else {
+      finalizarAviso({ running: false, ok, err: true, msg, sub: '' }, DURACION_ERROR);
+      kAviso({ tipo: 'error', app: 'Cazador de Manadas', titulo: 'La búsqueda se ha parado', texto: msg });
+    }
   }
 
   let temporizadorCierre = null;
