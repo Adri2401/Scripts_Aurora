@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.20.0
+// @version      1.20.1
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -2022,7 +2022,7 @@
     fr.style.cssText = 'position:fixed;left:0;top:0;width:420px;height:900px;border:0;opacity:0.001;pointer-events:none;z-index:-1';
     historialCancelar = false;
     fr.src = '/tronos?axt-fondo=1';
-    const t0 = Date.now(), TOPE = 90000, POR_COMBATE = 12000;
+    const t0 = Date.now(), TOPE = 120000, POR_COMBATE = 12000;
     let leidos = 0, total = 0;
     try {
       const cargada = new Promise(ok => { fr.addEventListener('load', ok, { once: true }); setTimeout(ok, 20000); });
@@ -2057,7 +2057,7 @@
         const ver = [...li.querySelectorAll('button')].find(b => /ver/i.test(b.textContent || ''));
         if (!ver) continue;
         const t1 = Date.now();
-        aviso(`Leyendo tus derrotas (${k + 1}/${total})…`);
+        aviso(`Leyendo tus combates (${k + 1}/${total})…`);
         ver.click();
         if (!(await esperar(() => [...d().querySelectorAll('h3')].find(h => /^\s*Trono de\s+\S/i.test(h.textContent || '')), 8000))) { console.warn('[axt historial] no se abrió la repetición', i + 1); continue; }
         // hasta el final de la repetición (o como mucho 25 s: se lee lo que haya salido): se salta si hay botón;
@@ -2070,7 +2070,7 @@
           const n = d().querySelectorAll('.animate-slide-up').length;
           if (n !== ultimo) { ultimo = n; quieto = Date.now(); }
           else if (Date.now() - quieto > 2000) { fin = 'quieto'; break; }
-          aviso(`Leyendo tus derrotas (${k + 1}/${total} · ${Math.round((Date.now() - t1) / 1000)} s)…`, true);
+          aviso(`Leyendo tus combates (${k + 1}/${total} · ${Math.round((Date.now() - t1) / 1000)} s)…`, true);
           await espera(150);
         }
         console.log('[axt historial]', `combate ${k + 1}/${total} (fila ${i + 1}):`, fin, `(${Math.round((Date.now() - t1) / 1000)} s, ${ultimo} líneas)`);
@@ -2167,7 +2167,7 @@
     const r = resTrono(cole, t);
     if (!r) {
       const calculando = (memoTronos && memoTronos.calc[t]) || historialLeyendo;
-      pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p><p class="text-[11px] font-semibold text-tinta-500">Primero lee las derrotas de este trono que aún no conozca (sin que se vea, en unos segundos) y luego busca el mejor equipo de tipo ${bonito(t)} para quitar y defender el trono.</p><button type="button" class="axt-calc-trono boton-principal w-full !py-2 text-xs" ${calculando ? 'disabled' : ''}>${historialLeyendo ? `⏳ ${historialProg || 'Buscando tus derrotas…'}` : calculando ? `⏳ Calculando el mejor equipo de tipo ${bonito(t)}…` : `🧮 Calcular el mejor equipo de tipo ${bonito(t)}`}</button>${historialLeyendo ? '<button type="button" class="axt-saltar-hist boton-suave w-full !py-1.5 text-[11px]">⏭ No leer más y calcular ya</button>' : ''}`);
+      pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p><p class="text-[11px] font-semibold text-tinta-500">Primero lee todos tus combates guardados que aún no conozca (sin que se vea, en unos segundos) y luego busca el mejor equipo de tipo ${bonito(t)} para quitar y defender el trono.</p><button type="button" class="axt-calc-trono boton-principal w-full !py-2 text-xs" ${calculando ? 'disabled' : ''}>${historialLeyendo ? `⏳ ${historialProg || 'Buscando tus combates…'}` : calculando ? `⏳ Calculando el mejor equipo de tipo ${bonito(t)}…` : `🧮 Calcular el mejor equipo de tipo ${bonito(t)}`}</button>${historialLeyendo ? '<button type="button" class="axt-saltar-hist boton-suave w-full !py-1.5 text-[11px]">⏭ No leer más y calcular ya</button>' : ''}`);
       const bs = caja.querySelector('.axt-saltar-hist');
       if (bs) bs.addEventListener('click', e => { e.preventDefault(); historialCancelar = true; historialProg = 'Terminando…'; caja.dataset.html = ''; fichaTrono(); });
       const bc = caja.querySelector('.axt-calc-trono');
@@ -2175,13 +2175,13 @@
         bc.dataset.ok = '1';
         bc.addEventListener('click', async e => {
           e.preventDefault();
-          historialProg = 'Buscando tus derrotas…'; caja.dataset.html = '';
+          historialProg = 'Buscando tus combates…'; caja.dataset.html = '';
           // `soloTexto`: el contador de segundos cambia solo el texto del botón (sin repintar la tarjeta ni el «No leer más»)
           const lectura = leerHistorialFondo((txt, soloTexto) => {
             if (historialCancelar) return;
             if (soloTexto) { const b = document.querySelector('#axt-trono-ficha .axt-calc-trono'); if (b) b.textContent = '⏳ ' + txt; return; }
             historialProg = txt; caja.dataset.html = ''; fichaTrono();
-          }, { tipo: t, soloDerrotas: true });
+          });
           fichaTrono();
           try { await lectura; } catch (err) { console.warn('[axt historial]', err); }
           historialProg = '';
