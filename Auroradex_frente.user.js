@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Frente Batalla (automático)
 // @namespace    auroradex-frente
-// @version      0.1.0
+// @version      0.1.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @description  En cada edificio del Frente Batalla (/frontera/…): elige a los mejores para esa regla (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Seguir» hasta el final. Si sale una pantalla que aún no conoce, se para, avisa y deja copiar su HTML.
@@ -450,8 +450,17 @@
     return $$('main button, div.fixed button').filter(b => !ajeno(b) && visible(b) && !b.disabled)
       .find(b => { const t = texto(b); return RE_AVANCE.test(t) && !RE_PELIGRO.test(t); });
   }
+  // Cambios de verdad en la pantalla del juego (elementos nuevos o quitados dentro del contenido): no cuentan los
+  // relojes de la cabecera (energía, que cambian cada segundo) ni el propio panel
   let cambios = 0;
-  new MutationObserver(ms => { if (!ms.every(m => m.target.nodeType === 1 && m.target.closest && m.target.closest('#axf-panel'))) cambios++; }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+  new MutationObserver(ms => {
+    for (const m of ms) {
+      if (m.type !== 'childList' || !(m.addedNodes.length || m.removedNodes.length)) continue;
+      const t = m.target;
+      if (t.nodeType !== 1 || !t.closest('main') || t.closest('#axf-panel') || t.closest('header') || t.closest('#k-avisos')) continue;
+      cambios++; return;
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
 
   async function hacerTanda() {
     if (corriendo) { parar = true; return; }
@@ -487,7 +496,7 @@
       log('▶ Tanda empezada.');
       await pausa(1200, 1600);
       // 2) avanzar con los botones del juego hasta volver a la pantalla de elegir
-      let ultimo = Date.now(), cambiosAntes = cambios, pulsados = 0;
+      let ultimo = Date.now(), ultimoBoton = Date.now(), cambiosAntes = cambios, pulsados = 0;
       while (!parar) {
         if (!edificio()) throw new Error('Has salido del edificio.');
         const E2 = eleccion();
@@ -497,18 +506,21 @@
           await pausa(500, 900);
           if (!b.isConnected || b.disabled) continue;
           msg = `Pulso «${texto(b)}»`; pintar();
-          b.click(); pulsados++; ultimo = Date.now();
+          b.click(); pulsados++; ultimo = ultimoBoton = Date.now();
           await pausa(700, 1100);
           continue;
         }
-        if (cambios !== cambiosAntes) { cambiosAntes = cambios; ultimo = Math.max(ultimo, Date.now() - 6000); }   // algo se mueve (animación del combate)
-        if (Date.now() - ultimo > 12000) {
+        if (cambios !== cambiosAntes) { cambiosAntes = cambios; ultimo = Date.now(); }   // algo se mueve (animación del combate)
+        // sin botón conocido: 8 s con la pantalla quieta, o 30 s como mucho aunque se mueva algo
+        if (Date.now() - ultimo > 8000 || Date.now() - ultimoBoton > 30000) {
           desconocida = true;
           console.log('[axf] pantalla desconocida:', document.querySelector('main') && document.querySelector('main').outerHTML);
           log('⏸ Pantalla que no conozco: la dejo para ti.');
           kAviso({ tipo: 'aviso', app: 'Frente Batalla', icono: '🧩', titulo: 'Pantalla que no conozco', texto: 'Hazla tú y, si quieres que la aprenda, pulsa «Copiar el HTML de esta pantalla» en el panel y pásamelo.' });
           break;
         }
+        const seg = Math.round((Date.now() - ultimoBoton) / 1000);
+        if (seg >= 3) { const t = `Esperando al juego… ${seg} s`; if (msg !== t) { msg = t; pintar(); } }
         await sleep(400);
       }
       if (parar) log('■ Parado.');
