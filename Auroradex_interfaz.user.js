@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.8.0
+// @version      1.8.1
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente y embarca), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -485,44 +485,63 @@
     zonaEnMarcha = true;
     const fallo = texto => { sessionStorage.removeItem(ZONA_KEY); kAviso({ tipo: 'error', app: 'Accesos', icono: '🏝️', titulo: `No he podido llegar a ${pend.label || pend.zona}`, texto }); };
     const buscada = normalizarTexto(pend.zona);
-    const estoy = () => normalizarTexto(tramoAqui()) === buscada;
-    try {
-      await esperarA(() => tramoAqui() && regionEnChapa(), 6000);      // que acabe de pintarse el mapa
-      if (pend.region && (regionEnChapa() || regionActual()) !== pend.region) return fallo(`Sigues sin estar en ${cap(pend.region)}.`);
-      if (!estoy()) {
-        // 1) el tramo en la lista de «Ver mapa completo»; si no sale ahí, su tarjeta en el mapa
-        let ol = listaTramos();
-        if (!ol) {
-          const ab = [...document.querySelectorAll('main a, main button')].find(x => visibleEl(x) && /mapa completo/i.test(textoDe(x)));
-          if (ab) { ab.click(); ol = await esperarA(listaTramos, 6000); }
-        }
-        const nombreDe = b => normalizarTexto(textoDe(b.querySelector('span.truncate')) || textoDe(b));
-        let btn = ol && [...ol.querySelectorAll('li button')].find(b => !/^ver que/i.test(b.getAttribute('aria-label') || '') && nombreDe(b).startsWith(buscada));
-        if (!btn) btn = [...document.querySelectorAll('main a, main button')].find(x => visibleEl(x) && !x.querySelector('h1') && normalizarTexto(textoDe(x)).startsWith(buscada));
-        if (!btn) return fallo(`No veo «${pend.zona}» en el mapa de ${cap(pend.region || '')}.`);
-        if (btn.disabled) return fallo(`«${pend.zona}» está cerrado en el mapa.`);
-        btn.click();
-        // si pide confirmar el viaje, se confirma (una vez)
-        let confirmado = false;
-        const llegado = await esperarA(() => {
-          if (estoy()) return true;
-          if (!confirmado) {
-            const c = [...document.querySelectorAll('[role="dialog"] button, [aria-modal="true"] button, div.fixed button')]
-              .find(b => visibleEl(b) && !b.disabled && /^[^a-z0-9¡]*(ir|viajar|s[ií]\b|vamos|confirmar|aceptar)/i.test(textoDe(b)));
-            if (c) { confirmado = true; c.click(); }
-          }
-          return false;
-        }, 15000);
-        if (!llegado) return fallo(`He pulsado «${pend.zona}» pero no he llegado.`);
-        await esperaMs(400);
-      }
-      // 2) ya en el tramo: su botón («Embarcar»)
-      if (!pend.boton) { sessionStorage.removeItem(ZONA_KEY); return; }
-      const re = new RegExp('^[^a-z0-9]*' + pend.boton, 'i');
-      const b = await esperarA(() => [...document.querySelectorAll('main button, main a')].find(x => visibleEl(x) && !x.disabled && re.test(normalizarTexto(textoDe(x)))), 8000);
-      if (!b) return fallo(`Estoy en ${pend.zona} pero no encuentro «${cap(pend.boton)}».`);
+    const re = pend.boton ? new RegExp('^[^a-z0-9]*' + pend.boton, 'i') : null;
+    // el botón del final («Embarcar»): si se ve, ya estás en el tramo
+    const botonFinal = () => re && [...document.querySelectorAll('main button, main a')].find(x => visibleEl(x) && !x.disabled && !x.closest('ol') && re.test(normalizarTexto(textoDe(x))));
+    const titulos = () => [...document.querySelectorAll('main h1, main h2')].map(h => normalizarTexto(textoDe(h)));
+    const nombreDe = b => normalizarTexto(textoDe(b.querySelector('span.truncate')) || textoDe(b));
+    const filaDe = ol => ol && [...ol.querySelectorAll('li button')].find(b => !/^ver que/i.test(b.getAttribute('aria-label') || '') && nombreDe(b).startsWith(buscada));
+    const esAqui = fila => !!fila && /estas aqui/.test(normalizarTexto(textoDe(fila.closest('li') || fila)));
+    const estoy = () => !!botonFinal() || titulos().includes(buscada) || esAqui(filaDe(listaTramos()));
+    // cierra la lista de «Ver mapa completo» (botón de cerrar, Escape o el fondo oscuro)
+    async function cerrarLista() {
+      if (!listaTramos()) return;
+      const x = [...document.querySelectorAll('button')].find(b => visibleEl(b) && (/cerrar|close/i.test(b.getAttribute('aria-label') || '') || /^[✕✖×]$/.test(textoDe(b))));
+      if (x) x.click();
+      else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      if (await esperarA(() => !listaTramos(), 1500)) return;
+      const fondo = [...document.querySelectorAll('[class*="fixed"][class*="inset-0"]')].find(el => !el.closest('#' + PANEL_ID));
+      if (fondo) fondo.click();
+      await esperarA(() => !listaTramos(), 1500);
+    }
+    const terminar = async () => {
       sessionStorage.removeItem(ZONA_KEY);
+      if (!re) return;
+      await cerrarLista();
+      const b = await esperarA(botonFinal, 8000);
+      if (!b) return fallo(`Estoy en ${pend.zona} pero no encuentro «${cap(pend.boton)}».`);
       b.click();
+    };
+    try {
+      await esperarA(() => botonFinal() || (tramoAqui() && regionEnChapa()), 6000);      // que acabe de pintarse el mapa
+      if (estoy()) return await terminar();
+      if (pend.region && (regionEnChapa() || regionActual()) !== pend.region) return fallo(`Sigues sin estar en ${cap(pend.region)}.`);
+      // 1) el tramo en la lista de «Ver mapa completo»; si no sale ahí, su tarjeta en el mapa
+      let ol = listaTramos();
+      if (!ol) {
+        const ab = [...document.querySelectorAll('main a, main button')].find(x => visibleEl(x) && /mapa completo/i.test(textoDe(x)));
+        if (ab) { ab.click(); ol = await esperarA(listaTramos, 6000); }
+      }
+      let btn = filaDe(ol);
+      if (esAqui(btn)) return await terminar();      // ya estabas ahí
+      if (!btn) { await cerrarLista(); btn = [...document.querySelectorAll('main a, main button')].find(x => visibleEl(x) && !x.querySelector('h1') && normalizarTexto(textoDe(x)).startsWith(buscada)); }
+      if (!btn) return fallo(`No veo «${pend.zona}» en el mapa de ${cap(pend.region || '')}.`);
+      if (btn.disabled) { await cerrarLista(); return fallo(`«${pend.zona}» está cerrado en el mapa.`); }
+      btn.click();
+      // si pide confirmar el viaje, se confirma (una vez)
+      let confirmado = false;
+      const llegado = await esperarA(() => {
+        if (!listaTramos() && estoy()) return true;
+        if (!confirmado) {
+          const c = [...document.querySelectorAll('[role="dialog"] button, [aria-modal="true"] button, div.fixed button')]
+            .find(b => visibleEl(b) && !b.disabled && /^[^a-z0-9¡]*(ir|viajar|s[ií]\b|vamos|confirmar|aceptar)/i.test(textoDe(b)));
+          if (c) { confirmado = true; c.click(); }
+        }
+        return false;
+      }, 15000);
+      if (!llegado) { await cerrarLista(); return fallo(`He pulsado «${pend.zona}» pero no he llegado.`); }
+      await esperaMs(400);
+      await terminar();
     } catch (e) { console.warn('[adx zona]', e); fallo(String(e && e.message || e)); }
     finally { zonaEnMarcha = false; }
   }
