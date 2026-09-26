@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Frente Batalla (automático)
 // @namespace    auroradex-frente
-// @version      0.1.1
+// @version      0.1.2
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @description  En cada edificio del Frente Batalla (/frontera/…): elige a los mejores para esa regla (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Seguir» hasta el final. Si sale una pantalla que aún no conoce, se para, avisa y deja copiar su HTML.
@@ -462,6 +462,46 @@
     }
   }).observe(document.documentElement, { childList: true, subtree: true });
 
+  // Energía normal de la cabecera («⚡ 51/54»)
+  function energia() {
+    const ico = $$('header span').find(x => texto(x) === '⚡');
+    const m = ico && texto(ico.parentElement).match(/(\d+)\s*\/\s*\d+/);
+    return m ? +m[1] : null;
+  }
+  // Textos de avisos y mensajes del juego (los flotantes y los párrafos del edificio), para saber qué ha contestado
+  function textosJuego() {
+    const els = [...$$('[role="status"],[role="alert"],[aria-live],div.fixed,section.fixed'), ...$$('main p, main h2, main h3')];
+    return [...new Set(els.filter(el => !ajeno(el) && !el.closest('#mh-panel') && !el.closest('nav') && !el.closest('header') && visible(el))
+      .map(texto).filter(t => t && t.length < 200))];
+  }
+  const RE_CONFIRMAR = /^[^a-z0-9¡]*[¡]?\s*(s[ií]\b|empezar|vamos|adelante|confirmar|pagar|aceptar|dale|a por ello)/i;
+  // Pulsa «Empezar la tanda» y espera a ver qué hace el juego: 'empezada' (cambia la pantalla o sale un botón de seguir),
+  // 'hecha' (vuelve a la pantalla de elegir pero ha gastado ⚡: se ha jugado entera de golpe) o 'no' (no ha pasado nada)
+  async function empezarTanda(boton) {
+    const antes = energia(), vistos = new Set(textosJuego()), textos = [];
+    const apunta = () => { for (const t of textosJuego()) if (!vistos.has(t)) { vistos.add(t); textos.push(t); } };
+    boton.click();
+    let confirmados = 0;
+    for (let t = 0; t < 10000; t += 300) {
+      await sleep(300);
+      apunta();
+      const E = eleccion();
+      if (!E || !E.empezar || !E.empezar.isConnected) return { estado: 'empezada', textos };
+      // ¿pide confirmar? (una ventana con «Sí» / «Empezar»…)
+      const conf = confirmados < 2 && $$('[role="dialog"] button, [aria-modal="true"] button, div.fixed button')
+        .find(b => !ajeno(b) && visible(b) && !b.disabled && RE_CONFIRMAR.test(texto(b)) && !RE_PELIGRO.test(texto(b)));
+      if (conf) { log(`Confirmo «${texto(conf)}»`); conf.click(); confirmados++; continue; }
+      if (botonAvance()) return { estado: 'empezada', textos };
+      const ahora = energia();
+      if (antes != null && ahora != null && ahora < antes && t >= 2000) return { estado: 'hecha', textos, antes, despues: ahora };
+    }
+    apunta();
+    const ahora = energia();
+    console.log('[axf] tras pulsar «Empezar»: energía', antes, '→', ahora, 'textos nuevos', textos, document.querySelector('main') && document.querySelector('main').outerHTML);
+    if (antes != null && ahora != null && ahora < antes) return { estado: 'hecha', textos, antes, despues: ahora };
+    return { estado: 'no', textos };
+  }
+
   async function hacerTanda() {
     if (corriendo) { parar = true; return; }
     corriendo = true; parar = false; desconocida = false;
@@ -487,14 +527,24 @@
         p.b.click(); await pausa(300, 500);
         if (eleccion().elegidos <= antes) { p.b.click(); await pausa(300, 500); }   // ya estaba marcado: se desmarcó
       }
+      // se deja al juego un momento para que apunte la elección antes de empezar
+      await pausa(1200, 1800);
       const E = eleccion();
       if (E.elegidos !== E.necesarios) throw new Error(`Hay ${E.elegidos} de ${E.necesarios} elegidos; revísalo.`);
       log(`✅ Elegidos: ${R.eq.map(x => x.p.nombre).join(', ')}.`);
       if (!E.empezar || E.empezar.disabled) throw new Error('El botón de empezar está apagado (¿sin energía?).');
       if (parar) throw new Error('Parado.');
-      E.empezar.click();
+      const arranque = await empezarTanda(E.empezar);
+      if (arranque.estado === 'hecha') {
+        log(`🏁 La tanda se ha jugado de golpe (⚡ ${arranque.antes} → ${arranque.despues}).${arranque.textos.length ? ' ' + arranque.textos.join(' · ') : ''}`);
+        kAviso({ tipo: 'fin', app: 'Frente Batalla', icono: EDIFICIOS[edificio()].icono, titulo: 'Tanda terminada', lineas: [EDIFICIOS[edificio()].nombre, ...arranque.textos.slice(0, 3), ...rachaTexto()] });
+        return;
+      }
+      if (arranque.estado === 'no') throw new Error(arranque.textos.length
+        ? `El juego no ha empezado la tanda: «${arranque.textos.join(' · ')}».`
+        : 'El juego no ha empezado la tanda: al pulsar «Empezar» no ha cambiado nada ni ha gastado ⚡. Pulsa tú «Empezar la tanda» y, si sale algún mensaje, pásamelo.');
       log('▶ Tanda empezada.');
-      await pausa(1200, 1600);
+      await pausa(600, 900);
       // 2) avanzar con los botones del juego hasta volver a la pantalla de elegir
       let ultimo = Date.now(), ultimoBoton = Date.now(), cambiosAntes = cambios, pulsados = 0;
       while (!parar) {
