@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.16.1
+// @version      1.17.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -695,33 +695,7 @@
       return { num, nombre, nivel, obj, tipos: tiposEn(li.querySelector('button') || li) };
     }).filter(m => m.num);
     if (miembros.length < 2) { if (caja) caja.remove(); return; }
-    for (const m of miembros) if (!datos[m.num]) pedir(m.num);
-    if (miembros.some(m => !datos[m.num])) return;
     const entrada = JSON.stringify(miembros);
-    if (!memoEquipo || memoEquipo.entrada !== entrada) {
-      const baseMedia = miembros.reduce((x, m) => x + datos[m.num].s.reduce((p, q) => p + q, 0), 0) / miembros.length / 6;
-      let semilla = 11; const azar = () => (semilla = (semilla * 16807) % 2147483647) / 2147483647;
-      const orden3 = Array.from({ length: 300 }, () => GEN.length * PERFILES.length).map(n => [0, 0, 0].map(() => Math.floor(azar() * n)));
-      // mismo sorteo de rivales para las dos cuentas; `nivelFijo`: todos (tuyos y rivales) a ese nivel
-      const calcular = nivelFijo => {
-        const nivel = nivelFijo || Math.round(miembros.reduce((x, m) => x + m.nivel, 0) / miembros.length);
-        const banco = GEN.flatMap(t => PERFILES.map(pf => ({ ...stats(pf.map(v => Math.max(30, Math.round(v + baseMedia - 80))), nivel), L: nivel, tipos: t.split('/'), num: 0 })));
-        const trios = orden3.map(ix => ix.map(i => banco[i]));
-        const luch = miembros.map(m => { const L = nivelFijo || m.nivel; return { ...conObjeto(stats(datos[m.num].s, L), m.obj), L, tipos: m.tipos.length ? m.tipos : datos[m.num].t, num: m.num, nombre: m.nombre }; });
-        const nota = orden => { let g = 0, v = 0; for (const tr of trios) { const r = combate(orden, tr); if (r.gana) { g++; v += r.vivos; } } return { g: g / trios.length, v: v / trios.length }; };
-        let mejor = null;
-        for (const orden of permutaciones(luch, Math.min(3, luch.length))) {
-          const n = nota(orden);
-          if (!mejor || n.g + n.v / 100 > mejor.n.g + mejor.n.v / 100) mejor = { orden, n };
-        }
-        return { mejor, actual: nota(luch.slice(0, 3)), nivel };
-      };
-      const conNiveles = calcular(null);
-      const sinNiveles = calcular(Math.max(...miembros.map(m => m.nivel)));
-      memoEquipo = { entrada, ...conNiveles, sinNiveles };
-    }
-    const { mejor, actual, nivel, sinNiveles } = memoEquipo;
-    const yaEsta = mejor.orden.every((x, i) => miembros[i] && miembros[i].num === x.num && miembros[i].nombre === x.nombre);
     if (!caja) {
       caja = document.createElement('section');
       caja.id = 'axt-equipo';
@@ -729,6 +703,24 @@
       caja.setAttribute('data-ax-ignore', '1');
     }
     if (caja.nextElementSibling !== lista) lista.insertAdjacentElement('beforebegin', caja);
+    const pinta = html => {
+      if (caja.dataset.html === html) return;
+      caja.innerHTML = html; caja.dataset.html = html;
+      const b = caja.querySelector('.axt-calc-orden');
+      if (b) b.addEventListener('click', e => { e.preventDefault(); calcularOrdenEquipo(); });
+    };
+    // Solo se calcula al pulsar el botón (y otra vez si cambia el equipo)
+    if (!memoEquipo || memoEquipo.entrada !== entrada) {
+      const cambio = memoEquipo && !calculandoEquipo;
+      pinta(`
+        <p class="titulo-seccion !mb-0">⚔️ Orden recomendado</p>
+        <p class="text-[11px] font-semibold text-tinta-500">${cambio ? 'Tu equipo ha cambiado desde el último cálculo. ' : ''}Prueba todas las formas de poner a 3 de tus Pokémon en orden contra 300 tríos de rivales de todos los tipos.</p>
+        <button type="button" class="axt-calc-orden boton-principal w-full !py-2 text-xs" ${calculandoEquipo ? 'disabled' : ''}>${calculandoEquipo ? `⏳ ${ordenProg || 'Calculando…'}` : cambio ? '🔄 Recalcular el orden' : '🧮 Calcular el orden recomendado'}</button>
+        ${ordenFallo && !calculandoEquipo ? `<p class="text-center text-[11px] font-bold text-rojo-600">${ordenFallo}</p>` : ''}`);
+      return;
+    }
+    const { mejor, actual, nivel, sinNiveles } = memoEquipo;
+    const yaEsta = mejor.orden.every((x, i) => miembros[i] && miembros[i].num === x.num && miembros[i].nombre === x.nombre);
     const pct = x => Math.round(x * 100) + '%';
     const html = `
       <div class="flex items-center justify-between gap-2">
@@ -738,7 +730,62 @@
       <p class="text-sm font-extrabold">${mejor.orden.map((x, i) => `${i + 1}. ${x.nombre}`).join(' · ')}</p>
       <p class="text-[11px] font-bold text-tinta-500">Si todos estuvieran al mismo nivel (Nv.${sinNiveles.nivel}): ${sinNiveles.mejor.orden.map((x, i) => `${i + 1}. ${x.nombre}`).join(' · ')} <span class="text-tinta-400">(gana ${pct(sinNiveles.mejor.n.g)})</span></p>
       <p class="text-[10px] font-semibold text-tinta-400">${yaEsta ? 'Tus 3 primeros ya son los que más combates ganan en ese orden.' : 'Arrastra por el asa ⠿ para ponerlos así.'} Arriba, contando el nivel real de cada uno; abajo, lo que rendirían si subieras a todos (sirve para saber a quién merece la pena entrenar). Contra rivales de todos los tipos, tan fuertes de media como tu equipo (Nv.${nivel}), en orden (el que gana sigue con la vida que le queda) y con los objetos que llevan puestos.</p>`;
-    if (caja.dataset.html !== html) { caja.innerHTML = html; caja.dataset.html = html; }
+    pinta(html);
+  }
+  // Los miembros del equipo tal como están ahora en la página
+  function miembrosEquipo() {
+    const aviso = $$('main p').find(p => /arrastra por el asa/i.test(p.textContent || ''));
+    const lista = aviso && $$('main ul').find(u => u.querySelector(':scope > li[data-id]') && aviso.compareDocumentPosition(u) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (!lista) return [];
+    return $$(':scope > li[data-id]', lista).map(li => {
+      const img = li.querySelector('img[src*="/sprites/"]');
+      const num = img && numDe(img);
+      const nombre = ((li.querySelector('span.truncate') || {}).textContent || img && img.alt || '?').trim();
+      const nivel = parseInt((li.textContent.match(/Nv\.\s*(\d+)/) || [])[1], 10) || 50;
+      const obj = idObjeto($$('img[src*="/items/"]', li)[0]);
+      return { num, nombre, nivel, obj, tipos: tiposEn(li.querySelector('button') || li) };
+    }).filter(m => m.num);
+  }
+  // El cálculo, por pasos (cada orden probado es un paso) para no congelar la página
+  function* calcularEquipoPasos(miembros) {
+    const baseMedia = miembros.reduce((x, m) => x + datos[m.num].s.reduce((p, q) => p + q, 0), 0) / miembros.length / 6;
+    let semilla = 11; const azar = () => (semilla = (semilla * 16807) % 2147483647) / 2147483647;
+    const orden3 = Array.from({ length: 300 }, () => GEN.length * PERFILES.length).map(n => [0, 0, 0].map(() => Math.floor(azar() * n)));
+    // mismo sorteo de rivales para las dos cuentas; `nivelFijo`: todos (tuyos y rivales) a ese nivel
+    function* calcular(nivelFijo) {
+      const nivel = nivelFijo || Math.round(miembros.reduce((x, m) => x + m.nivel, 0) / miembros.length);
+      const banco = GEN.flatMap(t => PERFILES.map(pf => ({ ...stats(pf.map(v => Math.max(30, Math.round(v + baseMedia - 80))), nivel), L: nivel, tipos: t.split('/'), num: 0 })));
+      const trios = orden3.map(ix => ix.map(i => banco[i]));
+      const luch = miembros.map(m => { const L = nivelFijo || m.nivel; return { ...conObjeto(stats(datos[m.num].s, L), m.obj), L, tipos: m.tipos.length ? m.tipos : datos[m.num].t, num: m.num, nombre: m.nombre }; });
+      const nota = orden => { let g = 0, v = 0; for (const tr of trios) { const r = combate(orden, tr); if (r.gana) { g++; v += r.vivos; } } return { g: g / trios.length, v: v / trios.length }; };
+      let mejor = null;
+      for (const orden of permutaciones(luch, Math.min(3, luch.length))) {
+        const n = nota(orden);
+        if (!mejor || n.g + n.v / 100 > mejor.n.g + mejor.n.v / 100) mejor = { orden, n };
+        yield;
+      }
+      return { mejor, actual: nota(luch.slice(0, 3)), nivel };
+    }
+    const conNiveles = yield* calcular(null);
+    const sinNiveles = yield* calcular(Math.max(...miembros.map(m => m.nivel)));
+    return { entrada: JSON.stringify(miembros), ...conNiveles, sinNiveles };
+  }
+  let calculandoEquipo = false, ordenProg = '', ordenFallo = '';
+  async function calcularOrdenEquipo() {
+    if (calculandoEquipo) return;
+    const miembros = miembrosEquipo();
+    if (miembros.length < 2) return;
+    calculandoEquipo = true; ordenFallo = ''; ordenProg = 'Calculando…';
+    programar();
+    try {
+      // estadísticas base de los que falten (se piden y se esperan hasta 12 s)
+      for (const m of miembros) if (!datos[m.num]) pedir(m.num);
+      for (let i = 0; i < 40 && miembros.some(m => !datos[m.num]); i++) { ordenProg = `Buscando las estadísticas de ${miembros.filter(m => !datos[m.num]).length} Pokémon…`; programar(); await new Promise(r => setTimeout(r, 300)); }
+      if (miembros.some(m => !datos[m.num])) { ordenFallo = '⚠️ No he podido traer las estadísticas de algún Pokémon. Prueba otra vez.'; return; }
+      ordenProg = 'Probando órdenes…'; programar();
+      memoEquipo = await correrPasos(calcularEquipoPasos(miembros));
+    } catch (e) { console.warn('[axt equipo]', e); ordenFallo = '⚠️ Error: ' + (e && e.message); }
+    finally { calculandoEquipo = false; ordenProg = ''; programar(); }
   }
 
   /* ------------------------------------------------------------------ *
