@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.20.1
+// @version      1.21.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1857,6 +1857,7 @@
     return $$('main section.grid > button.tarjeta').map(b => { const t = tipoDe((b.querySelector('p.font-display') || {}).textContent || ''); return t ? { b, t } : null; }).filter(Boolean);
   }
   let memoTronos = null, tronoActivo = null, automatizando = false;
+  let autoPonerTrono = null;                     // trono cuyo mejor equipo se pone solo en cuanto termine de calcularse
   const colPct = g => (g >= 0.6 ? '#2FA84F' : g >= 0.4 ? '#D08A00' : '#E0473A');
   /* ---- APRENDER DE LOS COMBATES DE LOS TRONOS ----
    * Al abrir un combate («Combates» › «▶ Ver») se lee: qué trono, si retabas o defendías, contra quién, si ganaste,
@@ -2167,7 +2168,7 @@
     const r = resTrono(cole, t);
     if (!r) {
       const calculando = (memoTronos && memoTronos.calc[t]) || historialLeyendo;
-      pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p><p class="text-[11px] font-semibold text-tinta-500">Primero lee todos tus combates guardados que aún no conozca (sin que se vea, en unos segundos) y luego busca el mejor equipo de tipo ${bonito(t)} para quitar y defender el trono.</p><button type="button" class="axt-calc-trono boton-principal w-full !py-2 text-xs" ${calculando ? 'disabled' : ''}>${historialLeyendo ? `⏳ ${historialProg || 'Buscando tus combates…'}` : calculando ? `⏳ Calculando el mejor equipo de tipo ${bonito(t)}…` : `🧮 Calcular el mejor equipo de tipo ${bonito(t)}`}</button>${historialLeyendo ? '<button type="button" class="axt-saltar-hist boton-suave w-full !py-1.5 text-[11px]">⏭ No leer más y calcular ya</button>' : ''}`);
+      pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p><p class="text-[11px] font-semibold text-tinta-500">Primero lee todos tus combates guardados que aún no conozca (sin que se vea, en unos segundos) , busca el mejor equipo de tipo ${bonito(t)} para quitar y defender el trono y lo pone y guarda solo.</p><button type="button" class="axt-calc-trono boton-principal w-full !py-2 text-xs" ${calculando ? 'disabled' : ''}>${historialLeyendo ? `⏳ ${historialProg || 'Buscando tus combates…'}` : calculando ? `⏳ Calculando el mejor equipo de tipo ${bonito(t)}…` : `🧮 Calcular el mejor equipo de tipo ${bonito(t)}`}</button>${historialLeyendo ? '<button type="button" class="axt-saltar-hist boton-suave w-full !py-1.5 text-[11px]">⏭ No leer más y calcular ya</button>' : ''}`);
       const bs = caja.querySelector('.axt-saltar-hist');
       if (bs) bs.addEventListener('click', e => { e.preventDefault(); historialCancelar = true; historialProg = 'Terminando…'; caja.dataset.html = ''; fichaTrono(); });
       const bc = caja.querySelector('.axt-calc-trono');
@@ -2175,6 +2176,7 @@
         bc.dataset.ok = '1';
         bc.addEventListener('click', async e => {
           e.preventDefault();
+          autoPonerTrono = t;
           historialProg = 'Buscando tus combates…'; caja.dataset.html = '';
           // `soloTexto`: el contador de segundos cambia solo el texto del botón (sin repintar la tarjeta ni el «No leer más»)
           const lectura = leerHistorialFondo((txt, soloTexto) => {
@@ -2191,7 +2193,9 @@
       }
       return;
     }
-    if (!r.n) { pinta(`<p class="text-[11px] font-semibold text-tinta-600">No tienes ningún Pokémon de tipo ${bonito(t)} que no sea legendario.</p>`); return; }
+    if (!r.n) { autoPonerTrono = null; pinta(`<p class="text-[11px] font-semibold text-tinta-600">No tienes ningún Pokémon de tipo ${bonito(t)} que no sea legendario.</p>`); return; }
+    // Recién calculado con el botón: se pone el mejor equipo (y sus movimientos) y se guarda solo
+    if (autoPonerTrono === t) { autoPonerTrono = null; setTimeout(() => ponerMejorEquipo(), 400); }
     const firma = t + '|' + JSON.stringify(F.miembros) + '|' + (r.datos || '');
     if (caja.dataset.firma === firma) return;
     caja.dataset.firma = firma;
