@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Frente Batalla (automático)
 // @namespace    auroradex-frente
-// @version      0.1.2
+// @version      0.2.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
-// @description  En cada edificio del Frente Batalla (/frontera/…): elige a los mejores para esa regla (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Seguir» hasta el final. Si sale una pantalla que aún no conoce, se para, avisa y deja copiar su HTML.
+// @description  En cada edificio del Frente Batalla (/frontera/…): elige a los mejores para esa regla (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Seguir» hasta el final. Si sale una pantalla que aún no conoce, se para, avisa y deja copiar su HTML. En la Cúpula, antes de cada combate, pone a los tuyos en el mejor orden contra los tres que te esperan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -277,7 +277,7 @@
   const pausa = (a, b) => sleep(a + Math.random() * (b - a));
   const EDIFICIOS = {
     torre: { nombre: 'Torre Batalla', icono: '🗼', nota: 'Tres contra tres, en fila.' },
-    cupula: { nombre: 'Cúpula Batalla', icono: '🏟️', nota: 'Ves al rival antes y eliges el orden.' },
+    cupula: { nombre: 'Cúpula Batalla', icono: '🏟️', nota: 'Ve al rival antes de cada combate y ordena a los tuyos para ganarle.' },
     palacio: { nombre: 'Palacio Batalla', icono: '🏛️', nota: 'Los tuyos atacan con lo que les apetece: cuentan más las estadísticas que los tipos.' },
     arena: { nombre: 'Arena Batalla', icono: '⚖️', nota: 'Uno contra uno, tres turnos: el que más pega y aguanta.' },
     fabrica: { nombre: 'Fábrica Batalla', icono: '🏭', nota: 'Tres de alquiler: los mejores de los que ofrecen.' },
@@ -438,10 +438,104 @@
   }
 
   /* ------------------------------------------------------------------ *
+   *  CÚPULA: antes de cada combate enseña los tres del rival («Lo que te espera»). Se simula el combate en fila (cada uno
+   *  pelea hasta caer y el que gana sigue con la vida que le quede) con los 6 órdenes posibles de los tuyos y se pone el
+   *  mejor con los ▲ del juego. Cuenta sobre todo el orden en que salen los suyos tal como se ven, y para desempatar la
+   *  media contra todos sus órdenes.
+   * ------------------------------------------------------------------ */
+  const numSprite = img => { const m = img && (img.getAttribute('src') || '').match(/\/(\d+)\.(?:png|gif|webp)/); return m ? +m[1] : null; };
+  const sinTildes = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  function pantallaCupula() {
+    const h2 = re => $$('main h2.titulo-seccion').find(x => !ajeno(x) && re.test(texto(x)));
+    const hT = h2(/^la tanda$/i), hR = h2(/lo que te espera/i);
+    const secT = hT && hT.closest('section'), secR = hR && hR.closest('section');
+    if (!secT || !secR) return null;
+    const mios = $$('ul > li', secT).map(li => {
+      const img = li.querySelector('img[src*="/sprites/"]'), b = li.querySelector('button');
+      if (!img) return null;
+      const ps = texto(li).match(/(\d+)\s*\/\s*(\d+)/);
+      return { nombre: img.alt, num: numSprite(img), vida: ps && +ps[2] ? Math.min(1, +ps[1] / +ps[2]) : 1, subir: b && !b.disabled ? b : null };
+    }).filter(Boolean);
+    const rivales = $$('ul > li', secR).map(li => {
+      const img = li.querySelector('img[src*="/sprites/"]');
+      if (!img) return null;
+      const tipos = (texto(li.lastElementChild || li).split('/').map(sinTildes)).filter(t => TABLA[t]);
+      return { nombre: img.alt, num: numSprite(img), tipos };
+    }).filter(Boolean);
+    return mios.length > 1 && rivales.length ? { mios, rivales } : null;
+  }
+  // Combate en fila, con el daño medio de cada golpe. Devuelve 1 + vida que te sobra si ganas, o lo que le quitas si pierdes
+  function fila(mios, rivales) {
+    const A = mios.map(x => ({ l: x.l, v: x.vida ?? 1 })), B = rivales.map(x => ({ l: x.l, v: 1 }));
+    const g = (x, y) => golpe(x, y) * (x.num === HOLGAZAN ? 0.5 : 1);
+    let i = 0, j = 0;
+    for (let n = 0; i < A.length && j < B.length && n < 300; n++) {
+      const a = A[i], b = B[j];
+      if (a.l.spe >= b.l.spe) { b.v -= g(a.l, b.l); if (b.v <= 0) { j++; continue; } a.v -= g(b.l, a.l); if (a.v <= 0) i++; }
+      else { a.v -= g(b.l, a.l); if (a.v <= 0) { i++; continue; } b.v -= g(a.l, b.l); if (b.v <= 0) j++; }
+    }
+    const resto = (L, k) => L.slice(k).reduce((x, y) => x + Math.max(0, y.v), 0);
+    return j >= B.length ? 1 + resto(A, i) / A.length : 1 - resto(B, j) / B.length - 1;
+  }
+  function permutaciones(arr) {
+    if (arr.length <= 1) return [arr.slice()];
+    return arr.flatMap((x, i) => permutaciones([...arr.slice(0, i), ...arr.slice(i + 1)]).map(r => [x, ...r]));
+  }
+  async function planCupula(P) {
+    const mios = [], rivales = [];
+    for (const m of P.mios) { const d = await datosDe(m.num); if (!d) return null; mios.push({ ...m, l: luchador(d, m.num, m.nombre) }); }
+    for (const r of P.rivales) { const d = await datosDe(r.num); if (!d) return null; rivales.push({ ...r, l: { ...luchador(d, r.num, r.nombre), tipos: r.tipos.length ? r.tipos : d.t } }); }
+    const ordenesRival = permutaciones(rivales);
+    let mejor = null, actual = null;
+    for (const o of permutaciones(mios)) {
+      const visto = fila(o, rivales);
+      const media = ordenesRival.reduce((x, r) => x + fila(o, r), 0) / ordenesRival.length;
+      const r = { orden: o.map(x => x.nombre), visto, media, gana: ordenesRival.filter(ro => fila(o, ro) > 0).length, de: ordenesRival.length, v: 3 * visto + media };
+      if (o.every((x, i) => x.nombre === P.mios[i].nombre)) actual = r;
+      if (!mejor || r.v > mejor.v + 1e-9) mejor = r;
+    }
+    // si el orden que ya hay es igual de bueno, se deja
+    return actual && actual.v >= mejor.v - 1e-9 ? actual : mejor;
+  }
+  let cupula = null;              // { firma, orden, visto, media, rivales, hecho, intentos }
+  let ordenandoCupula = null;
+  const firmaCupula = P => P.rivales.map(r => r.num).join(',') + '|' + P.mios.map(m => m.nombre).sort().join(',');
+  function ordenarCupula() {
+    if (!ordenandoCupula) ordenandoCupula = (async () => {
+      const P = pantallaCupula();
+      if (!P) return;
+      const firma = firmaCupula(P);
+      if (cupula && cupula.firma === firma && (cupula.hecho || cupula.intentos >= 2)) return;
+      const plan = await planCupula(P);
+      if (!plan) { cupula = { firma, error: 'No he podido traer los datos de algún Pokémon.', intentos: 9 }; pintar(); return; }
+      cupula = { firma, ...plan, rivales: P.rivales.map(r => r.nombre), hecho: false, intentos: ((cupula && cupula.firma === firma && cupula.intentos) || 0) + 1 };
+      pintar();
+      // se sube a cada uno con ▲ hasta su sitio, de delante hacia atrás
+      for (let k = 0; k < plan.orden.length; k++) {
+        for (let n = 0; n < 5; n++) {
+          const Q = pantallaCupula();
+          if (!Q) return;
+          const idx = Q.mios.findIndex(m => m.nombre === plan.orden[k]);
+          if (idx <= k || !Q.mios[idx].subir) break;
+          const antes = Q.mios.map(m => m.nombre).join();
+          Q.mios[idx].subir.click();
+          for (let t = 0; t < 40; t++) { await sleep(150); const R = pantallaCupula(); if (!R || R.mios.map(m => m.nombre).join() !== antes) break; }
+          await pausa(150, 300);
+        }
+      }
+      const F = pantallaCupula();
+      cupula.hecho = !!F && F.mios.map(m => m.nombre).join() === plan.orden.join();
+      log(`🔀 Contra ${cupula.rivales.join(', ')}: ${plan.orden.join(' → ')}${cupula.hecho ? '' : ' (no he podido ponerlo del todo)'} · ${plan.visto > 0 ? 'debería ganar' : 'se pone difícil'}.`);
+      pintar();
+    })().finally(() => { ordenandoCupula = null; });
+    return ordenandoCupula;
+  }
+
+  /* ------------------------------------------------------------------ *
    *  LA TANDA SOLA: elegir, empezar y avanzar con los botones del juego. Si sale una pantalla que no conoce, se para
    *  y deja copiar su HTML (para enseñarle a hacerla).
    * ------------------------------------------------------------------ */
-  const RE_AVANCE = /^[^a-z0-9¡]*[¡]?\s*(seguir|continuar|siguiente|al siguiente|siguiente combate|adelante|a por el siguiente|pelear|luchar|combatir|empezar el combate|al combate|saltar|ver (el )?resultado|aceptar|vale|entendido|genial|recoger|cobrar)\b/i;
+  const RE_AVANCE = /^[^a-z0-9¡]*[¡]?\s*(seguir|continuar|siguiente|al siguiente|siguiente combate|adelante|a por el siguiente|pelear|luchar|combatir|empezar el combate|al combate|saltar|ver (el )?resultado|aceptar|vale|entendido|genial|recoger|cobrar|retar)\b/i;
   const RE_PELIGRO = /abandon|rendir|retir|salir|cancelar|dejarlo|borrar|vender|canjear/i;
   let corriendo = false, parar = false, msg = '', desconocida = false;
   const registro = [];
@@ -507,50 +601,56 @@
     corriendo = true; parar = false; desconocida = false;
     kPedirPermiso();
     try {
-      const R = await recomendacion();
-      if (!R || !R.eq) throw new Error(R ? `Solo ${R.validos.length} Pokémon valen aquí y hacen falta ${R.E.necesarios}.` : 'No veo dónde elegir.');
-      // 1) quitar lo que haya elegido y marcar los recomendados, en orden
-      // (si ya había alguno marcado a mano: se toca cada uno que no toca; si el contador baja, estaba marcado y ya no;
-      // si sube, no lo estaba y se vuelve a tocar para dejarlo como estaba)
-      if (eleccion().elegidos > 0) {
-        for (const p of eleccion().pokes.filter(y => y.vale && !R.eq.some(x => x.p.nombre === y.nombre))) {
-          const antes = eleccion().elegidos;
-          if (!antes) break;
-          p.b.click(); await pausa(250, 400);
-          if (eleccion().elegidos > antes) { p.b.click(); await pausa(250, 400); }
+      // a mitad de tanda (p. ej. en la Cúpula antes de un combate): se sigue desde ahí
+      if (!eleccion() && (pantallaCupula() || botonAvance())) log('▶ Sigo la tanda donde está.');
+      else {
+        const R = await recomendacion();
+        if (!R || !R.eq) throw new Error(R ? `Solo ${R.validos.length} Pokémon valen aquí y hacen falta ${R.E.necesarios}.` : 'No veo dónde elegir.');
+        // 1) quitar lo que haya elegido y marcar los recomendados, en orden
+        // (si ya había alguno marcado a mano: se toca cada uno que no toca; si el contador baja, estaba marcado y ya no;
+        // si sube, no lo estaba y se vuelve a tocar para dejarlo como estaba)
+        if (eleccion().elegidos > 0) {
+          for (const p of eleccion().pokes.filter(y => y.vale && !R.eq.some(x => x.p.nombre === y.nombre))) {
+            const antes = eleccion().elegidos;
+            if (!antes) break;
+            p.b.click(); await pausa(250, 400);
+            if (eleccion().elegidos > antes) { p.b.click(); await pausa(250, 400); }
+          }
         }
+        for (const x of R.eq) {
+          const p = eleccion().pokes.find(y => y.nombre === x.p.nombre && y.vale);
+          if (!p) throw new Error(`No encuentro a ${x.p.nombre}.`);
+          const antes = eleccion().elegidos;
+          p.b.click(); await pausa(300, 500);
+          if (eleccion().elegidos <= antes) { p.b.click(); await pausa(300, 500); }   // ya estaba marcado: se desmarcó
+        }
+        // se deja al juego un momento para que apunte la elección antes de empezar
+        await pausa(1200, 1800);
+        const E = eleccion();
+        if (E.elegidos !== E.necesarios) throw new Error(`Hay ${E.elegidos} de ${E.necesarios} elegidos; revísalo.`);
+        log(`✅ Elegidos: ${R.eq.map(x => x.p.nombre).join(', ')}.`);
+        if (!E.empezar || E.empezar.disabled) throw new Error('El botón de empezar está apagado (¿sin energía?).');
+        if (parar) throw new Error('Parado.');
+        const arranque = await empezarTanda(E.empezar);
+        if (arranque.estado === 'hecha') {
+          log(`🏁 La tanda se ha jugado de golpe (⚡ ${arranque.antes} → ${arranque.despues}).${arranque.textos.length ? ' ' + arranque.textos.join(' · ') : ''}`);
+          kAviso({ tipo: 'fin', app: 'Frente Batalla', icono: EDIFICIOS[edificio()].icono, titulo: 'Tanda terminada', lineas: [EDIFICIOS[edificio()].nombre, ...arranque.textos.slice(0, 3), ...rachaTexto()] });
+          return;
+        }
+        if (arranque.estado === 'no') throw new Error(arranque.textos.length
+          ? `El juego no ha empezado la tanda: «${arranque.textos.join(' · ')}».`
+          : 'El juego no ha empezado la tanda: al pulsar «Empezar» no ha cambiado nada ni ha gastado ⚡. Pulsa tú «Empezar la tanda» y, si sale algún mensaje, pásamelo.');
+        log('▶ Tanda empezada.');
+        await pausa(600, 900);
       }
-      for (const x of R.eq) {
-        const p = eleccion().pokes.find(y => y.nombre === x.p.nombre && y.vale);
-        if (!p) throw new Error(`No encuentro a ${x.p.nombre}.`);
-        const antes = eleccion().elegidos;
-        p.b.click(); await pausa(300, 500);
-        if (eleccion().elegidos <= antes) { p.b.click(); await pausa(300, 500); }   // ya estaba marcado: se desmarcó
-      }
-      // se deja al juego un momento para que apunte la elección antes de empezar
-      await pausa(1200, 1800);
-      const E = eleccion();
-      if (E.elegidos !== E.necesarios) throw new Error(`Hay ${E.elegidos} de ${E.necesarios} elegidos; revísalo.`);
-      log(`✅ Elegidos: ${R.eq.map(x => x.p.nombre).join(', ')}.`);
-      if (!E.empezar || E.empezar.disabled) throw new Error('El botón de empezar está apagado (¿sin energía?).');
-      if (parar) throw new Error('Parado.');
-      const arranque = await empezarTanda(E.empezar);
-      if (arranque.estado === 'hecha') {
-        log(`🏁 La tanda se ha jugado de golpe (⚡ ${arranque.antes} → ${arranque.despues}).${arranque.textos.length ? ' ' + arranque.textos.join(' · ') : ''}`);
-        kAviso({ tipo: 'fin', app: 'Frente Batalla', icono: EDIFICIOS[edificio()].icono, titulo: 'Tanda terminada', lineas: [EDIFICIOS[edificio()].nombre, ...arranque.textos.slice(0, 3), ...rachaTexto()] });
-        return;
-      }
-      if (arranque.estado === 'no') throw new Error(arranque.textos.length
-        ? `El juego no ha empezado la tanda: «${arranque.textos.join(' · ')}».`
-        : 'El juego no ha empezado la tanda: al pulsar «Empezar» no ha cambiado nada ni ha gastado ⚡. Pulsa tú «Empezar la tanda» y, si sale algún mensaje, pásamelo.');
-      log('▶ Tanda empezada.');
-      await pausa(600, 900);
       // 2) avanzar con los botones del juego hasta volver a la pantalla de elegir
       let ultimo = Date.now(), ultimoBoton = Date.now(), cambiosAntes = cambios, pulsados = 0;
       while (!parar) {
         if (!edificio()) throw new Error('Has salido del edificio.');
         const E2 = eleccion();
         if (E2 && E2.empezar && pulsados > 0) { log('🏁 Tanda terminada.'); kAviso({ tipo: 'fin', app: 'Frente Batalla', icono: EDIFICIOS[edificio()].icono, titulo: 'Tanda terminada', lineas: [EDIFICIOS[edificio()].nombre, ...rachaTexto()] }); break; }
+        // Cúpula: antes de cada combate, los tuyos en el mejor orden contra los que te esperan
+        if (pantallaCupula()) { await ordenarCupula(); if (parar) break; }
         const b = botonAvance();
         if (b) {
           await pausa(500, 900);
@@ -606,9 +706,19 @@
       : `<div class="flex flex-wrap justify-center gap-2">${reco.eq.map((x, i) => `<span class="axf-poke"><img src="/sprites/${x.p.num}.png" alt=""><b>${i + 1}. ${kEsc(x.p.nombre)}</b><small>${pct(x.n1)}</small></span>`).join('')}</div>
          <p class="text-center text-[10px] font-semibold text-tinta-400">Equipo: gana a ≈ ${pct(reco.nota)} de los rivales de referencia (todos los tipos, a Nv.50, sin objetos).</p>`;
     if (r.dataset.h !== html) { r.innerHTML = html; r.dataset.h = html; }
+    const c = p.querySelector('.axf-cupula');
+    const PC = id === 'cupula' && pantallaCupula();
+    const hc = !PC ? ''
+      : !cupula || cupula.firma !== firmaCupula(PC) ? '<p class="text-[11px] font-semibold text-tinta-400">Calculando el orden contra los que te esperan…</p>'
+      : cupula.error ? `<p class="text-[11px] font-semibold text-rojo-600">${kEsc(cupula.error)}</p>`
+      : `<p class="text-[11px] font-extrabold ${cupula.visto > 0 ? 'text-hoja-700' : 'text-rojo-600'}">🔀 Contra ${kEsc(cupula.rivales.join(', '))}: ${cupula.orden.map((n, i) => `${i + 1}. ${kEsc(n)}`).join(' · ')}</p>
+         <p class="text-[10px] font-semibold text-tinta-400">${cupula.visto > 0 ? `Con este orden les gana (le sobra ≈ ${pct(cupula.visto - 1)} de vida)` : 'Con cualquier orden se pone difícil: este es el que más les quita'}; si sacaran a los suyos en otro orden, ganaría en ${cupula.gana} de ${cupula.de}.${cupula.hecho ? ' ✔ Puesto.' : ''}</p>`;
+    if (c.dataset.h !== hc) { c.innerHTML = hc; c.dataset.h = hc; }
+    c.hidden = !hc;
     const b = p.querySelector('.axf-tanda');
-    b.disabled = !corriendo && !(reco && reco.eq && eleccion());
-    kSet(b, corriendo ? '■ Parar' : `🤖 Elegir y hacer la tanda`);
+    const aMitad = !eleccion() && (PC || botonAvance());
+    b.disabled = !corriendo && !(reco && reco.eq && eleccion()) && !aMitad;
+    kSet(b, corriendo ? '■ Parar' : aMitad ? '🤖 Seguir la tanda' : `🤖 Elegir y hacer la tanda`);
     kSet(p.querySelector('.axf-msg'), msg);
     p.querySelector('.axf-copiar').hidden = !desconocida;
   }
@@ -633,8 +743,9 @@
       p.setAttribute('data-ax-ignore', '1');
       p.innerHTML = `${kHead('🏝️', 'Frente Batalla automático', '')}
         <div class="axf-reco"></div>
+        <div class="axf-cupula space-y-0.5 rounded-card border-2 border-crema-200 bg-crema-50 p-2" hidden></div>
         <button type="button" class="axf-tanda boton-principal w-full !py-2.5 text-sm"></button>
-        <p class="text-[10px] font-semibold leading-snug text-tinta-400">Elige a los mejores (todas las combinaciones de los que valen aquí, contra rivales de todos los tipos), empieza la tanda (se pagan los ⚡ del botón del juego) y va pulsando «Seguir» / «Continuar» hasta el final. Si sale algo que aún no sé hacer (el orden de la Cúpula, las puertas de la Senda, rebuscar en la Pirámide…), se para y te avisa.</p>
+        <p class="text-[10px] font-semibold leading-snug text-tinta-400">Elige a los mejores (todas las combinaciones de los que valen aquí, contra rivales de todos los tipos), empieza la tanda (se pagan los ⚡ del botón del juego) y va pulsando «Seguir» / «Continuar» hasta el final. En la Cúpula, antes de cada combate ordena a los tuyos contra los que te esperan. Si sale algo que aún no sé hacer (las puertas de la Senda, rebuscar en la Pirámide…), se para y te avisa.</p>
         <p class="axf-msg text-center text-[11px] font-bold text-tinta-500"></p>
         <button type="button" class="axf-copiar boton-suave w-full !py-2 text-[11px]" hidden>📋 Copiar el HTML de esta pantalla</button>
         <div class="axf-log ${K_LOG}"></div>`;
@@ -653,6 +764,8 @@
     if (main.firstElementChild !== p) main.insertBefore(p, main.firstElementChild);
     pintar();
     actualizarReco();
+    // en la Cúpula se ordena solo en cuanto se ve a los rivales (también si la tanda la llevas tú)
+    if (id === 'cupula' && pantallaCupula()) ordenarCupula();
   }
   let tMontar = null;
   new MutationObserver(ms => {
