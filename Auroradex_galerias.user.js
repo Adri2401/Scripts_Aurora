@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.22.0
+// @version      0.23.0
 // @description  Solo en /castillo. Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -106,16 +106,19 @@
       if (!e.el) continue;
       const k = e.tipo + '|' + e.c + ',' + e.f;
       ahora.add(k);
-      const d = { c: e.c, f: e.f, tipo: e.tipo, tag: e.el.tagName === 'IMG' ? 'img' : 'span', src: e.el.tagName === 'IMG' ? e.el.getAttribute('src') : '', cls: String(e.el.className || '').replace(/\banimate-\S+/g, '').trim(), css: e.el.style.cssText };
+      const d = { c: e.c, f: e.f, tipo: e.tipo, nombre: e.nombre, tag: e.el.tagName === 'IMG' ? 'img' : 'span', src: e.el.tagName === 'IMG' ? e.el.getAttribute('src') : '', cls: String(e.el.className || '').replace(/\banimate-\S+/g, '').trim(), css: e.el.style.cssText };
       const antes = m.ent[k];
-      if (!antes || antes.css !== d.css || antes.src !== d.src) { m.ent[k] = d; cambio = true; }
+      if (!antes || antes.css !== d.css || antes.src !== d.src || antes.ida) { m.ent[k] = d; cambio = true; }
     }
     for (const [k, d] of Object.entries(m.ent)) {
       const cel = t.celdas.get(d.c + ',' + d.f);
-      if (!ahora.has(k) && cel && cel.tipo !== 'niebla') { delete m.ent[k]; cambio = true; }
+      if (!ahora.has(k) && cel && cel.tipo !== 'niebla' && !idaReciente(d)) { d.ida = Date.now(); cambio = true; }
     }
     if (cambio) { m.t = Date.now(); guardarMapas(); }
   }
+  // Lo que se vio que ya no estaba (jarrón roto, entrenador vencido) no cuenta durante 6 h (esta expedición); después
+  // se da por hecho que ha vuelto
+  const idaReciente = d => d.ida && Date.now() - d.ida < 6 * 3600e3;
   // Lo recordado que ahora está a oscuras: casillas (con su imagen) y cosas, algo apagado para que se note que es memoria
   function memoriaHTML(t) {
     const m = memPlanta();
@@ -129,14 +132,14 @@
       h += `<span style="position:absolute;left:${c * t.w}px;top:${f * t.w}px;width:${t.w}px;height:${t.w}px;background-image:${bg};background-size:${bs || 'cover'};background-position:${bp || 'center'};background-repeat:${br || 'no-repeat'};image-rendering:pixelated;opacity:.62;filter:saturate(.7) brightness(.85)"></span>`;
     }
     for (const d of Object.values(m.ent || {})) {
-      if (!osc(d.c + ',' + d.f)) continue;
+      if (!osc(d.c + ',' + d.f) || idaReciente(d)) continue;
       const css = (d.css || '') + ';opacity:.8;filter:saturate(.8) brightness(.9);pointer-events:none';
       h += d.tag === 'img' ? `<img src="${String(d.src).replace(/"/g, '&quot;')}" alt="" class="${d.cls.replace(/"/g, '')}" style="${css.replace(/"/g, "'")}">` : `<span class="${d.cls.replace(/"/g, '')}" style="${css.replace(/"/g, "'")}"></span>`;
     }
     return h;
   }
   // Las cosas recordadas que ahora están a oscuras (para marcarlas y contarlas en el panel)
-  const cosasRecordadas = t => { const m = memPlanta(); return m && m.ent ? Object.values(m.ent).filter(d => { const cel = t.celdas.get(d.c + ',' + d.f); return !cel || cel.tipo === 'niebla'; }).map(d => ({ c: d.c, f: d.f, tipo: d.tipo, recordado: true })) : []; };
+  const cosasRecordadas = t => { const m = memPlanta(); return m && m.ent ? Object.values(m.ent).filter(d => { const cel = t.celdas.get(d.c + ',' + d.f); return (!cel || cel.tipo === 'niebla') && !idaReciente(d); }).map(d => ({ c: d.c, f: d.f, tipo: d.tipo, nombre: d.nombre || '', recordado: true })) : []; };
   const escalerasMem = m => m ? Object.entries(m.c).filter(([, v]) => v === 'e' || v === 'm').map(([k]) => { const [c, f] = k.split(',').map(Number); return { c, f }; }) : [];
   const conocidoPct = m => m ? Math.round(100 * Object.keys(m.c).length / (m.w * m.h)) : 0;
   function leerTablero() {
@@ -243,8 +246,8 @@
   // Casilla pisable que toca la niebla: el mejor sitio al que ir a descubrir más mapa
   const rutaA = (t, esMeta) => camino(t, esMeta, true) || camino(t, esMeta, false);
 
-  // Niebla que merece la pena: la que no se sabe (por la memoria) que es pared
-  const nieblaUtil = (t, n) => { if (!n || n.tipo !== 'niebla') return false; const m = memPlanta(); return !m || m.c[n.c + ',' + n.f] !== '#'; };
+  // Oscuridad que merece la pena descubrir: la que no se recuerda (lo recordado ya se sabe qué es y qué hay)
+  const nieblaUtil = (t, n) => { if (!n || n.tipo !== 'niebla') return false; const m = memPlanta(); return !m || !(n.c + ',' + n.f in m.c); };
   const esFrontera = t => cel => cel.pisable && !(t.ocupadas && t.ocupadas.has(cel.c + ',' + cel.f)) && VECINOS.some(([dc, df]) => nieblaUtil(t, t.celdas.get((cel.c + dc) + ',' + (cel.f + df))));
 
   // Camino más corto contando también la niebla que se recuerda como suelo (para ir a la escalera a oscuras)
@@ -1037,8 +1040,9 @@
         const planta = plantaActual();
         if (contadoresPlanta.planta !== planta) contadoresPlanta = { planta, remolino: 0, jarron: 0, lapida: 0, puerta: 0, arqueologo: 0 };
         let mejor = null;
+        const candidatas = modoExplorar === 'todo' ? [...t.entidades, ...cosasRecordadas(t)] : t.entidades;
         for (const fase of [0, 1]) {                            // primero todo lo demás (tumbas, arqueólogo…); la puerta, la última
-        for (const e of t.entidades) {
+        for (const e of candidatas) {
           if ((fase === 0) === (e.tipo === 'puerta')) continue;
           const ok =
             (combatir && e.tipo === 'entrenador' && !combatidos.has(planta + '|' + e.nombre + '|' + e.c + ',' + e.f)) ||
@@ -1051,7 +1055,13 @@
           const yo = t.jugador;
           const dist = yo ? Math.abs(e.c - yo.c) + Math.abs(e.f - yo.f) : 99;
           const ady = c => c.pisable && !t.ocupadas.has(c.c + ',' + c.f) && Math.abs(c.c - e.c) + Math.abs(c.f - e.f) === 1;
-          const r = dist === 1 ? [null] : rutaA(t, ady);          // ya al lado, o ruta hasta una casilla contigua
+          let r;
+          if (dist === 1) r = [null];                              // ya al lado
+          else if (!e.recordado) r = rutaA(t, ady);                // a la vista: ruta hasta una casilla contigua
+          else {                                                   // recordada a oscuras: por el mapa recordado
+            const m = memPlanta();
+            r = rutaMem(t, (c, f) => Math.abs(c - e.c) + Math.abs(f - e.f) === 1 && !t.ocupadas.has(c + ',' + f) && (() => { const cel = t.celdas.get(c + ',' + f); return cel && cel.tipo !== 'niebla' ? cel.pisable : !!m && PISABLE_MEM.has(m.c[c + ',' + f]); })());
+          }
           if (r && (!mejor || r.length < mejor.r.length)) mejor = { e, r, dist };
         }
         if (mejor) break;
@@ -1076,6 +1086,11 @@
               if (e.tipo === 'lapida') { tumbasVistas.add(planta + '|' + e.c + ',' + e.f); tumbasLeidas++; await pausa(500, 800); const c = botonesVisibles().find(x => x.getAttribute('aria-label') === 'Cerrar' || /^\s*(cerrar|entendido|ok|vale)\s*$/i.test(x.textContent || '')); if (c) c.click(); }
               await pausa(900, 1300); continue;
             }
+          } else if (r.length > 1 && e.recordado) {
+            msg = TXT[1] + ' (recordado, a oscuras)'; pintar();
+            if (!(await pasoA(r[1], t))) { if (++sinCambio > 3) { const m = memPlanta(), d = m && m.ent && m.ent[e.tipo + '|' + e.c + ',' + e.f]; if (d) d.ida = Date.now(); sinCambio = 0; } } else sinCambio = 0;
+            await pausa(150, 300);
+            continue;
           } else if (r.length > 1) {
             msg = TXT[1]; pintar();
             await clicCelda(r[r.length - 1], t);
@@ -1179,7 +1194,7 @@
         <input type="number" min="0" class="axg-luz w-20 rounded-card border-2 border-crema-200 bg-crema-50 px-2 py-1 text-sm font-semibold text-tinta-600 outline-none"> pasos</label>
       <button type="button" class="boton-principal w-full !py-2 text-[11px]" data-a="auto"></button>
       <button type="button" class="boton-secundario w-full !py-2 text-[11px]" data-a="todo"></button>
-      <p class="text-[10px] font-semibold text-tinta-400">🗺️ Cada planta se guarda al verla (siempre son iguales): la próxima vez va derecho a la escalera aunque esté a oscuras. «Explorar todo» descubre antes toda la zona oscura (lo que se sepa que es pared se lo salta) y después baja.</p>
+      <p class="text-[10px] font-semibold text-tinta-400">🗺️ Cada planta se guarda al verla (siempre son iguales): la próxima vez va derecho a la escalera aunque esté a oscuras. «Explorar todo» va a por todo lo que haya en la planta y después baja: si ya la conoces, derecho a cada cosa recordada, y solo descubre la oscuridad que aún no ha visto nunca.</p>
       <p class="text-[10px] font-semibold text-tinta-400">Al explorar: combate a todos los entrenadores (pulsa SEGUIR), pisa los remolinos (encuentro salvaje), captura con Poké Ball a todos los Pokémon. Si sale un variocolor o legendario, se para del todo, avisa (vibra una vez) y la Master Ball la tiras tú.</p>
       <button type="button" class="boton-suave w-full !py-2 text-[11px]" data-a="diag">📋 Copiar diagnóstico del juego</button>
       <p class="axg-msg text-[11px] font-semibold text-tinta-400"></p>`;
