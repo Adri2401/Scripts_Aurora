@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.12.0
+// @version      2.12.1
 // @description  Auto-explora y captura; ante shiny/legendario vibra, notifica y PARA la macro para captura manual. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1375,12 +1375,23 @@
     // 5) Guardería: solo con la última exploración RESUELTA. Antes bastaban 0,8 s desde el clic en ¡EXPLORAR!,
     //    y si el encuentro tardaba en salir la macro se iba con él a medias (y esa exploración no contaba
     //    para el huevo). Ahora: ¡EXPLORAR! visible y habilitado, sin animaciones y 2,5 s sin ninguna acción.
+    //    También con ¡EXPLORAR! apagado (sin energía): antes se exigía habilitado y, si la energía se acababa justo
+    //    cuando tocaba abrir un huevo, la macro se quedaba esperando para siempre sin parar. Ahora abre el huevo
+    //    y, de vuelta en el mapa, «sin energía» la para como siempre.
     if (nurseryOn() && (S.nurseryDue || S.sinceNursery >= S.nurseryIn)) {
-      const idle = ex && !isDisabled(ex) && runningAnimations() === 0 &&
+      const idle = ex && runningAnimations() === 0 &&
         Date.now() - Math.max(S.lastExploreAt, S.lastActionAt) >= CONFIG.NURSERY_GRACE_MS;
-      if (!idle) return false;
-      await nurseryRoutine(run);
-      return true;
+      if (idle) {
+        await nurseryRoutine(run);
+        return true;
+      }
+      // mientras tanto, nunca esperar sin límite (se da margen para abrir el huevo antes de parar por energía)
+      if (!ex) return stuckCheck();
+      if (isDisabled(ex)) {
+        if (!S.disabledSince) S.disabledSince = Date.now();
+        if (Date.now() - S.disabledSince > 15000) return exploreBlocked(ex);
+      }
+      return false;
     }
 
     // 6) Explorar
@@ -1910,6 +1921,7 @@
     await waitFor(run, findExplore, 10000);
     S.nurseryDue = false;
     S.sinceNursery = 0;
+    S.disabledSince = 0;           // la espera de «¡EXPLORAR! apagado» vuelve a contar desde aquí
     S.phase = 'on';
     S.lastProgress = Date.now();
     setMsg('Guardería revisada. Continuando…');
