@@ -1010,7 +1010,7 @@
   // · Curar al ganar (Sanguijuela) vale mucho hasta que entre todo cura ~100% por victoria; luego ya no suma.
   // · Subir niveles vale poco (al 100 se llega igual y ahí no hace nada). Botín vale más cuanto más queda por bajar.
   // Ajustes de la estrategia (los que se afinan en el laboratorio: miles de bajadas simuladas con los mismos dados)
-  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0.2, recluta: 0.85, nivelesPeso: 0.5 };
+  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0.2, recluta: 0.85, nivelesPeso: 0.5, curarPeleando: 0, pelearLleno: 0 };
   function valorRapidoBend(S, e) {
     if (!e) return 0.01;
     const eq = S.eq, n = Math.max(1, eq.length);
@@ -1144,7 +1144,11 @@
       // sin Élite: Combate (2 niveles) si aún queda mucho para el 100; si ya casi, lo que da esquirlas sin pelear
       orden = t.h >= 0.45 && !t.falta && t.minL < 90 ? ['combate', 'tesoro', 'misterio', 'oculta', 'descanso', 'elite'] : ['tesoro', 'misterio', 'descanso', 'oculta', 'combate', 'elite'];
     } else {
+      const cura = S.ef.curaVictoria + S.mej.curaVictoria;
+      // con mucha cura al ganar (Sanguijuela + Zurrón), un combate cura y además da esquirlas (no levanta a los caídos)
+      if (AJ.curarPeleando && cura >= AJ.curarPeleando && hay('combate') && !t.falta && (t.h < AJ.descanso100 || t.minVida < 0.7)) return 'combate';
       if (hay('descanso') && (t.h < AJ.descanso100 || t.falta || t.minVida < 0.7)) return 'descanso';
+      if (AJ.pelearLleno && cura >= AJ.pelearLleno && hay('combate') && !t.falta && !hay('tesoro')) return 'combate';
       orden = ['tesoro', 'misterio', 'oculta', 'descanso', 'combate', 'elite'];
     }
     return orden.find(hay) || ops[0];
