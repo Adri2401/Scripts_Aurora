@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.24.0
-// @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo, tiene dos botones que ponen y guardan el mejor equipo con todo lo que tienes (con o sin legendarios) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
+// @version      1.25.0
+// @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios, y ordenar los que llevas: calculan, ponen el equipo en su mejor orden y lo guardan) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_tiers.user.js
@@ -683,62 +683,64 @@
     rec([], arr);
     return out;
   }
+  /* ------------------------------------------------------------------ *
+   *  TARJETA «EQUIPO IDEAL» (encima del equipo): tres botones que lo hacen todo solos, calculan, ponen y guardan.
+   *  · 👑 Mejor equipo / 🛡️ Sin legendarios: el mejor equipo con todo lo que tienes, ya en su mejor orden (ver abajo).
+   *  · 🔀 Ordenar los que llevo: el mejor orden para los 6 que ya llevas, y lo aplica.
+   * ------------------------------------------------------------------ */
   let memoEquipo = null;
-  function ordenEquipo() {
-    const aviso = $$('main p').find(p => /arrastra por el asa/i.test(p.textContent || ''));
-    const lista = aviso && $$('main ul').find(u => u.querySelector(':scope > li[data-id]') && aviso.compareDocumentPosition(u) & Node.DOCUMENT_POSITION_FOLLOWING);
+  let ocupado = null, progreso = '', resultado = '';   // ocupado: 'leg' | 'sin' | 'orden'
+  const CSS_EQUIPO = `
+    #axt-equipo .axt-bts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    #axt-equipo button{display:flex;align-items:center;justify-content:center;gap:6px;line-height:1.2}
+    #axt-equipo button:disabled{opacity:.55;cursor:wait}
+    #axt-equipo .axt-res:empty{display:none}`;
+  function pintarEquipo() {
+    const lista = listaEquipo();
     let caja = document.getElementById('axt-equipo');
+    const vieja = document.getElementById('axt-mejor'); if (vieja) vieja.remove();
     if (!lista) { if (caja) caja.remove(); return; }
-    const miembros = $$(':scope > li[data-id]', lista).map(li => {
-      const img = li.querySelector('img[src*="/sprites/"]');
-      const num = img && numDe(img);
-      const nombre = ((li.querySelector('span.truncate') || {}).textContent || img && img.alt || '?').trim();
-      const nivel = parseInt((li.textContent.match(/Nv\.\s*(\d+)/) || [])[1], 10) || 50;
-      const obj = idObjeto($$('img[src*="/items/"]', li)[0]);
-      return { num, nombre, nivel, obj, tipos: tiposEn(li.querySelector('button') || li) };
-    }).filter(m => m.num);
-    if (miembros.length < 2) { if (caja) caja.remove(); return; }
-    const entrada = JSON.stringify(miembros);
+    if (!document.getElementById('axt-equipo-css')) { const s = document.createElement('style'); s.id = 'axt-equipo-css'; s.setAttribute('data-ax-ignore', '1'); s.textContent = CSS_EQUIPO; document.head.appendChild(s); }
     if (!caja) {
       caja = document.createElement('section');
       caja.id = 'axt-equipo';
-      caja.className = 'tarjeta space-y-1.5 p-3';
+      caja.className = 'tarjeta space-y-2 p-3';
       caja.setAttribute('data-ax-ignore', '1');
+      caja.innerHTML = `
+        <div class="flex items-center justify-between gap-2">
+          <p class="titulo-seccion !mb-0">⚔️ Equipo ideal</p>
+          <span class="axt-est text-[11px] font-extrabold"></span>
+        </div>
+        <p class="text-[11px] font-semibold text-tinta-500">Pulsa y se hace solo: calcula, pone el equipo en su mejor orden y lo guarda.</p>
+        <div class="axt-bts">
+          <button type="button" class="axt-leg boton-principal w-full !py-2 text-xs" title="El equipo que más combates gana con todos tus Pokémon (cada uno a su nivel y con su objeto)"></button>
+          <button type="button" class="axt-sin boton-principal w-full !py-2 text-xs" title="Lo mismo, pero sin legendarios ni singulares"></button>
+        </div>
+        <button type="button" class="axt-ord boton-secundario w-full !py-2 text-xs" title="Prueba todas las formas de poner a 3 de tus 6 en orden contra 300 tríos de rivales de todos los tipos"></button>
+        <div class="axt-res"></div>`;
+      caja.querySelector('.axt-leg').addEventListener('click', e => { e.preventDefault(); ponerMejorDeTodo(true); });
+      caja.querySelector('.axt-sin').addEventListener('click', e => { e.preventDefault(); ponerMejorDeTodo(false); });
+      caja.querySelector('.axt-ord').addEventListener('click', e => { e.preventDefault(); ordenarEquipo(); });
     }
     if (caja.nextElementSibling !== lista) lista.insertAdjacentElement('beforebegin', caja);
-    const pinta = html => {
-      if (caja.dataset.html === html) return;
-      caja.innerHTML = html; caja.dataset.html = html;
-      const b = caja.querySelector('.axt-calc-orden');
-      if (b) b.addEventListener('click', e => { e.preventDefault(); calcularOrdenEquipo(); });
-    };
-    // Solo se calcula al pulsar el botón (y otra vez si cambia el equipo)
-    if (!memoEquipo || memoEquipo.entrada !== entrada) {
-      const cambio = memoEquipo && !calculandoEquipo;
-      pinta(`
-        <p class="titulo-seccion !mb-0">⚔️ Orden recomendado</p>
-        <p class="text-[11px] font-semibold text-tinta-500">${cambio ? 'Tu equipo ha cambiado desde el último cálculo. ' : ''}Prueba todas las formas de poner a 3 de tus Pokémon en orden contra 300 tríos de rivales de todos los tipos.</p>
-        <button type="button" class="axt-calc-orden boton-principal w-full !py-2 text-xs" ${calculandoEquipo ? 'disabled' : ''}>${calculandoEquipo ? `⏳ ${ordenProg || 'Calculando…'}` : cambio ? '🔄 Recalcular el orden' : '🧮 Calcular el orden recomendado'}</button>
-        ${ordenFallo && !calculandoEquipo ? `<p class="text-center text-[11px] font-bold text-rojo-600">${ordenFallo}</p>` : ''}`);
-      return;
-    }
-    const { mejor, actual, nivel, sinNiveles } = memoEquipo;
-    const yaEsta = mejor.orden.every((x, i) => miembros[i] && miembros[i].num === x.num && miembros[i].nombre === x.nombre);
-    const pct = x => Math.round(x * 100) + '%';
-    const html = `
-      <div class="flex items-center justify-between gap-2">
-        <p class="titulo-seccion !mb-0">⚔️ Orden recomendado</p>
-        <span class="text-[11px] font-extrabold ${yaEsta ? 'text-hoja-600' : 'text-ambar-600'}">${yaEsta ? '✔ Ya lo tienes así' : `gana ${pct(mejor.n.g)} (ahora ${pct(actual.g)})`}</span>
-      </div>
-      <p class="text-sm font-extrabold">${mejor.orden.map((x, i) => `${i + 1}. ${x.nombre}`).join(' · ')}</p>
-      <p class="text-[11px] font-bold text-tinta-500">Si todos estuvieran al mismo nivel (Nv.${sinNiveles.nivel}): ${sinNiveles.mejor.orden.map((x, i) => `${i + 1}. ${x.nombre}`).join(' · ')} <span class="text-tinta-400">(gana ${pct(sinNiveles.mejor.n.g)})</span></p>
-      <p class="text-[10px] font-semibold text-tinta-400">${yaEsta ? 'Tus 3 primeros ya son los que más combates ganan en ese orden.' : 'Arrastra por el asa ⠿ para ponerlos así.'} Arriba, contando el nivel real de cada uno; abajo, lo que rendirían si subieras a todos (sirve para saber a quién merece la pena entrenar). Contra rivales de todos los tipos, tan fuertes de media como tu equipo (Nv.${nivel}), en orden (el que gana sigue con la vida que le queda) y con los objetos que llevan puestos.</p>`;
-    pinta(html);
+    const [bl, bs, bo] = ['.axt-leg', '.axt-sin', '.axt-ord'].map(s => caja.querySelector(s));
+    const texto = (b, t) => { if (b.textContent !== t) b.textContent = t; };
+    bl.disabled = bs.disabled = bo.disabled = !!ocupado;
+    texto(bl, ocupado === 'leg' ? `⏳ ${progreso}` : '👑 Mejor equipo');
+    texto(bs, ocupado === 'sin' ? `⏳ ${progreso}` : '🛡️ Sin legendarios');
+    texto(bo, ocupado === 'orden' ? `⏳ ${progreso}` : '🔀 Ordenar los que llevo');
+    // estado del orden de los que llevas (solo si ya se calculó para este mismo equipo)
+    const miembros = miembrosEquipo();
+    const est = caja.querySelector('.axt-est');
+    const enOrden = memoEquipo && memoEquipo.entrada === JSON.stringify(miembros);
+    const tEst = enOrden ? '✔ En su mejor orden' : '';
+    if (est.textContent !== tEst) { est.textContent = tEst; est.className = 'axt-est text-[11px] font-extrabold text-hoja-600'; }
+    const res = caja.querySelector('.axt-res');
+    if (res.innerHTML !== resultado) res.innerHTML = resultado;
   }
   // Los miembros del equipo tal como están ahora en la página
   function miembrosEquipo() {
-    const aviso = $$('main p').find(p => /arrastra por el asa/i.test(p.textContent || ''));
-    const lista = aviso && $$('main ul').find(u => u.querySelector(':scope > li[data-id]') && aviso.compareDocumentPosition(u) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const lista = listaEquipo();
     if (!lista) return [];
     return $$(':scope > li[data-id]', lista).map(li => {
       const img = li.querySelector('img[src*="/sprites/"]');
@@ -746,7 +748,7 @@
       const nombre = ((li.querySelector('span.truncate') || {}).textContent || img && img.alt || '?').trim();
       const nivel = parseInt((li.textContent.match(/Nv\.\s*(\d+)/) || [])[1], 10) || 50;
       const obj = idObjeto($$('img[src*="/items/"]', li)[0]);
-      return { num, nombre, nivel, obj, tipos: tiposEn(li.querySelector('button') || li) };
+      return { id: li.dataset.id, num, nombre, nivel, obj, tipos: tiposEn(li.querySelector('button') || li) };
     }).filter(m => m.num);
   }
   // El cálculo, por pasos (cada orden probado es un paso) para no congelar la página
@@ -759,7 +761,7 @@
       const nivel = nivelFijo || Math.round(miembros.reduce((x, m) => x + m.nivel, 0) / miembros.length);
       const banco = GEN.flatMap(t => PERFILES.map(pf => ({ ...stats(pf.map(v => Math.max(30, Math.round(v + baseMedia - 80))), nivel), L: nivel, tipos: t.split('/'), num: 0 })));
       const trios = orden3.map(ix => ix.map(i => banco[i]));
-      const luch = miembros.map(m => { const L = nivelFijo || m.nivel; return { ...conObjeto(stats(datos[m.num].s, L), m.obj), L, tipos: m.tipos.length ? m.tipos : datos[m.num].t, num: m.num, nombre: m.nombre }; });
+      const luch = miembros.map(m => { const L = nivelFijo || m.nivel; return { ...conObjeto(stats(datos[m.num].s, L), m.obj), L, tipos: m.tipos.length ? m.tipos : datos[m.num].t, num: m.num, nombre: m.nombre, id: m.id }; });
       const nota = orden => { let g = 0, v = 0; for (const tr of trios) { const r = combate(orden, tr); if (r.gana) { g++; v += r.vivos; } } return { g: g / trios.length, v: v / trios.length }; };
       let mejor = null;
       for (const orden of permutaciones(luch, Math.min(3, luch.length))) {
@@ -773,22 +775,35 @@
     const sinNiveles = yield* calcular(Math.max(...miembros.map(m => m.nivel)));
     return { entrada: JSON.stringify(miembros), ...conNiveles, sinNiveles };
   }
-  let calculandoEquipo = false, ordenProg = '', ordenFallo = '';
-  async function calcularOrdenEquipo() {
-    if (calculandoEquipo) return;
+  // 🔀 Calcula el mejor orden de los que llevas y lo aplica (los 3 mejores delante, en su orden; el resto detrás como estaban)
+  async function ordenarEquipo() {
+    if (ocupado) return;
     const miembros = miembrosEquipo();
-    if (miembros.length < 2) return;
-    calculandoEquipo = true; ordenFallo = ''; ordenProg = 'Calculando…';
-    programar();
+    if (miembros.length < 2) { resultado = aviso('⚠️ Necesitas al menos 2 Pokémon en el equipo.', 'rojo'); pintarEquipo(); return; }
+    ocupado = 'orden'; progreso = 'Calculando…'; resultado = '';
+    pintarEquipo();
     try {
       // estadísticas base de los que falten (se piden y se esperan hasta 12 s)
       for (const m of miembros) if (!datos[m.num]) pedir(m.num);
-      for (let i = 0; i < 40 && miembros.some(m => !datos[m.num]); i++) { ordenProg = `Buscando las estadísticas de ${miembros.filter(m => !datos[m.num]).length} Pokémon…`; programar(); await new Promise(r => setTimeout(r, 300)); }
-      if (miembros.some(m => !datos[m.num])) { ordenFallo = '⚠️ No he podido traer las estadísticas de algún Pokémon. Prueba otra vez.'; return; }
-      ordenProg = 'Probando órdenes…'; programar();
-      memoEquipo = await correrPasos(calcularEquipoPasos(miembros));
-    } catch (e) { console.warn('[axt equipo]', e); ordenFallo = '⚠️ Error: ' + (e && e.message); }
-    finally { calculandoEquipo = false; ordenProg = ''; programar(); }
+      for (let i = 0; i < 40 && miembros.some(m => !datos[m.num]); i++) { progreso = `Estadísticas de ${miembros.filter(m => !datos[m.num]).length} Pokémon…`; pintarEquipo(); await new Promise(r => setTimeout(r, 300)); }
+      if (miembros.some(m => !datos[m.num])) { resultado = aviso('⚠️ No he podido traer las estadísticas de algún Pokémon. Prueba otra vez.', 'rojo'); return; }
+      progreso = 'Probando órdenes…'; pintarEquipo();
+      const r = await correrPasos(calcularEquipoPasos(miembros));
+      const delante = r.mejor.orden.map(x => x.id);
+      const nuevos = [...delante, ...miembros.map(m => m.id).filter(id => !delante.includes(id))];
+      const porId = new Map(miembros.map(m => [m.id, m]));
+      const pct = x => Math.round(x * 100) + '%';
+      const detalle = `${filaEquipo(nuevos.map(id => porId.get(id)))}
+        <p class="mt-1 text-[10px] font-semibold text-tinta-400">Gana el ${pct(r.mejor.n.g)} contra rivales de todos los tipos (Nv.${r.nivel}), contando el nivel real y el objeto de cada uno. Si todos estuvieran a Nv.${r.sinNiveles.nivel}, el mejor sería ${r.sinNiveles.mejor.orden.map((x, i) => `${i + 1}. ${esc(x.nombre)}`).join(' · ')} (${pct(r.sinNiveles.mejor.n.g)}): sirve para saber a quién merece la pena entrenar.</p>`;
+      // se recuerda con el orden nuevo, para que la tarjeta sepa que ya está en su mejor orden
+      memoEquipo = { ...r, entrada: JSON.stringify(nuevos.map(id => porId.get(id))) };
+      if (nuevos.join() === miembros.map(m => m.id).join()) { resultado = aviso('✔ Ya estaban en su mejor orden.', 'hoja', detalle); return; }
+      const pag = datosPaginaEquipo();
+      if (!pag.guardar) { resultado = aviso('⚠️ No encuentro cómo cambiar el equipo en esta página. Ponlos a mano arrastrando por el asa ⠿:', 'rojo', detalle); return; }
+      pag.guardar(nuevos, 'Equipo ordenado.');
+      resultado = aviso(`✔ Ordenado y guardado (antes ganaba el ${pct(r.actual.g)}).`, 'hoja', detalle);
+    } catch (e) { console.warn('[axt equipo]', e); resultado = aviso('⚠️ Error: ' + esc(e && e.message), 'rojo'); }
+    finally { ocupado = null; progreso = ''; pintarEquipo(); }
   }
 
   /* ------------------------------------------------------------------ *
@@ -885,71 +900,37 @@
     const resto = orden.filter(l => !mejor.eq.includes(l)).slice(0, 6 - mejor.eq.length);
     return { equipo: [...mejor.eq, ...resto], n: mejor.n, nivel, especies: orden.length };
   }
-  let mejorCalc = null, mejorMsg = '';
   async function ponerMejorDeTodo(conLeg) {
-    if (mejorCalc) return;
-    mejorCalc = conLeg ? 'leg' : 'sin'; mejorMsg = '⏳ Buscando…';
-    pintarMejor();
+    if (ocupado) return;
+    ocupado = conLeg ? 'leg' : 'sin'; progreso = 'Buscando…'; resultado = '';
+    pintarEquipo();
     try {
       const pag = datosPaginaEquipo();
       if (!pag.todos.length || !pag.guardar) {
         console.warn('[axt mejor equipo] datos', pag.todos.length, 'guardar', !!pag.guardar);
-        mejorMsg = '⚠️ No encuentro tus Pokémon o cómo cambiar el equipo en esta página.';
+        resultado = aviso('⚠️ No encuentro tus Pokémon o cómo cambiar el equipo en esta página.', 'rojo');
         return;
       }
       const falta = () => [...new Set(pag.todos.map(numDato))].filter(x => x && !datos[x]);
       for (const x of falta()) pedir(x);
-      for (let i = 0; i < 60 && falta().length && cola.length + activos > 0; i++) { mejorMsg = `⏳ Estadísticas de ${falta().length} especies…`; pintarMejor(); await new Promise(r => setTimeout(r, 400)); }
-      mejorMsg = '⏳ Probando equipos…'; pintarMejor();
+      for (let i = 0; i < 60 && falta().length && cola.length + activos > 0; i++) { progreso = `Estadísticas de ${falta().length} especies…`; pintarEquipo(); await new Promise(r => setTimeout(r, 400)); }
+      progreso = 'Probando equipos…'; pintarEquipo();
       const r = await correrPasos(mejorDeTodoPasos(pag.todos, conLeg));
-      if (!r) { mejorMsg = conLeg ? '⚠️ No tienes Pokémon.' : '⚠️ No tienes Pokémon que no sean legendarios.'; return; }
+      if (!r) { resultado = aviso(conLeg ? '⚠️ No tienes Pokémon.' : '⚠️ No tienes Pokémon que no sean legendarios.', 'rojo'); return; }
       const ids = r.equipo.map(l => l.id);
-      const nombres = r.equipo.map((l, i) => (i < 3 ? `<b>${esc(l.nombre)}</b>` : esc(l.nombre))).join(' · ');
-      if (ids.join() === pag.ids.join()) { mejorMsg = `✔ Ya lo tienes: ${nombres}`; return; }
+      const titulo = conLeg ? '👑 Mejor equipo' : '🛡️ Mejor equipo sin legendarios';
+      const lineas = `${filaEquipo(r.equipo)}<p class="mt-1 text-[10px] font-semibold text-tinta-400">Gana el ${Math.round(r.n.g * 100)}% contra rivales de todos los tipos (Nv.${r.nivel}), elegido entre ${r.especies} especies. Los 3 primeros salen a combatir.</p>`;
+      if (ids.join() === pag.ids.join()) { resultado = aviso(`✔ ${titulo}: ya lo tenías puesto así.`, 'hoja', lineas); return; }
       pag.guardar(ids, conLeg ? 'Mejor equipo puesto.' : 'Mejor equipo sin legendarios puesto.');
-      mejorMsg = `✔ Puesto y guardado: ${nombres}`;
-    } catch (e) { console.warn('[axt mejor equipo]', e); mejorMsg = '⚠️ Error: ' + esc(e && e.message); }
-    finally { mejorCalc = null; pintarMejor(); }
+      resultado = aviso(`✔ ${titulo}: puesto, ordenado y guardado.`, 'hoja', lineas);
+    } catch (e) { console.warn('[axt mejor equipo]', e); resultado = aviso('⚠️ Error: ' + esc(e && e.message), 'rojo'); }
+    finally { ocupado = null; progreso = ''; pintarEquipo(); }
   }
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const CSS_MEJOR = `
-    #axt-mejor{display:flex;flex-direction:column;gap:5px;margin:0 0 8px}
-    #axt-mejor .axt-mb{display:flex;gap:6px}
-    #axt-mejor button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 10px;border-radius:999px;border:0;cursor:pointer;
-      font-size:11px;font-weight:900;letter-spacing:.01em;color:#fff;white-space:nowrap;text-shadow:0 1px 1px rgba(0,0,0,.25);
-      box-shadow:0 2px 0 rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.28);transition:transform .12s,filter .12s,box-shadow .12s}
-    #axt-mejor button:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.07)}
-    #axt-mejor button:active:not(:disabled){transform:translateY(1px);box-shadow:0 1px 0 rgba(0,0,0,.18)}
-    #axt-mejor button:disabled{opacity:.55;cursor:default}
-    #axt-mejor .axt-leg{background:linear-gradient(135deg,#6D28D9,#8B5CF6 55%,#D4A72C)}
-    #axt-mejor .axt-sin{background:linear-gradient(135deg,#0F766E,#14B8A6)}
-    #axt-mejor .axt-mm{font-size:10.5px;font-weight:700;line-height:1.35;color:rgb(var(--tinta-500));padding:0 4px}
-    #axt-mejor .axt-mm b{color:rgb(var(--tinta-700))}
-    #axt-mejor .axt-mm:empty{display:none}`;
-  function pintarMejor() {
-    const lista = listaEquipo();
-    let caja = document.getElementById('axt-mejor');
-    if (!lista) { if (caja) caja.remove(); return; }
-    if (!document.getElementById('axt-mejor-css')) { const s = document.createElement('style'); s.id = 'axt-mejor-css'; s.setAttribute('data-ax-ignore', '1'); s.textContent = CSS_MEJOR; document.head.appendChild(s); }
-    if (!caja) {
-      caja = document.createElement('div');
-      caja.id = 'axt-mejor';
-      caja.setAttribute('data-ax-ignore', '1');
-      caja.innerHTML = `<div class="axt-mb">
-        <button type="button" class="axt-leg" title="Pone y guarda el equipo que más combates gana con todos tus Pokémon (cada uno a su nivel y con su objeto)">👑 Mejor equipo</button>
-        <button type="button" class="axt-sin" title="Lo mismo, pero sin legendarios ni singulares">🛡️ Sin legendarios</button></div><p class="axt-mm"></p>`;
-      caja.querySelector('.axt-leg').addEventListener('click', e => { e.preventDefault(); ponerMejorDeTodo(true); });
-      caja.querySelector('.axt-sin').addEventListener('click', e => { e.preventDefault(); ponerMejorDeTodo(false); });
-    }
-    const antes = document.getElementById('axt-equipo') || lista;
-    if (antes.previousElementSibling !== caja) antes.insertAdjacentElement('beforebegin', caja);
-    const [bl, bs] = caja.querySelectorAll('button');
-    bl.disabled = bs.disabled = !!mejorCalc;
-    bl.textContent = mejorCalc === 'leg' ? '⏳ Calculando…' : '👑 Mejor equipo';
-    bs.textContent = mejorCalc === 'sin' ? '⏳ Calculando…' : '🛡️ Sin legendarios';
-    const m = caja.querySelector('.axt-mm');
-    if (m.innerHTML !== mejorMsg) m.innerHTML = mejorMsg;
-  }
+  // «1. Gyarados · 2. Garchomp · 3. Swampert» (en negrita los que combaten) y los de reserva detrás
+  const filaEquipo = eq => `<p class="text-xs font-extrabold text-tinta-800">${eq.slice(0, 3).map((x, i) => `${i + 1}. ${esc(x.nombre)}`).join(' · ')}</p>`
+    + (eq.length > 3 ? `<p class="text-[11px] font-bold text-tinta-500">Reserva: ${eq.slice(3).map(x => esc(x.nombre)).join(' · ')}</p>` : '');
+  const aviso = (titulo, color, cuerpo = '') => `<div class="rounded-card border-2 border-crema-200 bg-crema-50 p-2"><p class="text-[11px] font-extrabold text-${color}-600">${titulo}</p>${cuerpo}</div>`;
 
   /* ------------------------------------------------------------------ *
    *  TORRE DESAFÍO (/torre?liga=…)
@@ -2546,7 +2527,7 @@
     prog = setTimeout(() => {
       if (!listo) return;
       try {
-        if (enEquipo()) { decorarTarjetas(); decorarFichas(); botonOrden(); ordenar(); ordenEquipo(); pintarMejor(); }
+        if (enEquipo()) { decorarTarjetas(); decorarFichas(); botonOrden(); ordenar(); pintarEquipo(); }
         else if (enTorre()) torre();
         else if (enTronos()) tronos();
       } catch (e) { console.warn('[axt]', e); }
