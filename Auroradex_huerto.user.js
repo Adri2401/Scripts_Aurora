@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Huerto de Bayas (automático)
 // @namespace    auroradex-huerto
-// @version      1.2.0
+// @version      1.3.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
-// @description  En el Huerto de Bayas: eliges una baya (solo su icono) y con un botón, o solo cada minuto si lo activas, cosecha lo que esté listo, planta esa baya en todo lo vacío y riega todo, con los botones de la propia página.
+// @description  En el Huerto de Bayas: eliges una baya (solo su icono) y con un botón cosecha lo que esté listo, planta esa baya en todo lo vacío y riega todo, con los botones de la propia página.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -311,9 +311,9 @@
 
   /* ------------------------------------------------------------------ *
    *  HACERLO TODO: cosechar lo que esté listo, plantar la baya elegida en lo vacío y regar todo
-   *  (con los botones de la propia página). «Automático»: se repite solo mientras tengas el huerto abierto.
+   *  (con los botones de la propia página).
    * ------------------------------------------------------------------ */
-  const LS_BAYA = 'axh-baya', LS_AUTO = 'axh-auto';
+  const LS_BAYA = 'axh-baya';
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
   const lsPut = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin storage */ } };
   let enMarcha = false;
@@ -321,7 +321,7 @@
   const registro = [];
   const log = t => { registro.push([Date.now(), t]); if (registro.length > 40) registro.shift(); kLog(document.querySelector('#axh-panel .axh-log'), t); };
 
-  async function hacerTodo(auto = false) {
+  async function hacerTodo() {
     if (enMarcha) return;
     let e = estadoHuerto();
     if (!e) return;
@@ -368,11 +368,7 @@
         hecho.push(`💧 ${n} regada${n === 1 ? '' : 's'}`);
         log(`💧 Regadas ${n}.`);
       }
-      if (!hecho.length && !auto) log('Nada que hacer ahora mismo.');
-      if (hecho.length && auto) {
-        const x = estadoHuerto(), t = x && proxima(x);
-        kAviso({ tipo: 'exito', app: 'Huerto de Bayas', icono: '🌱', titulo: 'Huerto al día', lineas: [...hecho, t ? `Próxima cosecha en ${falta(t - Date.now())}` : null] });
-      }
+      if (!hecho.length) log('Nada que hacer ahora mismo.');
     } catch (err) {
       console.warn('[axh]', err);
       log('⚠ Error: ' + (err && err.message));
@@ -381,12 +377,6 @@
       enMarcha = false; pintar();
     }
   }
-  // Automático: cada minuto mira si hay algo que cosechar, plantar o regar
-  setInterval(() => {
-    if (!enHuerto() || !lsGet(LS_AUTO, false) || enMarcha || !document.getElementById('axh-panel')) return;
-    const e = estadoHuerto();
-    if (e && (listas(e).length || (vacias(e).length && lsGet(LS_BAYA, null)) || regables(e).length)) hacerTodo(true);
-  }, 60000);
 
   /* ------------------------------------------------------------------ *
    *  PANEL (en «El terreno», debajo de las pestañas)
@@ -421,13 +411,10 @@
     kSet(p.querySelector('.axh-t-prox'), listas(e).length ? '¡Ya!' : t ? falta(t - Date.now()) : '–');
     kSet(p.querySelector('.axh-t-riego'), regables(e).length ? `${regables(e).length} ya` : r ? falta(r - Date.now()) : 'hecho');
     kSet(p.querySelector('.k-sub'), cat ? `Planta ${cat.nombre} · ${cat.horas} h · ${cat.semilla} $ la semilla` : 'Elige qué baya plantar');
-    const auto = lsGet(LS_AUTO, false);
-    kBadge(p.querySelector('.k-badge'), enMarcha ? 'on' : auto ? 'ok' : 'off', enMarcha ? 'HACIENDO' : auto ? 'AUTOMÁTICO' : 'LISTO');
+    kBadge(p.querySelector('.k-badge'), enMarcha ? 'on' : 'off', enMarcha ? 'HACIENDO' : 'LISTO');
     const b = p.querySelector('.axh-todo');
     b.disabled = enMarcha;
     kSet(b, enMarcha ? '⏳ Haciéndolo…' : '🤖 Cosechar, plantar y regar');
-    const sw = p.querySelector('.axh-auto');
-    if (sw.checked !== auto) sw.checked = auto;
   }
   function montar() {
     let p = document.getElementById('axh-panel');
@@ -450,13 +437,10 @@
           <div class="${K_TILE}"><b class="axh-t-riego tabular-nums">–</b><small>💧 Riego</small></div>
         </div>
         <button type="button" class="axh-todo boton-principal w-full !py-2.5 text-sm">🤖 Cosechar, plantar y regar</button>
-        <label class="k-switch text-[11px] font-bold leading-snug text-tinta-600"><input type="checkbox" class="axh-auto"><span>Hacerlo solo mientras tengas el huerto abierto</span></label>
-        <p class="text-[10px] font-semibold leading-snug text-tinta-400">Si dejas esta página abierta, cada minuto mira el huerto y, en cuanto haya bayas listas, huecos vacíos o toque regar, pulsa él solo «Cosechar», planta la baya marcada y riega. Si sales del huerto, deja de hacerlo.</p>
         <div class="axh-log ${K_LOG}"></div>`;
       const caja = p.querySelector('.axh-log');
       for (const [ts, t] of registro) { const d = new Date(ts), q = document.createElement('p'); q.textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}  ${t}`; caja.appendChild(q); }
-      p.querySelector('.axh-todo').addEventListener('click', e => { e.preventDefault(); hacerTodo(false); });
-      p.querySelector('.axh-auto').addEventListener('change', e => { lsPut(LS_AUTO, e.target.checked); pintar(); if (e.target.checked) { kPedirPermiso(); hacerTodo(true); } });
+      p.querySelector('.axh-todo').addEventListener('click', e => { e.preventDefault(); hacerTodo(); });
     }
     if (p.previousElementSibling !== nav) nav.insertAdjacentElement('afterend', p);
     pintar();
