@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.18.0
+// @version      1.19.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1901,10 +1901,10 @@
   const equiposTrono = t => Object.values((lsGet(LS_TR_VISTOS, {})[t]) || {}).sort((a, b) => b.t - a.t);
   const titularesTrono = () => lsGet(LS_TITULARES, {});
   const firmaTronosVistos = () => { try { return String((localStorage.getItem(LS_TR_VISTOS) || '').length); } catch { return '0'; } };
-  function leerCombateTrono() {
-    const h3 = $$('h3').find(h => /^\s*Trono de\s+\S/i.test(h.textContent || ''));
+  function leerCombateTrono(doc = document) {
+    const h3 = $$('h3', doc).find(h => /^\s*Trono de\s+\S/i.test(h.textContent || ''));
     if (!h3) return null;
-    const hoja = h3.closest('.overflow-y-auto') || document.body;
+    const hoja = h3.closest('.overflow-y-auto') || doc.body;
     const tipo = tipoDe(h3.textContent.replace(/^\s*Trono de\s+/i, '').trim());
     const cab = $$('p', hoja).map(q => (q.textContent || '').replace(/\s+/g, ' ').trim()).find(x => /retabas a|te ret[oó]/i.test(x));
     const caja = $$('div', hoja).find(d => d.querySelector(':scope > .animate-slide-up') && /sale al paso de/.test(d.textContent || ''));
@@ -1927,8 +1927,8 @@
     }
     return { tipo, rol, rival, gane, ev };
   }
-  function aprenderTronos() {
-    const C = leerCombateTrono();
+  function aprenderTronos(doc = document) {
+    const C = leerCombateTrono(doc);
     if (!C || !C.ev.length) return;
     const misN = [], susN = [], g = [], c = [];
     let mio = null, riv = null, n = 0;
@@ -1975,6 +1975,80 @@
     for (const key of Object.keys(logs).sort((x, y) => logs[y].t - logs[x].t).slice(60)) delete logs[key];
     lsPut(LS_LOGT, logs);
     calcularCal();
+  }
+  /* ---- El historial de combates, leído solo y sin que se vea ----
+   * Se abre /tronos en una ventana invisible, se abre «Combates» y cada combate que aún no se conozca («▶ Ver»), se
+   * espera a que termine la repetición (o se salta si hay botón), se lee y se cierra. Tope de 2 minutos. */
+  let historialLeyendo = false, historialProg = '';
+  // «Retaste a X» / «X te retó» + «Trono de Roca · perdiste · hoy mismo» → ¿ya está aprendido?
+  function combateConocido(li) {
+    const ps = [...li.querySelectorAll('p')].map(q => (q.textContent || '').replace(/\s+/g, ' ').trim());
+    const quien = ps[0] || '', det = ps[1] || '';
+    let rol = null, rival = null, m;
+    if ((m = quien.match(/^Retaste a\s+(.+)$/i))) { rol = 'reto'; rival = m[1]; }
+    else if ((m = quien.match(/^(.+?)\s+te ret[oó]/i))) { rol = 'defensa'; rival = m[1]; }
+    const tm = det.match(/Trono de\s+([^·]+)/i), tipo = tm && tipoDe(tm[1].trim());
+    if (!rol || !tipo) return false;
+    const gane = /ganaste/i.test(det) ? true : /perdiste/i.test(det) ? false : null;
+    const e = ((lsGet(LS_TR_VISTOS, {})[tipo]) || {})[rol + '|' + rival];
+    return !!(e && e.gane === gane && e.nombres && e.nombres.length);
+  }
+  async function leerHistorialFondo(aviso = () => {}) {
+    if (historialLeyendo) return null;
+    historialLeyendo = true;
+    const fr = document.createElement('iframe');
+    fr.setAttribute('data-ax-ignore', '1'); fr.setAttribute('aria-hidden', 'true'); fr.tabIndex = -1;
+    fr.style.cssText = 'position:fixed;left:-12000px;top:0;width:420px;height:900px;border:0;opacity:0;pointer-events:none';
+    fr.src = '/tronos?axt-fondo=1';
+    const t0 = Date.now(), TOPE = 120000;
+    let leidos = 0, total = 0;
+    try {
+      const cargada = new Promise(ok => { fr.addEventListener('load', ok, { once: true }); setTimeout(ok, 20000); });
+      document.body.appendChild(fr);
+      await cargada;
+      const d = () => fr.contentDocument;
+      const esperar = async (f, ms) => { const t = Date.now(); for (;;) { let v = null; try { v = f(); } catch { /* aún no */ } if (v || Date.now() - t > ms) return v; await espera(250); } };
+      const boton = re => [...d().querySelectorAll('button')].find(b => !b.disabled && re.test((b.textContent || '').replace(/\s+/g, ' ').trim()));
+      const cabLista = () => [...d().querySelectorAll('h3')].find(h => /tus [uú]ltimos combates/i.test(h.textContent || ''));
+      const abrirLista = async () => {
+        if (cabLista()) return cabLista();
+        const b = await esperar(() => boton(/combates/i), 15000);
+        if (!b) return null;
+        b.click();
+        return esperar(cabLista, 8000);
+      };
+      const filas = () => { const h = cabLista(), cont = h && (h.closest('.overflow-y-auto') || h.parentElement.parentElement.parentElement); return cont ? [...cont.querySelectorAll('li')].filter(li => li.querySelector('button')) : []; };
+      if (!(await abrirLista())) throw new Error('no encuentro «Combates»');
+      await esperar(() => filas().length, 4000);
+      total = filas().length;
+      for (let i = 0; i < total && Date.now() - t0 < TOPE; i++) {
+        if (!(await abrirLista())) break;
+        await esperar(() => filas().length > i, 4000);
+        const li = filas()[i];
+        if (!li || combateConocido(li)) continue;
+        aviso(`Leyendo tus combates (${i + 1}/${total})…`);
+        li.querySelector('button').click();
+        if (!(await esperar(() => [...d().querySelectorAll('h3')].find(h => /^\s*Trono de\s+\S/i.test(h.textContent || '')), 8000))) continue;
+        // hasta el final de la repetición: se salta si hay botón; si no, se espera a que deje de salir texto
+        let ultimo = -1, quieto = Date.now();
+        while (Date.now() - t0 < TOPE) {
+          const saltar = boton(/saltar|al final|ver (el )?resultado|⏩/i);
+          if (saltar) saltar.click();
+          if (boton(/repasar/i) || boton(/^seguir$/i)) break;
+          const n = d().querySelectorAll('.animate-slide-up').length;
+          if (n !== ultimo) { ultimo = n; quieto = Date.now(); }
+          else if (Date.now() - quieto > 5000) break;
+          await espera(300);
+        }
+        await espera(300);
+        try { aprenderTronos(d()); leidos++; } catch (e) { console.warn('[axt historial]', e); }
+        const cerrar = [...d().querySelectorAll('button[aria-label="Cerrar"]')].pop();
+        if (cerrar) cerrar.click();
+        await espera(700);
+      }
+    } catch (e) { console.warn('[axt historial]', e); }
+    finally { fr.remove(); historialLeyendo = false; }
+    return { leidos, total };
   }
   // Solo dentro de cada trono («Mi ficha»): calcular todos los tronos a la vez en la lista daba mucho lag
   function tronos() {
@@ -2058,10 +2132,22 @@
     if (!t) { pinta('<p class="text-[11px] font-semibold text-tinta-600">Vuelve a la lista y toca el trono para que sepa de qué tipo es.</p>'); return; }
     const r = resTrono(cole, t);
     if (!r) {
-      const calculando = memoTronos && memoTronos.calc[t];
-      pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p><p class="text-[11px] font-semibold text-tinta-500">Busca el mejor equipo de tipo ${bonito(t)} para quitar y defender el trono. Tarda unos segundos.</p><button type="button" class="axt-calc-trono boton-principal w-full !py-2 text-xs" ${calculando ? 'disabled' : ''}>${calculando ? `⏳ Calculando el mejor equipo de tipo ${bonito(t)}…` : `🧮 Calcular el mejor equipo de tipo ${bonito(t)}`}</button>`);
+      const calculando = (memoTronos && memoTronos.calc[t]) || historialLeyendo;
+      pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p><p class="text-[11px] font-semibold text-tinta-500">Primero lee tus combates guardados que aún no conozca (sin que se vea) y luego busca el mejor equipo de tipo ${bonito(t)} para quitar y defender el trono.</p><button type="button" class="axt-calc-trono boton-principal w-full !py-2 text-xs" ${calculando ? 'disabled' : ''}>${historialLeyendo ? `⏳ ${historialProg || 'Leyendo tus combates…'}` : calculando ? `⏳ Calculando el mejor equipo de tipo ${bonito(t)}…` : `🧮 Calcular el mejor equipo de tipo ${bonito(t)}`}</button>`);
       const bc = caja.querySelector('.axt-calc-trono');
-      if (bc && !bc.dataset.ok) { bc.dataset.ok = '1'; bc.addEventListener('click', e => { e.preventDefault(); resTrono(cole, t, true); caja.dataset.html = ''; fichaTrono(); }); }
+      if (bc && !bc.dataset.ok) {
+        bc.dataset.ok = '1';
+        bc.addEventListener('click', async e => {
+          e.preventDefault();
+          historialProg = 'Leyendo tus combates…'; caja.dataset.html = '';
+          const lectura = leerHistorialFondo(txt => { historialProg = txt; caja.dataset.html = ''; fichaTrono(); });
+          fichaTrono();
+          await lectura;
+          historialProg = '';
+          const c2 = coleccion() || cole;
+          resTrono(c2, t, true); caja.dataset.html = ''; fichaTrono();
+        });
+      }
       return;
     }
     if (!r.n) { pinta(`<p class="text-[11px] font-semibold text-tinta-600">No tienes ningún Pokémon de tipo ${bonito(t)} que no sea legendario.</p>`); return; }
@@ -2238,5 +2324,5 @@
   const arrancar = () => setTimeout(() => { listo = true; programar(); }, 1500);
   if (document.readyState === 'complete') arrancar(); else window.addEventListener('load', arrancar);
 
-  window.__axTiers = { analizar, stats, datos, mejoras, calibracion: () => ({ ...CAL, ...infoCal }), estadoTorre, luchadorT, notaEquipo, simulaciones, mejorEquipo, poolTorre, candidatosUnicos, tierTorre, calcularTronoPasos, correrPasos, vistosTorre };
+  window.__axTiers = { analizar, stats, datos, mejoras, calibracion: () => ({ ...CAL, ...infoCal }), estadoTorre, luchadorT, notaEquipo, simulaciones, mejorEquipo, poolTorre, candidatosUnicos, tierTorre, calcularTronoPasos, correrPasos, vistosTorre, leerHistorialFondo };
 })();
