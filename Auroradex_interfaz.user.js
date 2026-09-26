@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.9.0
-// @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca y entra en el Frente), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
+// @version      1.9.1
+// @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_interfaz.user.js
@@ -496,6 +496,7 @@
     return true;
   }
   async function irAZona(item) {
+    if (item.destino && elPuerto()) { sessionStorage.removeItem(ZONA_KEY); elPuerto().click(); return; }   // ya en la isla
     sessionStorage.setItem(ZONA_KEY, JSON.stringify({ zona: item.zona, boton: item.boton, destino: item.destino, region: item.region, label: item.label, t: Date.now() }));
     if (item.region && regionActual() !== item.region) {
       let ok = false;
@@ -505,15 +506,38 @@
     if (!/^\/mapa\/?$/.test(location.pathname)) await irA('/mapa');
     continuarZona();
   }
-  // Después de embarcar: a la página del Frente (también si al embarcar se ha recargado la página)
+  /* Después del «Embarcar» del Muelle (también si ha recargado la página): a /frontera, su «⛵ Embarcar» (cruzar a la
+   * isla; se pulsa UNA vez, que dentro está el barco de vuelta a Hoenn) y, ya en la isla, «El puerto» (vuelve a
+   * /frontera ya dentro). Si no sale el «Embarcar» es que ya estabas dentro: se acaba. */
   const DESTINO_KEY = 'adx-pending-destino';
-  let embarcando = false;           // mientras el juego apunta el «Embarcar», no se sale de la página
-  function continuarDestino() {
-    if (embarcando) return;
+  let embarcando = false, destinoEnMarcha = false;   // mientras el juego apunta un «Embarcar», no se sale de la página
+  const elPuerto = () => [...document.querySelectorAll('a[href="/frontera"]')].find(a => !a.closest('#' + PANEL_ID) && hidratado(a) && visibleEl(a) && /puerto/i.test(textoDe(a)));
+  const embarcarIsla = () => [...document.querySelectorAll('main button, main a')].find(x => visibleEl(x) && hidratado(x) && !x.disabled
+    && /^[^a-z0-9]*embarcar/.test(normalizarTexto(textoDe(x))) && !/vuelta|volver|regres|a hoenn/.test(normalizarTexto(textoDe(x.closest('section') || x))));
+  async function continuarDestino() {
+    if (embarcando || destinoEnMarcha) return;
     let d; try { d = JSON.parse(sessionStorage.getItem(DESTINO_KEY) || 'null'); } catch { d = null; }
     if (!d) return;
-    sessionStorage.removeItem(DESTINO_KEY);
-    if (d.href && Date.now() - (d.t || 0) < 60000 && location.pathname !== d.href) irA(d.href);
+    if (!d.href || Date.now() - (d.t || 0) > 90000) { sessionStorage.removeItem(DESTINO_KEY); return; }
+    destinoEnMarcha = true;
+    const guarda = () => sessionStorage.setItem(DESTINO_KEY, JSON.stringify(d));
+    try {
+      if (!d.embarcado) {
+        // 1) a /frontera y su «⛵ Embarcar»
+        if (location.pathname !== d.href) { await irA(d.href); return; }       // al cambiar de página se sigue solo
+        const b = await esperarA(embarcarIsla, 5000);
+        if (!b) { sessionStorage.removeItem(DESTINO_KEY); return; }            // ya estabas dentro
+        d.embarcado = true; d.t = Date.now(); guarda();
+        embarcando = true;
+        try { b.click(); await esperarA(() => !b.isConnected || location.pathname !== d.href || elPuerto(), 8000); await esperaMs(300); }
+        finally { embarcando = false; }
+      }
+      // 2) ya en la isla: «El puerto»
+      const a = await esperarA(elPuerto, 6000);
+      sessionStorage.removeItem(DESTINO_KEY);
+      if (a && location.pathname !== d.href) a.click();
+      else if (location.pathname !== d.href) irA(d.href);
+    } finally { destinoEnMarcha = false; }
   }
   const tramoAqui = () => textoDe(document.querySelector('main h1'));
   // Lista de tramos de «Ver mapa completo» (la misma que usa el script de Manadas)
