@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.7.1
+// @version      1.7.2
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos, los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -788,7 +788,7 @@
     finally { missingPidiendo = false; }
   }
 
-  /* ─── Huerto: «Recolectar» si se puede cosechar ya; si no, cuánto falta ─── */
+  /* ─── Huerto: «Recolectar» si se puede cosechar ya; si no, solo cuánto falta (sin icono) ─── */
   const HUERTO_KEY = 'adx-accesos-huerto';
   let huertoPidiendo = false, huertoIntento = 0;
   // Las parcelas del huerto: en la propia página, de los datos de React; pedida en segundo plano, de los datos de Next.js
@@ -832,7 +832,7 @@
   function subHuerto() {
     const g = lsJSON(HUERTO_KEY, null);
     if (!g || g.listo || !g.listoAt || Date.now() >= g.listoAt) return '';
-    return `<span class="ax-sub"><span>🧺 en ${kEsc(textoRestante(g.listoAt - Date.now()))}</span></span>`;
+    return `<span class="ax-sub"><span>${kEsc(textoRestante(g.listoAt - Date.now()))}</span></span>`;
   }
   async function refrescarHuerto(forzar = false) {
     if (/^\/huerto\/?$/.test(location.pathname)) { guardarHuerto(leerHuerto(document)); return; }
@@ -1038,7 +1038,7 @@
       tag = hecho
         ? `<span class="ax-tag pastilla border-2 border-crema-200 bg-crema-50 text-tinta-400">✓</span>`
         : pill === 'Recolectar' || pill === 'Plantar'
-          ? `<span class="ax-tag pastilla border-2 border-hoja-400 bg-hoja-500 text-white">${pill === 'Plantar' ? '🌱' : '🧺'} ${pill}</span>`
+          ? `<span class="ax-tag pastilla border-2 border-hoja-400 bg-hoja-500 text-white">${pill}</span>`
           : `<span class="ax-tag pastilla border-2 border-hoja-300 bg-hoja-50 text-hoja-700">${kEsc(pill.replace(/\s*hoy$/i, ''))}</span>`;
     }
     const req = regionNecesaria(item);

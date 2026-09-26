@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Huerto de Bayas (automático)
 // @namespace    auroradex-huerto
-// @version      1.0.0
+// @version      1.1.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
-// @description  En el Huerto de Bayas: eliges una baya (solo su icono) y con un botón, o solo cada minuto si lo activas, cosecha lo que esté listo, planta esa baya en todo lo vacío y riega todo, con los botones de la propia página.
+// @description  En el Huerto de Bayas: eliges una baya (solo su icono) y con un botón cosecha lo que esté listo, planta esa baya en todo lo vacío y riega todo. Con «Hacerlo solo» lo hace él cuando toca, en segundo plano, con cualquier página de Aurora Dex abierta (sin entrar al huerto).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -284,11 +284,12 @@
     }
     return f;
   }
-  function estadoHuerto() {
+  // `crudo`: también el estado de «no puedes usar el huerto ahora» (abierto: false, con su motivo)
+  function estadoHuerto(crudo = false) {
     const h1 = $$('main h1').find(h => /huerto de bayas/i.test(h.textContent || ''));
     for (let f = actual(fibraDe(h1)), i = 0; f && i < 40; f = f.return, i++) {
       const p = f.memoizedProps;
-      if (p && p.estado && Array.isArray(p.estado.parcelas)) return p.estado;
+      if (p && p.estado && (Array.isArray(p.estado.parcelas) || (crudo && 'abierto' in p.estado))) return p.estado;
     }
     return null;
   }
@@ -311,9 +312,13 @@
 
   /* ------------------------------------------------------------------ *
    *  HACERLO TODO: cosechar lo que esté listo, plantar la baya elegida en lo vacío y regar todo
-   *  (con los botones de la propia página). «Automático»: se repite solo mientras tengas el huerto abierto.
+   *  (con los botones de la propia página). «Hacerlo solo»: cuando toca, en segundo plano (ver más abajo).
    * ------------------------------------------------------------------ */
   const LS_BAYA = 'axh-baya', LS_AUTO = 'axh-auto';
+  // Siguiente momento en que habrá algo que hacer (cosechar o regar) y control del segundo plano
+  const LS_SIG = 'axh-siguiente', LS_FUERA = 'axh-fuera', LS_ULTIMO = 'axh-ultimo-fondo', LS_CERROJO = 'axh-cerrojo';
+  // ¿Somos la ventana invisible que abre el segundo plano?
+  const EN_FONDO = window.top !== window && /[?&]axh-fondo=1\b/.test(location.search);
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
   const lsPut = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin storage */ } };
   let enMarcha = false;
@@ -321,10 +326,12 @@
   const registro = [];
   const log = t => { registro.push([Date.now(), t]); if (registro.length > 40) registro.shift(); kLog(document.querySelector('#axh-panel .axh-log'), t); };
 
+  // Devuelve { hecho: [...], error } (o null si no hay huerto)
   async function hacerTodo(auto = false) {
-    if (enMarcha) return;
+    if (enMarcha) return null;
     let e = estadoHuerto();
-    if (!e) return;
+    if (!e) return null;
+    let error = null;
     enMarcha = true; pintar();
     const hecho = [];
     try {
@@ -369,21 +376,89 @@
         log(`💧 Regadas ${n}.`);
       }
       if (!hecho.length && !auto) log('Nada que hacer ahora mismo.');
-      if (hecho.length && auto) {
+      if (hecho.length && auto && !EN_FONDO) {
         const x = estadoHuerto(), t = x && proxima(x);
         kAviso({ tipo: 'exito', app: 'Huerto de Bayas', icono: '🌱', titulo: 'Huerto al día', lineas: [...hecho, t ? `Próxima cosecha en ${falta(t - Date.now())}` : null] });
       }
     } catch (err) {
       console.warn('[axh]', err);
       log('⚠ Error: ' + (err && err.message));
-      kAviso({ tipo: 'error', app: 'Huerto de Bayas', titulo: 'El huerto automático se ha parado', texto: String(err && err.message) });
+      error = String(err && err.message);
+      if (!EN_FONDO) kAviso({ tipo: 'error', app: 'Huerto de Bayas', titulo: 'El huerto automático se ha parado', texto: error });
     } finally {
       enMarcha = false; pintar();
+      const x = estadoHuerto(); if (x) anotarSiguiente(x);
+    }
+    return { hecho, error };
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  CUÁNDO TOCA: se apunta cada vez que se ve el huerto (en la página o en segundo plano)
+   * ------------------------------------------------------------------ */
+  function anotarSiguiente(e) {
+    const ahora = Date.now();
+    const pendiente = listas(e).length || regables(e).length || (vacias(e).length && lsGet(LS_BAYA, null));
+    const cands = [proxima(e), proxRiego(e)].filter(Boolean);
+    // nada plantado ni nada que hacer: se vuelve a mirar en 1 h
+    const t = pendiente ? ahora : cands.length ? Math.min(...cands) : ahora + 3600e3;
+    lsPut(LS_SIG, { t, visto: ahora });
+    // lo mismo para el acceso directo del mapa (script de Accesos): «Recolectar» o cuánto falta
+    lsPut('adx-accesos-huerto', { listo: listas(e).length > 0, vacias: vacias(e).length, listoAt: listas(e).length ? null : proxima(e), t: ahora });
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  SEGUNDO PLANO: con «Hacerlo solo» activado y cualquier página de Aurora Dex abierta, cuando toca cosechar o
+   *  regar se abre /huerto en una ventana invisible, se hace todo con la baya elegida y se cierra. Si el juego no
+   *  deja abrir el huerto desde donde estás (otra región), avisa una vez y lo reintenta cada 15 min.
+   * ------------------------------------------------------------------ */
+  let fondoEnCurso = false;
+  function tocaFondo() {
+    if (EN_FONDO || window.top !== window || enHuerto() || fondoEnCurso || enMarcha) return false;
+    if (!lsGet(LS_AUTO, false) || !lsGet(LS_BAYA, null)) return false;
+    const ahora = Date.now(), sig = lsGet(LS_SIG, null);
+    if (sig && ahora < sig.t) return false;
+    if (ahora - lsGet(LS_FUERA, 0) < 15 * 6e4) return false;       // no se pudo abrir hace poco
+    if (ahora - lsGet(LS_ULTIMO, 0) < 5 * 6e4) return false;      // como mucho una vez cada 5 min
+    if (ahora - lsGet(LS_CERROJO, 0) < 90e3) return false;        // otra pestaña ya está en ello
+    return true;
+  }
+  async function atenderFondo() {
+    fondoEnCurso = true;
+    lsPut(LS_CERROJO, Date.now()); lsPut(LS_ULTIMO, Date.now());
+    const fr = document.createElement('iframe');
+    fr.setAttribute('data-ax-ignore', '1'); fr.setAttribute('aria-hidden', 'true'); fr.tabIndex = -1;
+    // dentro de la pantalla pero invisible y detrás de todo (fuera de ella el navegador puede frenarla)
+    fr.style.cssText = 'position:fixed;left:0;top:0;width:420px;height:900px;border:0;opacity:0.001;pointer-events:none;z-index:-1';
+    fr.src = '/huerto?axh-fondo=1';
+    let res;
+    try {
+      res = await new Promise(ok => {
+        const oir = ev => { if (ev.origin === location.origin && ev.source === fr.contentWindow && ev.data && ev.data.axh) fin(ev.data); };
+        const to = setTimeout(() => fin({ axh: 'tiempo' }), 60000);
+        function fin(v) { window.removeEventListener('message', oir); clearTimeout(to); ok(v); }
+        window.addEventListener('message', oir);
+        document.body.appendChild(fr);
+      });
+    } finally { fr.remove(); fondoEnCurso = false; lsPut(LS_CERROJO, 0); }
+    console.log('[axh] segundo plano:', res);
+    if (res.axh === 'hecho') {
+      lsPut(LS_FUERA, 0);
+      if (res.error) kAviso({ tipo: 'error', app: 'Huerto de Bayas', titulo: 'El huerto automático ha fallado', texto: res.error });
+      else if (res.hecho && res.hecho.length) kAviso({ tipo: 'exito', app: 'Huerto de Bayas', icono: '🌱', titulo: 'Huerto atendido solo', lineas: [...res.hecho, res.prox ? `Próxima cosecha en ${falta(res.prox - Date.now())}` : null] });
+    } else {
+      if (!lsGet(LS_FUERA, 0)) kAviso({ tipo: 'aviso', app: 'Huerto de Bayas', icono: '🌱', titulo: 'No he podido abrir el huerto', texto: `${res.motivo || 'Seguramente estás en otra región (el huerto está en Sinnoh).'} Lo vuelvo a intentar cada 15 minutos.` });
+      lsPut(LS_FUERA, Date.now());
     }
   }
-  // Automático: cada minuto mira si hay algo que cosechar, plantar o regar
+  if (!EN_FONDO && window.top === window) {
+    const mirar = () => { if (tocaFondo()) atenderFondo(); };
+    setInterval(mirar, 30000);
+    setTimeout(mirar, 6000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(mirar, 1500); });
+  }
+  // Con el huerto abierto y «Hacerlo solo»: cada minuto mira si hay algo que cosechar, plantar o regar
   setInterval(() => {
-    if (!enHuerto() || !lsGet(LS_AUTO, false) || enMarcha || !document.getElementById('axh-panel')) return;
+    if (EN_FONDO || !enHuerto() || !lsGet(LS_AUTO, false) || enMarcha || !document.getElementById('axh-panel')) return;
     const e = estadoHuerto();
     if (e && (listas(e).length || (vacias(e).length && lsGet(LS_BAYA, null)) || regables(e).length)) hacerTodo(true);
   }, 60000);
@@ -422,7 +497,11 @@
     kSet(p.querySelector('.axh-t-riego'), regables(e).length ? `${regables(e).length} ya` : r ? falta(r - Date.now()) : 'hecho');
     kSet(p.querySelector('.k-sub'), cat ? `Planta ${cat.nombre} · ${cat.horas} h · ${cat.semilla} $ la semilla` : 'Elige qué baya plantar');
     const auto = lsGet(LS_AUTO, false);
-    kBadge(p.querySelector('.k-badge'), enMarcha ? 'on' : auto ? 'ok' : 'off', enMarcha ? 'HACIENDO' : auto ? 'AUTOMÁTICO' : 'LISTO');
+    kBadge(p.querySelector('.k-badge'), enMarcha ? 'on' : auto ? 'ok' : 'off', enMarcha ? 'HACIENDO' : auto ? 'SOLO' : 'LISTO');
+    kSet(p.querySelector('.axh-auto-info'), auto
+      ? (cat ? `Activado: lo hará solo con ${cat.nombre}${t && !listas(e).length ? ` (próxima cosecha a las ${new Date(t).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })})` : ''}.` : 'Activado, pero elige arriba qué baya plantar.')
+      : 'Desactivado: solo lo hace cuando pulsas el botón de arriba.');
+    anotarSiguiente(e);
     const b = p.querySelector('.axh-todo');
     b.disabled = enMarcha;
     kSet(b, enMarcha ? '⏳ Haciéndolo…' : '🤖 Cosechar, plantar y regar');
@@ -450,7 +529,8 @@
           <div class="${K_TILE}"><b class="axh-t-riego tabular-nums">–</b><small>💧 Riego</small></div>
         </div>
         <button type="button" class="axh-todo boton-principal w-full !py-2.5 text-sm">🤖 Cosechar, plantar y regar</button>
-        <label class="k-switch text-[11px] font-bold leading-snug text-tinta-600"><input type="checkbox" class="axh-auto"><span>Hacerlo solo mientras tengas el huerto abierto (mira cada minuto)</span></label>
+        <label class="k-switch text-[11px] font-bold leading-snug text-tinta-600"><input type="checkbox" class="axh-auto"><span>Hacerlo solo, aunque no entres al huerto</span></label>
+        <p class="text-[10px] font-semibold leading-snug text-tinta-400">Con cualquier página de Aurora Dex abierta, cuando toca cosechar o regar abre el huerto sin que se vea, cosecha, planta la baya marcada en lo vacío y riega. Con el navegador cerrado no puede hacer nada. <b class="axh-auto-info text-tinta-500"></b></p>
         <div class="axh-log ${K_LOG}"></div>`;
       const caja = p.querySelector('.axh-log');
       for (const [ts, t] of registro) { const d = new Date(ts), q = document.createElement('p'); q.textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}  ${t}`; caja.appendChild(q); }
@@ -459,6 +539,18 @@
     }
     if (p.previousElementSibling !== nav) nav.insertAdjacentElement('afterend', p);
     pintar();
+  }
+
+  // En la ventana invisible: hacerlo todo y contárselo a la página de fuera
+  if (EN_FONDO) {
+    (async () => {
+      const e = await esperarA(() => { const x = estadoHuerto(true); return x && (x.abierto === false || (Array.isArray(x.parcelas) && bCosechar())) ? x : null; }, 15000);
+      if (!e || e.abierto === false) { parent.postMessage({ axh: 'fuera', motivo: e && e.motivo ? String(e.motivo) : null }, location.origin); return; }
+      const r = await hacerTodo(true);
+      const x = estadoHuerto();
+      parent.postMessage({ axh: 'hecho', hecho: (r && r.hecho) || [], error: r && r.error, prox: x ? proxima(x) : null }, location.origin);
+    })();
+    return;   // en la ventana invisible no hace falta panel
   }
 
   // Next.js no recarga al navegar: se vigila la página (sin reaccionar a los cambios del propio panel)
