@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.7.1
+// @version      1.7.2
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.7.1';
+  const VERSION = '1.7.2';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -1268,20 +1268,34 @@
     const b0 = bajadaActual();
     return { piso: cab ? cab.piso : 1, eq, ef, bend: bend.map(b => b.nombre), mej, principal: b0 ? b0.prestado : null, pluma: cab ? cab.pluma : true, esq: cab && cab.esquirlas || 0, vivo: true, plazas: eqL ? eqL.plazas : 4 + mej.plazas };
   }
+  // Se juega de 8 en 8 y se para en cuanto está claro: la mejor opción gana a cada una de las demás con margen (más de
+  // 2 errores), o la diferencia es tan pequeña que da igual cuál coger. Solo las decisiones reñidas llegan a R.
   async function valorar(S0, opciones, aplicar, { R } = ESFUERZO[conf.esfuerzo] || ESFUERZO.normal) {
-    const res = opciones.map(o => ({ o, suma: 0, fin: 0, vivos: 0, n: 0, pierde: 0 }));
+    const res = opciones.map(o => ({ o, suma: 0, fin: 0, vivos: 0, n: 0, pierde: 0, notas: [] }));
     const tope = Math.min(600, S0.piso + 200);
+    const claro = () => {
+      const mejor = res.reduce((a, x) => x.suma / x.n > a.suma / a.n ? x : a);
+      return res.every(x => {
+        if (x === mejor) return true;
+        const d = mejor.notas.map((v, i) => v - x.notas[i]), m = media(d);
+        const se = Math.sqrt(media(d.map(v => (v - m) ** 2)) / d.length);
+        // separadas con margen, o tan parecidas que da igual (menos de ~1 piso, o del 1% de la nota)
+        return m > 2 * se || m + 2 * se < Math.max(1, 0.01 * Math.abs(mejor.suma / mejor.n));
+      });
+    };
     for (let r = 0; r < R; r++) {
       for (const x of res) {
         const S = clonar(S0), base = semillaVida(r);
         aplicar(S, x.o, rngDe(base + S0.piso * 7919 + 31337));     // lo de ahora, con los dados de este piso
         if (S.piso === S0.piso && S.eq.some((y, k) => y.vida <= 0 && !(S0.eq[k] && S0.eq[k].vida <= 0)) || !S.vivo) x.pierde++;   // (puertas) la pierde
         recorrer(S, base, tope);
-        x.suma += puntuar(S0, S); x.fin += S.piso; x.vivos += S.vivo ? 1 : 0; x.n++;
+        const nota = puntuar(S0, S);
+        x.suma += nota; x.notas.push(nota); x.fin += S.piso; x.vivos += S.vivo ? 1 : 0; x.n++;
       }
       if (r % 4 === 3) await sleep(0);
+      if (res.length < 2 || (r >= 15 && r % 8 === 7 && claro())) break;
     }
-    const out = res.map(x => ({ o: x.o, v: x.suma / x.n, techo: x.fin / x.n, vivo: x.vivos / x.n, pierde: x.pierde / x.n }));
+    const out = res.map(x => ({ o: x.o, v: x.suma / x.n, techo: x.fin / x.n, vivo: x.vivos / x.n, pierde: x.pierde / x.n, n: x.n }));
     const base = Math.max(...out.map(x => x.techo));
     out.forEach(x => { x.dTecho = x.techo - base; });
     return out.sort((a, b) => b.v - a.v);
@@ -1327,8 +1341,21 @@
     const S0 = estadoActual(P);
     const ops = P.opciones.map(o => ({ ...o }));
     if (ops.length === 1) return { mejor: ops[0], lista: [{ o: ops[0], v: 0, techo: 0, vivo: 1, dTecho: 0 }], texto: ops[0].nombre, porque: 'es la única' };
-    const lista = await valorar(S0, ops, (S, o, rng) => jugarPuerta(S, o.clase, rng));
     const t = estadoEquipo(S0), pc = politica(S0, ops.map(o => o.clase));
+    // Atajos (no hace falta jugar bajadas enteras):
+    // · Élite antes del Nv.100: basta con ver cuántas veces se pierde ESA Élite (48 tiradas); si casi nunca, a por ella.
+    if (pc === 'elite') {
+      let pierde = 0;
+      for (let r = 0; r < 48; r++) { const S = clonar(S0); jugarPuerta(S, 'elite', rngDe(semillaVida(r) + S0.piso * 7919 + 31337)); if (S.piso === S0.piso || !S.vivo || S.eq.some((y, k) => y.vida <= 0 && !(S0.eq[k] && S0.eq[k].vida <= 0))) pierde++; }
+      if (pierde / 48 <= 0.15) {
+        const o = ops.find(x => x.clase === 'elite');
+        return { mejor: o, lista: [{ o, v: 0, techo: 0, vivo: 1, pierde: pierde / 48, dTecho: 0 }], texto: o.nombre, porque: `${t.flojo.nombre}${t.flojo === t.principal ? ' (tu principal)' : ''} aún está en Nv.${Math.round(t.flojo.L)}: Élite da 3 niveles (Combate, 2) y más esquirlas; se pierde ${pct(pierde / 48)} de las veces` };
+      }
+    }
+    // · Ya al Nv.100: solo compiten las puertas sin pelea (si solo hay una, ni se piensa)
+    const candidatas = t.al100 ? ops.filter(o => !['elite', 'combate'].includes(o.clase)) : ops;
+    if (t.al100 && candidatas.length === 1) return { mejor: candidatas[0], lista: [{ o: candidatas[0], v: 0, techo: 0, vivo: 1, dTecho: 0 }], texto: candidatas[0].nombre, porque: 'ya están al Nv.100: la única puerta sin pelea' };
+    const lista = await valorar(S0, candidatas.length ? candidatas : ops, (S, o, rng) => jugarPuerta(S, o.clase, rng));
     const lp = lista.find(x => x.o.clase === pc);
     let top = lista[0];
     const regla = !t.al100 ? (pc === 'elite' ? `${t.flojo.nombre}${t.flojo === t.principal ? ' (tu principal)' : ''} aún está en Nv.${Math.round(t.flojo.L)}: Élite da 3 niveles (Combate, 2) y más esquirlas` : t.falta || t.h < 0.55 ? 'el equipo va tocado: primero recuperarse' : 'sin Élite a mano, lo que más sube sin arriesgar')
@@ -1415,7 +1442,7 @@
     const S0 = estadoActual(P);
     if (!S0.eq.length) return null;
     await sleep(0);
-    const t = techo(S0, { R: 24 });
+    const t = techo(S0, { R: 16 });
     const tot = Object.values(t.caidas).reduce((a, b) => a + b, 0) || 1;
     const flojos = Object.entries(t.caidas).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id, n]) => ({ bioma: { id, ...(kb.biomas[id] || {}) }, p: n / tot }));
     const fin = t.fin.slice().sort((a, b) => a - b);
