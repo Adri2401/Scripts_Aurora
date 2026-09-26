@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.21.0
+// @version      1.22.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, recomienda el orden del equipo y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. Solo recomienda: no toca tu equipo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -439,7 +439,10 @@
     'agua/tierra', 'fuego/volador', 'planta/veneno', 'dragon/volador', 'acero/psiquico', 'agua/volador', 'roca/tierra', 'bicho/volador', 'normal/volador', 'siniestro/fantasma', 'electrico/acero', 'hielo/agua', 'lucha/acero', 'dragon/tierra', 'psiquico/hada', 'veneno/siniestro'];
   const PERFILES = [[80, 80, 80, 80, 80, 80], [70, 100, 70, 60, 70, 110], [100, 70, 100, 90, 100, 45], [75, 60, 70, 110, 90, 95]];
   const BANCO = GEN.flatMap(t => PERFILES.map(p => ({ ...stats(p, 50), L: 50, tipos: t.split('/') })));
-  const TIERS = [['S', 0.88, '#FFB23E'], ['A', 0.76, '#E0473A'], ['B', 0.62, '#A855F7'], ['C', 0.48, '#3B82F6'], ['D', 0.34, '#10B981'], ['E', 0.20, '#84CC16'], ['F', 0.08, '#94A3B8'], ['G', -1, '#64748B']];
+  // La letra sale de la NOTA (no del % de duelos ganados): contra rivales normales cualquier Pokémon fuerte con buen tipo
+  // los gana casi todos (Mantine salía por encima de Kyogre); la nota mide además por cuánto (golpes que necesita cada
+  // uno). Los cortes dejan en cada letra más o menos los mismos Pokémon que antes (de las 649 especies: S las 24 mejores…).
+  const TIERS = [['S', 0.757, '#FFB23E'], ['A', 0.663, '#E0473A'], ['B', 0.577, '#A855F7'], ['C', 0.476, '#3B82F6'], ['D', 0.406, '#10B981'], ['E', 0.296, '#84CC16'], ['F', 0.161, '#94A3B8'], ['G', -1, '#64748B']];
   const cacheTier = {};
   // Medida continua para comparar mejoras (un +10% casi nunca cambia un duelo entero, pero sí el margen):
   // golpes que necesita cada uno (sin redondear), medio turno de ventaja al más rápido → probabilidad de ganar
@@ -491,8 +494,8 @@
       gana += x;
       if (x < 1) for (const t of r.tipos) pierdePorTipo[t] = (pierdePorTipo[t] || 0) + (1 - x);
     }
-    const pct = gana / BANCO.length;
-    const [letra, , color] = TIERS.find(([, min]) => pct >= min);
+    const pct = gana / BANCO.length, nota = pctCon(yo);
+    const [letra, , color] = TIERS.find(([, min]) => nota >= min);
     // defensa y ataque por tipos
     const deb4 = [], deb2 = [], res = [], inm = [];
     for (const t of TIPOS) { const e = eficacia(t, d.t); if (e >= 4) deb4.push(t); else if (e >= 2) deb2.push(t); else if (e === 0) inm.push(t); else if (e < 1) res.push(t); }
@@ -500,7 +503,7 @@
     for (const t of TIPOS) { const e = Math.max(...d.t.map(a => eficacia(a, [t]))); if (e >= 2) fuerte.push(t); else if (e === 0) nulo.push(t); else if (e < 1) flojo.push(t); }
     const peores = Object.entries(pierdePorTipo).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t);
     const esp = Math.round((d.s[3] + d.s[4]) / 2);
-    const r = { holgazan: num === HOLGAZAN, letra, color, pct, d, deb4, deb2, res, inm, fuerte, nulo, flojo, peores, esp, ataque: d.s[1] >= d.s[3] ? 'ATQ (cuerpo a cuerpo)' : 'ESP (a distancia)' };
+    const r = { holgazan: num === HOLGAZAN, letra, color, pct, nota, d, deb4, deb2, res, inm, fuerte, nulo, flojo, peores, esp, ataque: d.s[1] >= d.s[3] ? 'ATQ (cuerpo a cuerpo)' : 'ESP (a distancia)' };
     cacheTier[clave] = r;
     return r;
   }
@@ -527,7 +530,7 @@
     const s = document.createElement('span');
     s.className = 'axt-tier';
     s.setAttribute('data-ax-ignore', '1');
-    s.title = `Tier ${t.letra}: gana el ${Math.round(t.pct * 100)}% de los duelos 1 contra 1 a igual nivel`;
+    s.title = `Tier ${t.letra} (nota ${Math.round(t.nota * 100)}/100): gana el ${Math.round(t.pct * 100)}% de los duelos 1 contra 1 a igual nivel`;
     s.textContent = t.letra;
     s.style.cssText = `display:inline-grid;place-items:center;min-width:${grande ? 26 : 17}px;height:${grande ? 26 : 17}px;padding:0 3px;border-radius:999px;` +
       `background:${t.color};color:#fff;font-weight:900;font-size:${grande ? 14 : 10}px;line-height:1;box-shadow:0 0 0 2px rgba(255,255,255,.85),0 1px 3px rgba(0,0,0,.35);pointer-events:none`;
@@ -583,7 +586,7 @@
       caja.innerHTML = `
         <p class="titulo-seccion">Análisis</p>
         <div class="flex items-center gap-2"></div>
-        <p class="text-[11px] font-semibold text-tinta-500">Gana el <b>${Math.round(t.pct * 100)}%</b> de los duelos 1 contra 1 contra rivales de todos los tipos a su mismo nivel. Ataca con <b>${t.ataque}</b>: el juego usa el mayor de los dos.${t.holgazan ? ' <b>Ausente:</b> solo ataca un turno sí y otro no (ya contado en el tier).' : ''} Base: ${total} (PS ${base[0]} · ATQ ${base[1]} · DEF ${base[2]} · ESP ${t.esp} · VEL ${base[5]}).</p>
+        <p class="text-[11px] font-semibold text-tinta-500">Nota <b>${Math.round(t.nota * 100)}/100</b>: gana el <b>${Math.round(t.pct * 100)}%</b> de los duelos 1 contra 1 contra rivales de todos los tipos a su mismo nivel, y la nota cuenta además por cuánto los gana o los pierde. Ataca con <b>${t.ataque}</b>: el juego usa el mayor de los dos.${t.holgazan ? ' <b>Ausente:</b> solo ataca un turno sí y otro no (ya contado en el tier).' : ''} Base: ${total} (PS ${base[0]} · ATQ ${base[1]} · DEF ${base[2]} · ESP ${t.esp} · VEL ${base[5]}).</p>
         ${fila('Débil ×4', t.deb4)}
         ${fila('Débil ×2', t.deb2)}
         ${fila('Resiste', t.res)}
@@ -646,7 +649,7 @@
       if (!ordenTier) { if (li.dataset.axtOrden) { li.style.order = ''; delete li.dataset.axtOrden; } continue; }
       const num = numDe(img), t = num && analizar(num, tiposEn(b));
       const nivel = parseInt((b.textContent.match(/Nv\.\s*(\d+)/) || [])[1], 10) || 0;
-      const o = t ? String(Math.round((1 - t.pct) * 10000) * 1000 + (999 - nivel)) : '99999999';
+      const o = t ? String(Math.round((1 - t.nota) * 10000) * 1000 + (999 - nivel)) : '99999999';
       if (li.style.order !== o) { li.style.order = o; li.dataset.axtOrden = '1'; }
     }
   }
@@ -999,9 +1002,9 @@
     const num = numSrc(c.sprite), k = (c.id != null ? c.id : c.sprite) + '|' + c.itemId + '|' + c.stats.total + '|' + (num && datos[num] ? 1 : 0);
     if (cacheTierT.has(k)) return cacheTierT.get(k);
     const yo = luchadorT(c);
-    const pct = BANCO.reduce((x, r) => x + duelo(yo, r), 0) / BANCO.length;
-    const [letra, , color] = TIERS.find(([, min]) => pct >= min);
-    const t = { letra, color, pct };
+    const pct = BANCO.reduce((x, r) => x + duelo(yo, r), 0) / BANCO.length, nota = pctCon(yo);
+    const [letra, , color] = TIERS.find(([, min]) => nota >= min);
+    const t = { letra, color, pct, nota };
     cacheTierT.set(k, t);
     return t;
   }
@@ -1138,7 +1141,7 @@
       const viejo = b.querySelector(':scope > .axt-tier');
       if (viejo) viejo.remove();
       const s = insignia(t);
-      s.title = `Tier ${t.letra}: gana el ${Math.round(t.pct * 100)}% de los duelos 1 contra 1 a Nv.50${c.itemId && OBJETOS[c.itemId] ? ' (con su objeto)' : ''}`;
+      s.title = `Tier ${t.letra} (nota ${Math.round(t.nota * 100)}/100): gana el ${Math.round(t.pct * 100)}% de los duelos 1 contra 1 a Nv.50${c.itemId && OBJETOS[c.itemId] ? ' (con su objeto)' : ''}`;
       s.style.position = 'absolute'; s.style.left = '-4px'; s.style.bottom = '-4px';
       b.appendChild(s);
       b.dataset.axtNum = firma;
