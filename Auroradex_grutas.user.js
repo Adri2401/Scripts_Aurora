@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Grutas del Subsuelo (todas las vetas)
 // @namespace    auroradex-grutas
-// @version      0.4.0
-// @description  Solo en /subsuelo. Pica las vetas por el camino más corto (el mínimo de pasos, que es lo que cuesta energía al andar; con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa que manda el servidor, con cada veta, su tipo y cuándo se vuelve a llenar) y recuerda todo lo que ve; «🧭 Explorar» recorre lo que falta para conocer todas las vetas. Eliges qué tipos picar (p. ej. solo 🔴 Esfera roja). Calcula el mejor orden y lado de cada veta, lo dibuja encima del mapa y lo recorre solo con flechas y clics (hasta 3 casillas por clic cuando es seguro). Nunca pisa escaleras, la Sima ni puertas. Se para si no llega la energía y sigue donde lo dejó.
+// @version      0.5.0
+// @description  Solo en /subsuelo. Pica las vetas (y Poké Balls) por el camino más corto: el mínimo de pasos, que es lo que cuesta energía al andar (con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa que manda el servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve; «🧭 Explorar» recorre lo que falta para conocer todas las vetas. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar (p. ej. solo 🔴 Esfera roja) y el ritmo (humano por defecto, con pausas al azar). Dibuja el camino encima del mapa y se para si no llega la energía; sigue donde lo dejó.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_grutas.user.js
@@ -299,7 +299,7 @@
    *  AJUSTES Y MEMORIA
    * ------------------------------------------------------------------ */
   const PANEL_ID = 'axsub-panel', U = '#' + PANEL_ID, DIBUJO_ID = 'axsub-dibujo';
-  const VERSION = '0.4.0';
+  const VERSION = '0.5.0';
   const LS_CFG = 'axsub-cfg', LS_MEM = 'axsub-mem-v1';
   const H12 = 12 * 3600e3, H24 = 24 * 3600e3;
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -311,7 +311,18 @@
   const lsLee = (k, def) => { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v ?? def; } catch { return def; } };
   const lsPon = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin storage */ } };
 
-  const cfg = Object.assign({ agua: true, dibujar: true }, lsLee(LS_CFG, {}));
+  const cfg = Object.assign({ agua: true, dibujar: true, ritmo: 'humano' }, lsLee(LS_CFG, {}));
+  // Ritmo: «humano» (por defecto) mete pausas al azar entre pasos, antes y después de picar y, de vez en cuando,
+  // un descanso más largo, para no ir a golpe de reloj; «rápido» va tan deprisa como deja el juego
+  const RITMOS = {
+    humano: { paso: [420, 1150], antesPicar: [650, 1500], trasPicar: [900, 2000], descanso: 0.07, largo: [1800, 4500] },
+    rapido: { paso: [40, 140], antesPicar: [150, 300], trasPicar: [250, 500], descanso: 0, largo: [0, 0] },
+  };
+  async function respiro(tipo) {
+    const r = RITMOS[cfg.ritmo] || RITMOS.humano;
+    await pausa(r[tipo][0], r[tipo][1]);
+    if (tipo === 'paso' && Math.random() < r.descanso) await pausa(r.largo[0], r.largo[1]);
+  }
   const guardaCfg = () => lsPon(LS_CFG, cfg);
 
   // Memoria por mapa (marco): lo que se ha visto en el dibujo, dónde hay vetas y cosas, qué casillas no dejan pasar
@@ -378,8 +389,8 @@
       const titulo = el.title || el.getAttribute('title') || '';
       const txt = (el.textContent || '').trim();
       let tipo = 'objeto';
-      if (/nodo|filon|veta|mineral/i.test(bg) || /picar|veta|fil[oó]n/i.test(titulo)) tipo = 'veta';
-      else if (/pok[eé]\s*ball/i.test(titulo) || /poke_?ball/i.test(bg)) tipo = 'ball';
+      if (/pok[eé]\s*ball|pok[eé]bola|abrir/i.test(titulo) || /poke_?ball|pokebola|\/ball/i.test(bg)) tipo = 'ball';
+      else if (/nodo|filon|veta|mineral/i.test(bg) || /picar|veta|fil[oó]n/i.test(titulo)) tipo = 'veta';
       else if (/breakable_door/.test(bg) || /^base de/i.test(titulo)) tipo = 'puerta';
       else if (el.querySelector('.boca-sima') || el.classList.contains('boca-sima') || /sima/i.test(titulo)) tipo = 'sima';
       else if (/c[aá]mara|losa|sellad/i.test(titulo) || /🔒|🔆|🚪/u.test(txt)) tipo = 'losa';
@@ -563,12 +574,18 @@
     let f = actual(fibraDe(t.cv));
     for (let i = 0; f && i < 30; f = f.return, i++) {
       if (f.type !== sitioVentana.tipo) continue;
-      const vals = valoresFibra(f);
-      const plano = vals.find(([, v]) => comoPlano(v));
-      if (plano) guardarPlano(plano[1]);
-      const par = vals.find(([k]) => k === sitioVentana.donde);
-      if (par && comoVentana(par[1])) return { ruta: sitioVentana.ruta, v: par[1] };
-      return null;
+      // React guarda dos copias del componente (la de pantalla y la anterior): se cogen las dos y luego se elige
+      // la que encaja con lo que se ve
+      const cands = [];
+      for (const ff of [f, f.alternate]) {
+        if (!ff) continue;
+        const vals = valoresFibra(ff);
+        const plano = vals.find(([, v]) => comoPlano(v));
+        if (plano) guardarPlano(plano[1]);
+        const par = vals.find(([k]) => k === sitioVentana.donde);
+        if (par && comoVentana(par[1]) && !cands.some(c => c.v === par[1])) cands.push({ ruta: sitioVentana.ruta, v: par[1] });
+      }
+      return cands.length ? { ...cands[0], alternativas: cands } : null;
     }
     return null;
   }
@@ -690,8 +707,8 @@
     if (!yo) return { error: 'No te veo en el mapa.' };
     if (entreCasillas) return { error: 'Moviéndose…', moviendo: true, t, cosas, yo };
     const datos0 = datosPagina(t);
-    if (datos0.ventana) return observarDatos(t, cosas, yo, datos0);
     await cargarRefs(t.tc);
+    if (datos0.ventana) return observarDatos(t, cosas, yo, datos0);
     if (!refs.length) return { error: refsError || 'No cargo las imágenes de la leyenda.' };
     const v = leerVista(t);
     if (v.error) return { error: v.error };
@@ -806,49 +823,73 @@
     if (planoMemo && planoMemo.t !== t0) { log(`🗺️ Mapa entero leído: ${planoMemo.ancho}×${planoMemo.alto} casillas.`); return true; }
     return false;
   }
+  let ultimoDibujo = null;
   function observarDatos(t, cosas, yo, datos) {
-    const vp = datos.ventana.v;
     if (marco !== 'datos') { marco = 'datos'; camPrev = null; prediccion = null; }
     const m = mem();
-    for (const k of ['cod', 'nodos', 'objs', 'vetas', 'sinPaso', 'pisables', 'costes', 'codMal']) if (!m[k]) m[k] = {};
-    // cámara: la ventana del juego va centrada en ti (así es en la web); lo que se ve encima (puertas por su nombre,
-    // vetas y cámaras en su sitio) lo confirma, y solo si lo contradice claramente se busca otro encaje
-    const bases = lista(vp.basesVisibles), nodosV = lista(vp.nodosVisibles).filter(Boolean), camaras = lista(vp.camarasVisibles);
-    const baseDe = c => { const nom = c.titulo.replace(/^base (secreta )?de\s*/i, '').trim(); return bases.find(x => x && x.nombre === nom) || null; };
-    const encaje = cm => {
-      let bien = 0, mal = 0;
-      for (const c of cosas) {
-        const x = cm.x + c.c, y = cm.y + c.f;
-        let hay = null;
-        if (c.tipo === 'puerta') { const b = baseDe(c); if (b) hay = b.x === x && b.y === y; }
-        else if (c.tipo === 'veta') hay = nodosV.some(n => n.x === x && n.y === y);
-        else if (c.tipo === 'losa' && camaras.length) hay = camaras.some(n => n && n.x === x && n.y === y);
-        if (hay === true) bien++; else if (hay === false) mal++;
-      }
-      return bien - 2 * mal;
-    };
-    const centro = { x: vp.xBase + Math.floor((vp.ancho - t.cols) / 2), y: vp.yBase + Math.floor((vp.alto - t.rows) / 2) };
-    let cam = centro, nota = encaje(centro);
-    if (nota < 0) {
-      // otros encajes posibles: los que dan las puertas por su nombre
-      for (const c of cosas) {
+    for (const k of ['cod', 'nodos', 'objs', 'vetas', 'sinPaso', 'pisables', 'costes', 'codMal', 'votos']) if (!m[k]) m[k] = {};
+    const vista = refs && refs.length ? leerVista(t) : null;
+    // cámara: la ventana del juego va centrada en ti; lo que se ve encima (puertas por su nombre, vetas y cámaras en su
+    // sitio) y el suelo dibujado lo confirman. Si hay dos copias de los datos (la actual y la anterior), gana la que encaja
+    const probar = w => {
+      const bases = lista(w.basesVisibles), nodosV = lista(w.nodosVisibles).filter(Boolean), camaras = lista(w.camarasVisibles);
+      const baseDe = c => { const nom = c.titulo.replace(/^base (secreta )?de\s*/i, '').trim(); return bases.find(x => x && x.nombre === nom) || null; };
+      const encaje = cm => {
+        let bien = 0, mal = 0;
+        for (const c of cosas) {
+          const x = cm.x + c.c, y = cm.y + c.f;
+          let hay = null;
+          if (c.tipo === 'puerta') { const b = baseDe(c); if (b) hay = b.x === x && b.y === y; }
+          else if (c.tipo === 'veta') hay = nodosV.some(n => n.x === x && n.y === y);
+          else if (c.tipo === 'losa' && camaras.length) hay = camaras.some(n => n && n.x === x && n.y === y);
+          if (hay === true) bien++; else if (hay === false) mal++;
+        }
+        return { nota: bien - 2 * mal, mal };
+      };
+      // el suelo que se ve dibujado tal cual (la imagen de la leyenda) debe caer en casillas de suelo, no de roca
+      const suelo = cm => {
+        let bien = 0, mal = 0;
+        if (!vista || !vista.tipos) return { bien, mal };
+        for (let r = 0; r < t.rows; r++) for (let c = 0; c < t.cols; c++) {
+          if (vista.tipos[r][c] !== 'suelo' || vista.difs[r][c] > 20) continue;
+          const x = cm.x + c - w.xBase, y = cm.y + r - w.yBase;
+          if (x < 0 || y < 0 || x >= w.ancho || y >= w.alto) continue;
+          const cod = w.tiles[y * w.ancho + x];
+          if (cod === 0 || cod === 4) mal++; else if (cod === 1) bien++;
+        }
+        return { bien, mal };
+      };
+      const centro = { x: w.xBase + Math.floor((w.ancho - t.cols) / 2), y: w.yBase + Math.floor((w.alto - t.rows) / 2) };
+      let cam = centro, e = encaje(centro);
+      if (e.nota < 0) for (const c of cosas) {
         if (c.tipo !== 'puerta') continue;
         const b = baseDe(c);
         if (!b) continue;
-        const cm = { x: b.x - c.c, y: b.y - c.f }, n = encaje(cm);
-        if (n > nota) { cam = cm; nota = n; }
+        const cm = { x: b.x - c.c, y: b.y - c.f }, e2 = encaje(cm);
+        if (e2.nota > e.nota) { cam = cm; e = e2; }
       }
-    }
+      const sl = suelo(cam);
+      return { vp: w, cam, nota: e.nota * 3 + sl.bien - 3 * sl.mal, limpio: e.mal === 0 && sl.mal === 0 };
+    };
+    const opciones = (datos.ventana.alternativas || [datos.ventana]).map(w => probar(w.v));
+    opciones.sort((a, b) => b.nota - a.nota);
+    const { vp, cam, limpio } = opciones[0];
     camPrev = cam;
     const ahora = Date.now();
     const x0 = vp.xBase, y0 = vp.yBase, x1 = x0 + vp.ancho - 1, y1 = y0 + vp.alto - 1;
     const enVentana = (x, y) => x >= x0 && y >= y0 && x <= x1 && y <= y1;
     for (let y = 0; y < vp.alto; y++) for (let x = 0; x < vp.ancho; x++) m.cod[K(x0 + x, y0 + y)] = vp.tiles[y * vp.ancho + x];
     // vetas (todas las de la ventana vienen en la lista: las que ya no están se borran)
-    for (const k of Object.keys(m.nodos)) { const p = deK(k); if (enVentana(p.x, p.y)) delete m.nodos[k]; }
+    const visible = (x, y) => x >= cam.x && y >= cam.y && x < cam.x + t.cols && y < cam.y + t.rows;
+    for (const k of Object.keys(m.nodos)) { const p = deK(k); if (enVentana(p.x, p.y) && (!m.nodos[k].dom || visible(p.x, p.y))) delete m.nodos[k]; }
     for (const n of lista(vp.nodosVisibles)) {
       if (!n || !Number.isInteger(n.x) || !Number.isInteger(n.y)) continue;
       m.nodos[K(n.x, n.y)] = { tipo: String(n.tipoId ?? n.tipo ?? 'veta'), activo: n.activo !== false, disp: n.disponibleEn ?? null, visto: ahora };
+    }
+    for (const c of cosas) {
+      if (c.tipo !== 'ball') continue;
+      const k = K(cam.x + c.c, cam.y + c.f);
+      if (!m.nodos[k]) m.nodos[k] = { tipo: 'pokeball', activo: !c.vacia, disp: null, visto: ahora, dom: true };
     }
     // lo que no se puede pisar: puertas de bases, cámaras, escaleras, la Sima
     for (const k of Object.keys(m.objs)) { const p = deK(k); if (enVentana(p.x, p.y)) delete m.objs[k]; }
@@ -857,7 +898,7 @@
       const w = Number.isInteger(it.ancho) ? it.ancho : Number.isInteger(it.w) ? it.w : 1, h = Number.isInteger(it.alto) ? it.alto : Number.isInteger(it.h) ? it.h : 1;
       for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) m.objs[K(it.x + dx, it.y + dy)] = { t: tipo, titulo, visto: ahora };
     };
-    for (const b of bases) poner(b, 'puerta', 'Base de ' + (b && b.nombre));
+    for (const b of lista(vp.basesVisibles)) poner(b, 'puerta', 'Base de ' + (b && b.nombre));
     for (const c of lista(vp.camarasVisibles)) poner(c, 'losa', c && c.nombre);
     for (const s of lista(vp.salidasVisibles)) poner(s, 'salida', 'Escalera');
     for (const s of lista(vp.simaVisible)) poner(s, 'sima', 'La Sima');
@@ -867,13 +908,32 @@
       if (c.tipo === 'veta' || c.tipo === 'ball' || c.tipo === 'puerta' || c.tipo === 'losa') continue;
       for (let dy = 0; dy < c.h; dy++) for (let dx = 0; dx < c.w; dx++) m.objs[K(c.x + dx, c.y + dy)] = { t: c.tipo, titulo: c.titulo, visto: ahora };
     }
+    // Qué es cada código según cómo lo dibuja el juego: cada casilla a la vista que se parece mucho a una imagen
+    // de la leyenda (suelo, roca, agua, lava, escalera) vota por ella; así la lava se sabe antes de pisarla
+    // (solo con la pantalla quieta: justo al andar, el dibujo va un paso por detrás de los datos)
+    const hc = hashCanvas(t), quieta = ultimoDibujo && ultimoDibujo.h === hc && ultimoDibujo.x === cam.x && ultimoDibujo.y === cam.y;
+    ultimoDibujo = { h: hc, x: cam.x, y: cam.y };
+    if (quieta && limpio && vista) {
+      if (vista.tipos) {
+        const ocupada = new Set(cosas.map(c => K(c.c, c.f)));
+        for (let r = 0; r < t.rows; r++) for (let c = 0; c < t.cols; c++) {
+          const tp = vista.tipos[r][c];
+          // (la lava tiene un color tan suyo que se le deja algo más de margen)
+          if (tp === 'fuera' || tp === 'raro' || vista.difs[r][c] > (tp === 'lava' ? 60 : 35) || ocupada.has(K(c, r)) || (c === yo.c && r === yo.f)) continue;
+          const cod = m.cod[K(cam.x + c, cam.y + r)];
+          if (cod == null) continue;
+          const vv = m.votos[cod] || (m.votos[cod] = {});
+          if ((vv[tp] || 0) < 500) vv[tp] = (vv[tp] || 0) + 1;
+        }
+      }
+    }
     const pos = { x: cam.x + yo.c, y: cam.y + yo.f };
     // si estás encima de una casilla, esa clase de casilla se puede pisar (así se aprenden los códigos nuevos)
     const bajo = m.cod[K(pos.x, pos.y)];
     if (bajo != null && !CODIGOS[bajo]) m.pisables[bajo] = true;
     guardarMem();
     const enVista = (x, y) => x >= cam.x && y >= cam.y && x < cam.x + t.cols && y < cam.y + t.rows;
-    const o = { ok: true, t, cosas, yo, cam, pos, datos, vp, fuente: 'datos', hash: hashCanvas(t) ^ (pos.x * 7919 + pos.y), enVista,
+    const o = { ok: true, t, cosas, yo, cam, pos, datos, vp, fuente: 'datos', hash: hc ^ (pos.x * 7919 + pos.y), enVista,
       pasosHastaGasto: vp.pasosHastaGasto, pasosPorEnergia: vp.pasosPorEnergia };
     ultimaObs = o;
     return o;
@@ -887,12 +947,24 @@
     if (tp in t) return t[tp] !== false;
     return !Object.values(t).some(v => v === false);
   };
+  // Lo que dice el dibujo de un código: al menos 4 casillas vistas y 7 de cada 10 iguales
+  function votado(m, c) {
+    const vv = m.votos && m.votos[c];
+    if (!vv) return null;
+    const tot = Object.values(vv).reduce((a, b) => a + b, 0);
+    const [tp, n] = Object.entries(vv).sort((a, b) => b[1] - a[1])[0] || [];
+    return tot >= 4 && n / tot >= 0.7 ? tp : null;
+  }
   function construirMapaDatos(o) {
     const m = mem(), ahora = Date.now();
     const tipoDeCod = c => {
       if (m.pisables[c] && CODIGOS[c] !== 'agua') return 'suelo';
       if (CODIGOS[c]) return CODIGOS[c];
-      return (m.codMal[c] || 0) >= 2 ? 'pared' : 'probar';
+      const vd = votado(m, c);
+      if (vd === 'lava' || vd === 'pared' || vd === 'salida') return vd;
+      if ((m.codMal[c] || 0) >= 2) return 'pared';
+      if (vd === 'agua') return 'agua';
+      return 'probar';
     };
     const codEn = (x, y) => { const c = m.cod[K(x, y)]; return c == null ? codPlano(x, y) : c; };
     const tipoEn = (x, y) => { const c = codEn(x, y); return c == null ? 'desconocido' : tipoDeCod(c); };
@@ -1111,7 +1183,7 @@
     // solo las que se pueden alcanzar
     const alcanzables = obj.filter(ob => ob.ids.some(id => D[id] < INF));
     const sinCamino = disp.length - alcanzables.length;
-    const orden = alcanzables.length <= 14 ? ordenExacto(alcanzables, D, n) : ordenHeuristico(alcanzables, D, n, tope);
+    const orden = alcanzables.length <= (tope >= 700 ? 15 : 14) ? ordenExacto(alcanzables, D, n) : ordenHeuristico(alcanzables, D, n, tope);
     // camino completo
     const ruta = [{ ...inicio }], paradas = [];
     let desde = inicio;
@@ -1417,7 +1489,13 @@
     return 'ok';
   }
   function elementoVeta(o, v) {
-    return o.cosas.find(c => (c.tipo === 'veta' || c.tipo === 'ball') && c.x === v.x && c.y === v.y) || null;
+    const c = o.cosas.find(x => (x.tipo === 'veta' || x.tipo === 'ball') && x.x === v.x && x.y === v.y)
+      // con los datos del juego se sabe que ahí hay algo que picar (p. ej. una Poké Ball con otro dibujo): vale lo que haya encima
+      || (o.fuente === 'datos' ? o.cosas.find(x => x.x === v.x && x.y === v.y && x.tipo !== 'puerta' && x.tipo !== 'losa') : null);
+    if (c) return c;
+    // y si no hay nada encima (lo dibuja el propio mapa), se hace clic en su casilla
+    if (o.fuente === 'datos' && o.enVista(v.x, v.y)) return { el: null, casilla: true, vacia: false, titulo: '' };
+    return null;
   }
   // Lo que sale en pantalla mientras se pica (para apuntar qué ha dado la veta)
   const RE_BOTIN = /has (recogido|conseguido|obtenido|encontrado)|te llevas|sacas/i;
@@ -1448,8 +1526,9 @@
         const ob = await esperarQuieto(600);
         const cosa = ob.ok ? elementoVeta(ob, v) : null;
         if (!cosa || cosa.vacia) { hecho = intento > 0; if (!hecho) { const mv = m.vetas[v.k] || (m.vetas[v.k] = {}); mv.vacia = Date.now(); } break; }
+        if (intento === 0) await respiro('antesPicar');
         if (intento === 0) log(`⛏️ Pico ${v.tipoId ? emojiTipo(v.tipoId) + ' ' + nombreTipo(v.tipoId) : cosa.titulo && !/acércate/i.test(cosa.titulo) ? cosa.titulo : 'la veta'} (${v.x},${v.y})…`);
-        cosa.el.click();
+        if (cosa.el) cosa.el.click(); else clicCasilla(ob.t, v.x - ob.cam.x, v.y - ob.cam.y);
         const t0 = Date.now();
         while (Date.now() - t0 < 6000 && corriendo) {
           await sleep(200);
@@ -1458,6 +1537,7 @@
           if (r === 'ok') continue;
           if (fin.hay()) { hecho = true; break; }
           const o2 = await observar();
+          if (o2.ok && o2.vp && lista(o2.vp.nodosVisibles).some(n => n && n.x === v.x && n.y === v.y && n.activo === false)) { hecho = true; break; }
           const c2 = o2.ok ? elementoVeta(o2, v) : null;
           if (!c2 || c2.vacia) { hecho = true; break; }
           const e1 = energia();
@@ -1563,13 +1643,14 @@
           if (!corriendo) break;
           plan = null;
           fallosSeguidos = 0;
-          await pausa(250, 500);
+          await respiro('trasPicar');
           continue;
         }
         // siguiente trozo del camino: un clic (hasta 3 casillas) si es seguro; si no, una flecha
         const desde = plan.ruta[plan.cursor];
         let salto = 1;
-        for (let j = Math.min(3, sig.idx - plan.cursor); j >= 2; j--) {
+        const maxSalto = cfg.ritmo === 'rapido' ? 3 : [1, 2, 3, 3, 3][Math.floor(Math.random() * 5)];
+        for (let j = Math.min(maxSalto, sig.idx - plan.cursor); j >= 2; j--) {
           const h = plan.ruta[plan.cursor + j];
           if (Math.abs(h.x - desde.x) + Math.abs(h.y - desde.y) === j && puedeClicar(o, plan.mapa, desde, h)) { salto = j; break; }
         }
@@ -1588,7 +1669,7 @@
           o2 = await esperarMovimiento(o.pos);
           if (movido(o2)) { pasoConClic = true; log('ℹ️ Las flechas no me funcionan aquí: ando con clics.'); }
         }
-        if (movido(o2)) { movOk++; fallosSeguidos = 0; if (salto > 1) fallosClic = 0; await (o2.fuente === 'datos' ? pausa(40, 120) : pausa(120, 300)); continue; }
+        if (movido(o2)) { movOk++; fallosSeguidos = 0; if (salto > 1) fallosClic = 0; await respiro('paso'); continue; }
         // no se ha movido
         const e1 = energia();
         if (e1 && e1.e === 0 && e0 && e0.e === 0) { parar('Te has quedado sin energía para andar.', 'energia'); break; }
@@ -1718,7 +1799,7 @@
     if (t) out.arbol = repasoArbol(t);
     if (plan) out.plan = { pasos: plan.pasos, vetas: plan.paradas.map(p => [p.v.x, p.v.y, p.v.coste]), disponibles: plan.disponibles, total: plan.total, sinCamino: plan.sinCamino, chars: [...plan.mapa.charTipo] };
     const m = mem();
-    if (m) out.memoria = { celdas: Object.keys(m.celdas || {}).length, cod: Object.keys(m.cod || {}).length, nodos: m.nodos, pisables: m.pisables, costes: m.costes, vetas: m.vetas, objs: Object.keys(m.objs || {}).length, sinPaso: m.sinPaso };
+    if (m) out.memoria = { celdas: Object.keys(m.celdas || {}).length, cod: Object.keys(m.cod || {}).length, nodos: m.nodos, pisables: m.pisables, codMal: m.codMal, votos: m.votos, costes: m.costes, vetas: m.vetas, objs: Object.keys(m.objs || {}).length, sinPaso: m.sinPaso };
     if (htmlDesconocido) out.htmlVentana = htmlDesconocido.slice(0, 20000);
     out.registro = registro.slice(-40).map(([ts, tx]) => new Date(ts).toTimeString().slice(0, 8) + '  ' + tx);
     const txt = JSON.stringify(out, null, 1);
@@ -1765,6 +1846,7 @@
         <p class="axsub-info"></p>
         <p class="axsub-err" hidden></p>
         <label class="k-switch"><input type="checkbox" class="axsub-agua"><span class="text-xs font-bold text-tinta-600">🌊 Cruzar el agua (Medalla Ciénaga)</span></label>
+        <div class="k-seg axsub-ritmo" style="--k-cols:2"><button type="button" data-r="humano"><span>🐢</span>Ritmo humano</button><button type="button" data-r="rapido"><span>🐇</span>Rápido</button></div>
         <label class="k-switch"><input type="checkbox" class="axsub-dib"><span class="text-xs font-bold text-tinta-600">🗺️ Dibujar el camino en el mapa</span></label>
         <button type="button" class="axsub-go boton-principal w-full !py-2.5 text-sm">⛏️ Picarlas todas (camino más corto)</button>
         <button type="button" class="axsub-exp boton-secundario w-full !py-2 text-xs">🧭 Explorar el mapa (para conocer todas las vetas)</button>
@@ -1779,6 +1861,12 @@
       p.querySelector('.axsub-go').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); recorrer('picar'); });
       p.querySelector('.axsub-exp').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); recorrer('explorar'); });
       p.querySelector('.axsub-copiar').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); copiarDatos(); });
+      p.querySelector('.axsub-ritmo').addEventListener('click', e => {
+        const b = e.target.closest('button[data-r]');
+        if (!b) return;
+        e.preventDefault(); e.stopPropagation();
+        cfg.ritmo = b.dataset.r; guardaCfg(); pintar();
+      });
       p.querySelector('.axsub-tipos').addEventListener('click', e => {
         const b = e.target.closest('button[data-tipo]');
         if (!b) return;
@@ -1836,6 +1924,7 @@
     } else {
       kSet(p.querySelector('.axsub-t-vetas'), '–'); kSet(p.querySelector('.axsub-t-pasos'), '–'); kSet(p.querySelector('.axsub-t-gasto'), '–');
     }
+    for (const b of p.querySelectorAll('.axsub-ritmo button')) { const on = b.dataset.r === cfg.ritmo; b.className = on ? K_ON : K_OFF; b.setAttribute('aria-pressed', String(on)); }
     pintarTipos(p);
     dibujar(o);
   }
@@ -1882,7 +1971,7 @@
   }
 
   // Para probar sin la web
-  window.__axSub = { codPlano, porVer, planExplorar, tablero, leerCosas, energia, pasosParaCobro, planificar, construirMapa, ordenExacto, ordenHeuristico, cobroAndar, observar, copiarDatos, mems: () => mems };
+  window.__axSub = { leerVista, codPlano, porVer, planExplorar, tablero, leerCosas, energia, pasosParaCobro, planificar, construirMapa, ordenExacto, ordenHeuristico, cobroAndar, observar, copiarDatos, mems: () => mems };
 
   esperarHidratacion().then(() => { tick(); setInterval(tick, 1500); });
 })();
