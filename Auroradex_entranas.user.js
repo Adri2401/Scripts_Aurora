@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.9.1
+// @version      1.9.2
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.9.1';
+  const VERSION = '1.9.2';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -1819,12 +1819,57 @@
     guardaKb();
     return n;
   }
+  /* Lee un fichero de datos aunque venga tocado: con saltos de línea metidos por el móvil o un editor, con varias
+   * exportaciones pegadas una detrás de otra, o cortado. Si no hay otra, rescata solo la base («kb»), que es lo que importa */
+  function valoresJSON(txt) {
+    // trozos de primer nivel ({…} o […]) uno detrás de otro, respetando las cadenas
+    const out = [];
+    let prof = 0, ini = -1, enCad = false, esc = false;
+    for (let i = 0; i < txt.length; i++) {
+      const c = txt[i];
+      if (enCad) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') enCad = false; continue; }
+      if (c === '"') { enCad = true; continue; }
+      if (c === '{' || c === '[') { if (prof === 0) ini = i; prof++; }
+      else if ((c === '}' || c === ']') && prof > 0) { prof--; if (prof === 0 && ini >= 0) { out.push(txt.slice(ini, i + 1)); ini = -1; } }
+    }
+    return out;
+  }
+  function objetoTrasClave(txt, clave) {
+    // el objeto que va detrás de "clave": (con sus llaves bien cerradas), o null
+    const i = txt.indexOf('"' + clave + '":');
+    if (i < 0) return null;
+    const a = txt.indexOf('{', i);
+    if (a < 0) return null;
+    const trozo = valoresJSON(txt.slice(a))[0];
+    try { return trozo ? JSON.parse(trozo) : null; } catch { return null; }
+  }
+  function leerDatos(texto) {
+    const txt = String(texto || '').replace(/^\uFEFF/, '').trim();
+    const probar = t => { try { return JSON.parse(t); } catch { return undefined; } };
+    let d = probar(txt);
+    if (d !== undefined) return { d };
+    d = probar(txt.replace(/[\r\n]+/g, ''));
+    if (d !== undefined) return { d, aviso: 'tenía saltos de línea de más' };
+    const trozos = valoresJSON(txt.replace(/[\r\n]+/g, '')).map(probar).filter(x => x && typeof x === 'object');
+    const conKb = trozos.filter(x => x.kb).sort((a, b) => String(b.exportado || '').localeCompare(String(a.exportado || '')))[0];
+    if (conKb) return { d: conKb, aviso: trozos.length > 1 ? `traía ${trozos.length} exportaciones pegadas: uso la más reciente` : 'estaba tocado' };
+    const reg = trozos.find(x => x.registro);
+    if (reg) return { d: reg };
+    const kb = objetoTrasClave(txt.replace(/[\r\n]+/g, ''), 'kb');
+    if (kb && kb.especies) {
+      const esq = +((txt.match(/"esquema"\s*:\s*(\d+)/) || [])[1] || 0);
+      return { d: { kb, esquema: esq || ESQUEMA, conf: objetoTrasClave(txt, 'conf') || undefined, diario: [] }, aviso: 'estaba roto: he rescatado lo aprendido (sin el diario)' };
+    }
+    throw new Error('no es un JSON válido ni se puede rescatar nada de él');
+  }
   function importar(archivo) {
     const fr = new FileReader();
     fr.onload = () => {
       try {
-        const d = JSON.parse(fr.result);
-        if (d.kb && d.esquema === ESQUEMA) {
+        const { d, aviso } = leerDatos(fr.result);
+        if (aviso) log('ℹ️ El fichero ' + aviso + '.');
+        if (d.kb && d.esquema !== ESQUEMA) log(`⚠ Ese fichero es de otra versión de los datos (esquema ${d.esquema}; este script usa el ${ESQUEMA}): no lo mezclo.`);
+        else if (d.kb) {
           if (!confirm(`¿Cambiar tu base por la del fichero? (${Object.keys(d.kb.especies).length} especies, ${d.kb.bajadas.length} bajadas)`)) return;
           kb = d.kb; guardaKb(); (d.diario || []).forEach(x => DIARIO.poner(x)); log(`📥 Base importada (${(d.diario || []).length} pasos al diario).`);
         } else if (d.registro) {
