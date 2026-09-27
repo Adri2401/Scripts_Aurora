@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Grutas del Subsuelo (todas las vetas)
 // @namespace    auroradex-grutas
-// @version      0.5.1
-// @description  Solo en /subsuelo. Pica las vetas (y Poké Balls) por el camino más corto: el mínimo de pasos, que es lo que cuesta energía al andar (con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa que manda el servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve; «🧭 Explorar» recorre lo que falta para conocer todas las vetas. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar (p. ej. solo 🔴 Esfera roja) y el ritmo (humano por defecto, con pausas al azar). Dibuja el camino encima del mapa y se para si no llega la energía; sigue donde lo dejó.
+// @version      0.6.0
+// @description  Solo en /subsuelo. «🧭 Explorar y picar»: recorre el mapa deprisa y pica cada veta (y Poké Ball) que ve de los tipos elegidos. «⛏️ Picarlas todas»: el camino más corto por todas las que conoce (el mínimo de pasos, que es lo que cuesta energía al andar; con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa del servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar y el ritmo (humano por defecto). Dibuja el camino y se para si no llega la energía; sigue donde lo dejó.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_grutas.user.js
@@ -299,7 +299,7 @@
    *  AJUSTES Y MEMORIA
    * ------------------------------------------------------------------ */
   const PANEL_ID = 'axsub-panel', U = '#' + PANEL_ID, DIBUJO_ID = 'axsub-dibujo';
-  const VERSION = '0.5.1';
+  const VERSION = '0.6.0';
   const LS_CFG = 'axsub-cfg', LS_MEM = 'axsub-mem-v1';
   const H12 = 12 * 3600e3, H24 = 24 * 3600e3;
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -317,9 +317,12 @@
   const RITMOS = {
     humano: { paso: [420, 1150], antesPicar: [650, 1500], trasPicar: [900, 2000], descanso: 0.07, largo: [1800, 4500] },
     rapido: { paso: [40, 140], antesPicar: [150, 300], trasPicar: [250, 500], descanso: 0, largo: [0, 0] },
+    // explorando con ritmo humano: más deprisa, pero sin ir a golpe de reloj
+    explorar: { paso: [90, 260], antesPicar: [400, 900], trasPicar: [450, 1000], descanso: 0.02, largo: [700, 1600] },
   };
+  const ritmoActual = () => cfg.ritmo === 'rapido' ? RITMOS.rapido : (corriendo && modo === 'explorar') ? RITMOS.explorar : RITMOS.humano;
   async function respiro(tipo) {
-    const r = RITMOS[cfg.ritmo] || RITMOS.humano;
+    const r = ritmoActual();
     await pausa(r[tipo][0], r[tipo][1]);
     if (tipo === 'paso' && Math.random() < r.descanso) await pausa(r.largo[0], r.largo[1]);
   }
@@ -1593,15 +1596,16 @@
     return true;
   }
   let modo = 'picar';
+  const anunciadas = new Set();
   async function recorrer(nuevoModo = 'picar') {
     if (corriendo) { parar('Parado.'); return; }
     modo = nuevoModo; plan = null;
-    corriendo = true; picadas = 0; botinSesion = []; fallidas.clear(); htmlDesconocido = '';
+    corriendo = true; picadas = 0; botinSesion = []; fallidas.clear(); anunciadas.clear(); htmlDesconocido = '';
     { const m = mem(); if (m) m.sinPaso = {}; for (const k in intentosPaso) delete intentosPaso[k]; }
     kPedirPermiso();
     pintar();
     if (marco === 'datos' && !(await leerPlano()) && !planoMemo) log('ℹ️ No he podido leer el mapa entero («Ver mapa»): sigo con lo que voy viendo.');
-    log(modo === 'explorar' ? '🧭 Exploro lo que falta del mapa (sin picar).' : '▶ Empiezo: camino más corto por todas las vetas.');
+    log(modo === 'explorar' ? '🧭 Exploro lo que falta del mapa y pico cada veta que vea.' : '▶ Empiezo: camino más corto por todas las vetas.');
     let fallosSeguidos = 0, esperasMov = 0, pasosExplorando = 0;
     try {
       while (corriendo) {
@@ -1612,11 +1616,21 @@
         if (!o.ok && o.moviendo && ++esperasMov < 60) { await sleep(200); continue; }
         if (!o.ok) { ultimoError = o.error; if (++fallosSeguidos > 8) { parar(o.error, 'error'); break; } await sleep(500); continue; }
         if (modo === 'explorar') {
-          if (!planExplorarVale(plan, o)) { plan = planExplorar(o); pintar(); }
-          if (!plan.paradas.length) {
+          // Explorar y picar: si hay vetas por picar (de los tipos elegidos) se va a por ellas en el mejor orden;
+          // si no, al sitio más cercano desde el que se vea algo nuevo. Si aparece una veta nueva, se cambia de plan
+          const firmaV = o.fuente === 'datos' ? firmaDe(construirMapaDatos(o)) : '';
+          const vale = plan && (plan.explorar ? planExplorarVale(plan, o) : planVale(plan, o)) && plan.firmaV === firmaV;
+          if (!vale) {
+            const pp = firmaV ? planificar(o, 400) : null;
+            plan = pp && pp.paradas.length ? pp : planExplorar(o);
+            plan.firmaV = firmaV;
+            if (!plan.explorar) for (const pa of plan.paradas) if (!anunciadas.has(pa.v.k)) { anunciadas.add(pa.v.k); log(`👀 ${pa.v.tipoId ? emojiTipo(pa.v.tipoId) + ' ' + nombreTipo(pa.v.tipoId) : 'Veta'} a la vista (${pa.v.x},${pa.v.y}): voy a picarla.`); }
+            pintar();
+          }
+          if (plan.explorar && !plan.paradas.length) {
             const m = mem(), nv = Object.keys(m.nodos || {}).length;
             const pv = porVer(o);
-            parar(`🗺️ Ya he visto todo lo que se puede alcanzar (${nv} veta(s) apuntadas${pv ? `; ${pv} casillas no se alcanzan: agua sin cruzar, losas o zonas cerradas` : ''}). Ahora «Picarlas todas» hace el camino óptimo por todas.`, 'fin');
+            parar(`🗺️ Ya he visto todo lo que se puede alcanzar y he picado lo que había (${picadas} veta(s); ${nv} apuntadas${pv ? `; ${pv} casillas no se alcanzan: agua sin cruzar, lava, losas o zonas cerradas` : ''}). Cuando se vuelvan a llenar, «Picarlas todas» hace el camino óptimo por todas.`, 'fin');
             break;
           }
           const en = energia();
@@ -1625,21 +1639,22 @@
         } else if (!planVale(plan, o) || plan.rapido) { plan = planificar(o); pintar(); }
         const sig = plan.paradas.find(x => x.idx >= plan.cursor);
         if (!sig && modo === 'explorar') { plan = null; continue; }
+        const explorando = !!plan.explorar;
         if (!sig) {
           const partes = [];
           if (plan.sinCamino) partes.push(`No llego a ${plan.sinCamino} veta(s): el camino pasaría por escaleras, la Sima, puertas, otras vetas o zonas que aún no he visto.`);
-          if (o.fuente === 'datos' && planExplorar(o).paradas.length) partes.push('Queda mapa sin ver: puede haber más vetas. «🧭 Explorar» lo recorre y luego las pico todas por el camino óptimo.');
+          if (o.fuente === 'datos' && planExplorar(o).paradas.length) partes.push('Queda mapa sin ver: puede haber más vetas. «🧭 Explorar y picar» lo recorre y pica las que encuentre.');
           if (o.fuente === 'propio') partes.push('Solo conozco las vetas que ya he visto: si hay zonas del mapa sin ver, puede haber más.');
           parar(`🏁 Hecho: ${picadas} veta(s) picada(s).${partes.length ? ' ' + partes.join(' ') : ''}`, 'fin');
           break;
         }
         // ¿llega la energía para este tramo y su veta?
-        if (modo === 'picar' && (plan.cursor === 0 || plan.paradas.some(x => x.idx === plan.cursor))) {
+        if (!explorando && (plan.cursor === 0 || plan.paradas.some(x => x.idx === plan.cursor))) {
           const en = energia(), N = sig.idx - plan.cursor;
           const hace = cobroAndar(N, pasosParaCobro()) + (sig.v.coste || 0);
           if (en && en.e < hace) { parar(`Sin energía: la siguiente veta pide ${hace} ⚡ (andar ${N} pasos + picar) y tienes ${en.e}. Vuelve cuando tengas más y sigo donde lo dejé.`, 'energia'); break; }
         }
-        if (plan.cursor === sig.idx && modo === 'explorar') { plan = null; continue; }
+        if (plan.cursor === sig.idx && explorando) { plan = null; continue; }
         if (plan.cursor === sig.idx) {
           await picar(o, sig.v);
           if (!corriendo) break;
@@ -1651,7 +1666,7 @@
         // siguiente trozo del camino: un clic (hasta 3 casillas) si es seguro; si no, una flecha
         const desde = plan.ruta[plan.cursor];
         let salto = 1;
-        const maxSalto = cfg.ritmo === 'rapido' ? 3 : [1, 2, 3, 3, 3][Math.floor(Math.random() * 5)];
+        const maxSalto = cfg.ritmo === 'rapido' || modo === 'explorar' ? 3 : [1, 2, 3, 3, 3][Math.floor(Math.random() * 5)];
         for (let j = Math.min(maxSalto, sig.idx - plan.cursor); j >= 2; j--) {
           const h = plan.ruta[plan.cursor + j];
           if (Math.abs(h.x - desde.x) + Math.abs(h.y - desde.y) === j && puedeClicar(o, plan.mapa, desde, h)) { salto = j; break; }
@@ -1852,7 +1867,7 @@
         <div class="k-seg axsub-ritmo" style="--k-cols:2"><button type="button" data-r="humano"><span>🐢</span>Ritmo humano</button><button type="button" data-r="rapido"><span>🐇</span>Rápido</button></div>
         <label class="k-switch"><input type="checkbox" class="axsub-dib"><span class="text-xs font-bold text-tinta-600">🗺️ Dibujar el camino en el mapa</span></label>
         <button type="button" class="axsub-go boton-principal w-full !py-2.5 text-sm">⛏️ Picarlas todas (camino más corto)</button>
-        <button type="button" class="axsub-exp boton-secundario w-full !py-2 text-xs">🧭 Explorar el mapa (para conocer todas las vetas)</button>
+        <button type="button" class="axsub-exp boton-secundario w-full !py-2 text-xs">🧭 Explorar y picar lo que encuentre</button>
         <div class="${K_LOG}"></div>
         <button type="button" class="axsub-copiar boton-suave axsub-mini w-full">📋 Copiar datos (si algo no va bien, pégamelos)</button>`;
       const caja = p.querySelector('.k-log');
@@ -1894,14 +1909,14 @@
     const b = p.querySelector('.axsub-go');
     kSet(b, corriendo && modo === 'picar' ? '■ Parar' : '⛏️ Picarlas todas (camino más corto)');
     const bx = p.querySelector('.axsub-exp');
-    kSet(bx, corriendo && modo === 'explorar' ? '■ Parar de explorar' : '🧭 Explorar el mapa (para conocer todas las vetas)');
+    kSet(bx, corriendo && modo === 'explorar' ? '■ Parar de explorar' : '🧭 Explorar y picar lo que encuentre');
     b.disabled = corriendo && modo !== 'picar'; bx.disabled = corriendo && modo !== 'explorar';
     const en = energia();
     kSet(p.querySelector('.axsub-t-tienes'), en ? String(en.e) : '–');
     const err = p.querySelector('.axsub-err');
     const msg = o && !o.ok ? o.error : '';
     kSet(err, msg); err.hidden = !msg;
-    if (plan && plan.explorar) {
+    if (plan && plan.explorar && corriendo) {
       const m = mem();
       const info = p.querySelector('.axsub-info:not([style])');
       kSet(info, `🧭 Explorando: conozco ${Object.keys(m.cod || m.celdas || {}).length} casillas y ${Object.keys(m.nodos || {}).length} veta(s).`);
@@ -1914,7 +1929,7 @@
       kSet(p.querySelector('.axsub-t-vetas'), `${quedan.length}/${plan.total}`);
       kSet(p.querySelector('.axsub-t-pasos'), String(pasos));
       kSet(p.querySelector('.axsub-t-gasto'), (andar + picarC) + (dudas ? '+' : ''));
-      const fuente = o && o.ok ? (o.fuente === 'datos' ? (planoMemo ? `mapa entero del juego (${planoMemo.ancho}×${planoMemo.alto}); vetas de ${Object.keys(mem().cod).length} casillas vistas${porVer(o) ? ` (quedan ${porVer(o)} de suelo sin ver: «🧭 Explorar»)` : ''}` : `mapa del juego: ${Object.keys(mem().cod).length} casillas conocidas (se amplía al andar)`) : o.fuente === 'juego' ? `mapa del juego (${o.G.w}×${o.G.h})` : `mapa aprendido (${Object.keys(mem().celdas).length} casillas vistas)`) : '';
+      const fuente = o && o.ok ? (o.fuente === 'datos' ? (planoMemo ? `mapa entero del juego (${planoMemo.ancho}×${planoMemo.alto}); vetas de ${Object.keys(mem().cod).length} casillas vistas${porVer(o) ? ` (quedan ${porVer(o)} de suelo sin ver: «🧭 Explorar y picar»)` : ''}` : `mapa del juego: ${Object.keys(mem().cod).length} casillas conocidas (se amplía al andar)`) : o.fuente === 'juego' ? `mapa del juego (${o.G.w}×${o.G.h})` : `mapa aprendido (${Object.keys(mem().celdas).length} casillas vistas)`) : '';
       const partes = [];
       const txtPicar = dudas && !picarC ? 'picar (lo que cueste: aún no sé cuánto)' : `picar (−${picarC}${dudas ? '+' : ''} ⚡)`;
       partes.push(quedan.length ? `<b>${quedan.length}</b> veta(s) por picar: <b>${pasos}</b> pasos (−${andar} ⚡ andando) + ${txtPicar}.` : 'No queda ninguna veta disponible que conozca.');
