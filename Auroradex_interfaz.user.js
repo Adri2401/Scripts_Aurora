@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.10.5
+// @version      1.10.6
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -630,9 +630,27 @@
    * (Lo que lleve «region» a mano en BLOQUES manda sobre lo aprendido.) */
   const MENUS_KEY = 'adx-accesos-menus';
   const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+  // Sitios que la web marca como «región» pero no lo son (la isla del Frente Batalla, a la que se llega en barco desde
+  // Hoenn): su Menú no se apunta como el de una región, ni salen accesos de Safari ni estados para ellos
+  const NO_REGIONES = new Set(['frontera']);
+  const esRegion = r => !!r && !NO_REGIONES.has(r);
+  (function limpiarNoRegiones() {       // lo que guardaron las versiones anteriores
+    const menus = lsJSON(MENUS_KEY, null);
+    if (menus && Object.keys(menus).some(r => !esRegion(r))) { for (const r of Object.keys(menus)) if (!esRegion(r)) delete menus[r]; lsPut(MENUS_KEY, menus); }
+    const est = lsJSON(ESTADO_KEY, null);
+    const mala = k => k.includes('@') && !esRegion(k.split('@')[1]);
+    if (est && est.estado && Object.keys(est.estado).some(mala)) { for (const k of Object.keys(est.estado)) if (mala(k)) delete est.estado[k]; lsPut(ESTADO_KEY, est); }
+    const extras = lsJSON('adx-accesos-extras', null);
+    if (extras && Object.values(extras).some(x => x && x.region && !esRegion(x.region))) {
+      for (const x of Object.values(extras)) if (x && x.region && !esRegion(x.region)) delete x.region;
+      lsPut('adx-accesos-extras', extras);
+    }
+    const h = lsJSON('adx-accesos-hechos', null);
+    if (h && Array.isArray(h.keys) && h.keys.some(mala)) { h.keys = h.keys.filter(k => !mala(k)); lsPut('adx-accesos-hechos', h); }
+  })();
 
   function anotarMenuDeRegion(raiz = document, reg = regionActual()) {
-    if (!reg) return;
+    if (!esRegion(reg)) return;
     const hrefs = [...new Set([...raiz.querySelectorAll('main a[href^="/"]')].map(a => a.getAttribute('href')))];
     if (hrefs.length < 10) return;   // menú a medio pintar
     const menus = lsJSON(MENUS_KEY, {});
@@ -674,7 +692,7 @@
     return label ? { icon: icon || '🔹', label } : null;
   }
 
-  const regionesConocidas = () => new Set(['kanto', 'johto', 'hoenn', 'sinnoh', 'teselia', ...Object.keys(lsJSON(MENUS_KEY, {}))]);
+  const regionesConocidas = () => new Set(['kanto', 'johto', 'hoenn', 'sinnoh', 'teselia', ...Object.keys(lsJSON(MENUS_KEY, {})).filter(esRegion)]);
 
   function anotarNovedadesDelMenu(raiz = document) {
     const conocidos = hrefsConocidos();
@@ -717,7 +735,7 @@
       const conSafari = new Set(items.filter(i => i.href === '/safari').map(i => i.region));
       const menus = lsJSON(MENUS_KEY, {});
       for (const r of Object.keys(menus)) {
-        if (menus[r].includes('/safari') && !conSafari.has(r)) items.push({ href: '/safari', icon: '🌾', label: 'Safari', region: r, regionLabel: cap(r), porRegion: true });
+        if (esRegion(r) && menus[r].includes('/safari') && !conSafari.has(r)) items.push({ href: '/safari', icon: '🌾', label: 'Safari', region: r, regionLabel: cap(r), porRegion: true });
       }
     }
     return items;
@@ -746,7 +764,7 @@
       const txt = p.textContent.replace(/\s+/g, ' ').trim();
       const href = a.getAttribute('href');
       estado[href] = txt;
-      if (reg) estado[`${href}@${reg}`] = txt;
+      if (esRegion(reg)) estado[`${href}@${reg}`] = txt;
     }
     if (Object.keys(estado).length) lsPut(ESTADO_KEY, { dia: hoy(), t: Date.now(), estado });
     return Object.keys(estado).length > 0;
