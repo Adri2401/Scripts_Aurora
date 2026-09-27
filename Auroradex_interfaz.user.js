@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.10.4
+// @version      1.10.5
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1022,7 +1022,7 @@
   /* ─── Datos sueltos de algunos accesos: se leen en su página y, fuera, pidiéndola en segundo plano ───
    * Fichas de la Máquina, monedas de Cartas, cuánto le falta al Valle para llenarse (solo el tiempo), la marea de la
    * Isla, los retos de hoy de la Torre (sumando las ligas) y los Tronos (si tienes alguno y los retos que llevas parados). */
-  const INFO_KEY = 'adx-accesos-info3';
+  const INFO_KEY = 'adx-accesos-info4';
   // Elementos cuyo texto cumple `re`, quitando los que solo lo cumplen porque lo lleva un hijo
   const hojasQue = (raiz, re) => { const t = [...raiz.querySelectorAll('*')].filter(el => re.test(textoDe(el))); return t.filter(el => !t.some(o => o !== el && el.contains(o))); };
   const plural = (n, s) => `${n} ${s}${n === 1 ? '' : 's'}`;
@@ -1061,7 +1061,7 @@
     },
     /* En la lista, tu trono lleva la pastilla «👑 TUYO» (y los demás «🔒 tienes el de Veneno»); los retos parados solo salen
      * al abrir tu trono («Lo tienes tú» · «⏱ Llevas 56m · 0 retos parados»), así que se guardan y se enseña lo último visto. */
-    '/tronos': (m, html) => {
+    '/tronos': m => {
       if (!/trono/i.test(textoDe(m))) return null;
       const prev = lsJSON(INFO_KEY, {})['/tronos'] || {};
       const tuyo = hojasQue(m, /^👑\s*tuyo$/i)[0];
@@ -1075,28 +1075,10 @@
       }
       if (!tipo) tipo = prev.tuyos ? prev.tipo || '' : '';
       const pm = enDetalle && hojasQue(m, /\d+\s*retos?\s+parados?/i).map(h => +textoDe(h).match(/(\d+)\s*retos?\s+parados?/i)[1])[0];
-      const pd = typeof pm === 'number' ? pm : paradosEnDatos(html, tipo);
-      const parados = typeof pd === 'number' ? pd : prev.tuyos && prev.tipo === tipo && prev.parados != null ? prev.parados : null;
+      const parados = typeof pm === 'number' ? pm : prev.tuyos && prev.tipo === tipo && prev.parados != null ? prev.parados : null;
       return { tuyos: 1, tipo, parados, txt: `trono ${tipo} · ${parados == null ? '?' : plural(parados, 'parado')}` };
     },
   };
-  /* Retos parados de tu trono sacados de los datos de Next.js de la página (los mismos que pinta la ficha del trono):
-   * el campo «…parad…» numérico del objeto de ese tipo; si en toda la página solo hay uno, ese. */
-  function paradosEnDatos(html, tipo) {
-    const t = textoFlight(html != null ? html : [...document.scripts].map(sc => sc.textContent).join('\n'));
-    const campos = [...t.matchAll(/"[A-Za-z_]*[Pp]arad[A-Za-z_]*"\s*:\s*(\d+)/g)];
-    if (!campos.length) return null;
-    const id = normalizarTexto(tipo || '');
-    const objetoDe = pos => {                  // el {…} más cercano que envuelve la posición
-      let d = 0, a = pos;
-      for (; a >= 0; a--) { const c = t[a]; if (c === '}') d++; else if (c === '{') { if (d === 0) break; d--; } }
-      let b = pos; d = 0;
-      for (; b < t.length; b++) { const c = t[b]; if (c === '{') d++; else if (c === '}') { if (d === 0) break; d--; } }
-      return a >= 0 ? t.slice(a, b + 1) : '';
-    };
-    if (id) for (const c of campos) { if (new RegExp('"' + id + '"', 'i').test(normalizarTexto(objetoDe(c.index)))) return +c[1]; }
-    return campos.length === 1 ? +campos[0][1] : null;
-  }
   function guardarInfo(href, v) {
     if (!v) return;
     const info = lsJSON(INFO_KEY, {}), g = info[href];
@@ -1154,7 +1136,7 @@
         infoIntento[h] = Date.now();
         try {
           const html = await pedirPagina(h);
-          if (html) { const d = new DOMParser().parseFromString(html, 'text/html'); guardarInfo(h, LECTORES[h](d.querySelector('main') || d.body, html)); }
+          if (html) { const d = new DOMParser().parseFromString(html, 'text/html'); guardarInfo(h, LECTORES[h](d.querySelector('main') || d.body)); }
         } catch { /* sin red: se queda lo guardado */ }
       }
     } finally { infoPidiendo = false; }
