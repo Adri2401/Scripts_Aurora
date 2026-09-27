@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Grutas del Subsuelo (todas las vetas)
 // @namespace    auroradex-grutas
-// @version      0.5.0
+// @version      0.5.1
 // @description  Solo en /subsuelo. Pica las vetas (y Poké Balls) por el camino más corto: el mínimo de pasos, que es lo que cuesta energía al andar (con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa que manda el servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve; «🧭 Explorar» recorre lo que falta para conocer todas las vetas. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar (p. ej. solo 🔴 Esfera roja) y el ritmo (humano por defecto, con pausas al azar). Dibuja el camino encima del mapa y se para si no llega la energía; sigue donde lo dejó.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -299,7 +299,7 @@
    *  AJUSTES Y MEMORIA
    * ------------------------------------------------------------------ */
   const PANEL_ID = 'axsub-panel', U = '#' + PANEL_ID, DIBUJO_ID = 'axsub-dibujo';
-  const VERSION = '0.5.0';
+  const VERSION = '0.5.1';
   const LS_CFG = 'axsub-cfg', LS_MEM = 'axsub-mem-v1';
   const H12 = 12 * 3600e3, H24 = 24 * 3600e3;
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -485,9 +485,9 @@
     return f;
   }
   const nombreFibra = f => (f && f.type && (f.type.displayName || f.type.name)) || (f && typeof f.type === 'string' ? f.type : '?');
+  // (primero el estado y luego las props: el estado es lo que se actualiza al andar; las props se quedan como al cargar)
   function valoresFibra(f) {
     const out = [];
-    if (typeof f.type !== 'string' && f.memoizedProps && typeof f.memoizedProps === 'object') out.push(['props', f.memoizedProps]);
     if (f.tag === 0 || f.tag === 11 || f.tag === 14 || f.tag === 15) {
       let h = f.memoizedState, i = 0;
       while (h && typeof h === 'object' && 'memoizedState' in h && i < 80) {
@@ -497,6 +497,7 @@
         h = h.next; i++;
       }
     } else if (f.tag === 1 && f.memoizedState && typeof f.memoizedState === 'object') out.push(['state', f.memoizedState]);
+    if (typeof f.type !== 'string' && f.memoizedProps && typeof f.memoizedProps === 'object') out.push(['props', f.memoizedProps]);
     return out;
   }
   const PARES = [['x', 'y'], ['col', 'fila'], ['columna', 'fila'], ['c', 'f'], ['col', 'row'], ['cx', 'cy']];
@@ -618,7 +619,7 @@
     // la ventana buena es la del estado (se actualiza al andar), no la inicial de las props
     if (res.planos.length) guardarPlano(res.planos[0].v);
     res.ventana = res.ventanas.find(w => /\.hook\d+$/.test(w.ruta) && w.tipo) || res.ventanas.find(w => w.tipo) || res.ventanas[0] || null;
-    if (res.ventana && res.ventana.tipo) sitioVentana = { tipo: res.ventana.tipo, donde: res.ventana.donde, ruta: res.ventana.ruta };
+    if (res.ventana && res.ventana.tipo && /^hook\d+$/.test(res.ventana.donde || '')) sitioVentana = { tipo: res.ventana.tipo, donde: res.ventana.donde, ruta: res.ventana.ruta };
     datosMemo = { t: Date.now(), v: res };
     return res;
   }
@@ -855,7 +856,7 @@
           const x = cm.x + c - w.xBase, y = cm.y + r - w.yBase;
           if (x < 0 || y < 0 || x >= w.ancho || y >= w.alto) continue;
           const cod = w.tiles[y * w.ancho + x];
-          if (cod === 0 || cod === 4) mal++; else if (cod === 1) bien++;
+          if (cod === 0 || cod === 4) mal++; else bien++;
         }
         return { bien, mal };
       };
@@ -869,7 +870,7 @@
         if (e2.nota > e.nota) { cam = cm; e = e2; }
       }
       const sl = suelo(cam);
-      return { vp: w, cam, nota: e.nota * 3 + sl.bien - 3 * sl.mal, limpio: e.mal === 0 && sl.mal === 0 };
+      return { vp: w, cam, nota: e.nota * 3 + sl.bien - 3 * sl.mal, limpio: e.mal === 0 && sl.mal <= Math.max(2, sl.bien * 0.08) };
     };
     const opciones = (datos.ventana.alternativas || [datos.ventana]).map(w => probar(w.v));
     opciones.sort((a, b) => b.nota - a.nota);
@@ -1121,7 +1122,7 @@
     }
     return null;
   }
-  const costeDeTexto = s => /peque/i.test(s) ? 2 : /mineral/i.test(s) ? 4 : /fil[oó]n|brillante/i.test(s) ? 8 : null;
+  const costeDeTexto = s => /peque|chica/i.test(s) ? 2 : /mineral|media/i.test(s) ? 4 : /fil[oó]n|brillante|grande/i.test(s) ? 8 : null;
   function costeDe(it) {
     if (!it || typeof it !== 'object') return null;
     for (const [k, v] of Object.entries(it)) {
@@ -1413,7 +1414,8 @@
       t.capa.dispatchEvent(new PointerEvent('pointerup', { ...o, buttons: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true }));
     } else t.capa.dispatchEvent(new MouseEvent('click', o));
   }
-  const esSeguro = (mapa, x, y) => mapa.pisable(x, y);
+  // para clicar varias casillas de golpe, todas tienen que ser conocidas (las de código por probar se prueban de una en una)
+  const esSeguro = (mapa, x, y) => mapa.pisable(x, y) && (!mapa.tipoEn || mapa.tipoEn(x, y) !== 'probar');
   function puedeClicar(o, mapa, desde, hasta) {
     if (modoClic === 'no') return false;
     const dx = hasta.x - desde.x, dy = hasta.y - desde.y;
@@ -1673,7 +1675,8 @@
         // no se ha movido
         const e1 = energia();
         if (e1 && e1.e === 0 && e0 && e0.e === 0) { parar('Te has quedado sin energía para andar.', 'energia'); break; }
-        if (!movOk && salto === 1) { parar('No consigo moverme: ni con las flechas ni con clics. Pulsa «📋 Copiar datos» y pégamelo.', 'error'); break; }
+        const tipoMeta = plan && plan.mapa && plan.mapa.tipoEn ? plan.mapa.tipoEn(meta.x, meta.y) : '';
+        if (!movOk && salto === 1 && tipoMeta !== 'probar') { parar('No consigo moverme: ni con las flechas ni con clics. Pulsa «📋 Copiar datos» y pégamelo.', 'error'); break; }
         if (salto > 1) {
           const o3 = await esperarMovimiento(o.pos, 4000);
           if (movido(o3)) { movOk++; fallosSeguidos = 0; continue; }
