@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.10.0
+// @version      1.10.1
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1032,13 +1032,13 @@
       const num = img && img.parentElement.querySelector('.tabular-nums');
       const h = num ? null : hojasQue(m, /^[\d.]+\s*fichas?$/i)[0];
       const v = parseInt(textoDe(num || h).replace(/\D/g, ''), 10);
-      return isNaN(v) ? null : { txt: plural(v, 'ficha') };
+      return isNaN(v) ? null : { n: v, txt: plural(v, 'ficha') };
     },
     '/cartas': m => {
       const mo = m.querySelector('.tcg-moneda');
       const b = mo && mo.parentElement.querySelector('b, .tabular-nums');
       const v = textoDe(b);
-      return /^[\d.]+$/.test(v) ? { txt: `${v} ★` } : null;
+      return /^[\d.]+$/.test(v) ? { n: v, txt: `${v} ★` } : null;
     },
     '/valle': m => {
       const h = hojasQue(m, /^lleno en\s+\d/i)[0];
@@ -1051,19 +1051,20 @@
       if (!t) return null;
       const re = /(\d+)\s*\/\s*(\d+)/;
       const mm = textoDe(t.nextElementSibling).match(re) || textoDe(t.parentElement).replace(textoDe(t), '').match(re);
-      return mm ? { txt: `${mm[1]}/${mm[2]}` } : null;
+      return mm ? { v: +mm[1], max: +mm[2], txt: `${mm[1]}/${mm[2]}` } : null;
     },
     '/torre': m => {
       const hs = hojasQue(m, /^\d+\s*retos?\s+hoy$/i);
       if (!hs.length) return null;
-      return { txt: plural(hs.reduce((s, h) => s + parseInt(textoDe(h), 10), 0), 'reto') };
+      const n = hs.reduce((s, h) => s + parseInt(textoDe(h), 10), 0);
+      return { n, txt: plural(n, 'reto') };
     },
     '/tronos': m => {
       if (!/trono/i.test(textoDe(m))) return null;
       const tuyos = hojasQue(m, /^lo tienes t[uú]$/i).length;
-      if (!tuyos) return { txt: 'sin trono' };
+      if (!tuyos) return { tuyos: 0, txt: 'sin trono' };
       const n = hojasQue(m, /\d+\s*retos?\s+parados?/i).reduce((s, h) => s + parseInt(textoDe(h).match(/(\d+)\s*retos?\s+parados?/i)[1], 10), 0);
-      return { txt: `${tuyos > 1 ? tuyos + ' tronos' : 'tienes trono'} · ${plural(n, 'parado')}` };
+      return { tuyos, parados: n, txt: `${tuyos > 1 ? tuyos + ' tronos' : 'tienes trono'} · ${plural(n, 'parado')}` };
     },
   };
   function guardarInfo(href, v) {
@@ -1075,11 +1076,40 @@
     lsPut(INFO_KEY, info);
     if (!igual) repintarPanel();
   }
+  // Chapitas de color con el dato de cada acceso
+  const chip = (clase, html, estilo = '') => `<span class="ax-chip ${clase}"${estilo ? ` style="${estilo}"` : ''}>${html}</span>`;
+  function chipsInfo(href, g) {
+    const n0 = v => +String(v).replace(/\D/g, '') === 0;
+    switch (href) {
+      case '/gachapon': return g.n == null ? null
+        : chip(g.n ? 'ax-c-oro' : 'ax-c-gris', `<img src="/items/ficha-avatar.png?v=5" alt="">${g.n} ficha${g.n === 1 ? '' : 's'}`);
+      case '/cartas': return g.n == null ? null
+        : chip(n0(g.n) ? 'ax-c-gris' : 'ax-c-carta', `<span class="ax-estrella">★</span>${kEsc(g.n)}`);
+      case '/valle':
+        if (g.at && g.at > Date.now()) return chip('ax-c-cielo', kEsc(textoRestante(g.at - Date.now())));
+        return g.at || g.txt === 'lleno' ? chip('ax-c-verde', '¡Lleno!') : null;
+      case '/isla': {
+        if (g.v == null || !g.max) return null;
+        const pc = Math.max(0, Math.min(100, Math.round(g.v / g.max * 100)));
+        const lleno = g.v >= g.max;
+        return chip('ax-c-mar' + (lleno ? ' ax-c-marllena' : ''), `🌊 ${g.v}<small>/${g.max}</small>`,
+          lleno ? '' : `background:linear-gradient(90deg,#1E6FD9 ${pc}%,#7CC3F5 ${pc}%)`);
+      }
+      case '/torre': return g.n == null ? null : chip(g.n ? 'ax-c-torre' : 'ax-c-gris', `⚔️ ${g.n} reto${g.n === 1 ? '' : 's'}`);
+      case '/tronos':
+        if (g.tuyos == null) return null;
+        if (!g.tuyos) return chip('ax-c-gris', 'Sin trono');
+        return chip('ax-c-rey', `👑 ${g.tuyos > 1 ? g.tuyos + ' tronos' : 'Tuyo'}`)
+          + chip(g.parados ? 'ax-c-escudo' : 'ax-c-gris', `🛡️ ${g.parados || 0} parado${g.parados === 1 ? '' : 's'}`);
+    }
+    return null;
+  }
   function subInfo(it) {
     const g = !it.porRegion && lsJSON(INFO_KEY, {})[it.href];
     if (!g) return '';
-    const txt = g.at ? (g.at > Date.now() ? textoRestante(g.at - Date.now()) : 'lleno') : g.txt;
-    return txt ? `<span class="ax-sub"><span>${kEsc(txt)}</span></span>` : '';
+    const chips = chipsInfo(it.href, g);
+    if (chips) return `<span class="ax-chips">${chips}</span>`;
+    return g.txt ? `<span class="ax-sub"><span>${kEsc(g.txt)}</span></span>` : '';     // dato guardado por la versión anterior
   }
   let infoIntento = {}, infoPidiendo = false;
   const rutaAqui = () => location.pathname.replace(/\/+$/, '') || '/';
@@ -1277,6 +1307,21 @@
       ${U} .ax-sub{display:flex;flex-direction:column;gap:1px;max-width:100%;font-size:9px;font-weight:700;line-height:1.2;opacity:.85}
       ${U} .ax-sub>b{font-size:9px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
       ${U} .ax-sub>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      ${U} .ax-chips{display:flex;flex-direction:column;align-items:center;gap:2px;max-width:100%;margin-top:1px}
+      ${U} .ax-chip{display:inline-flex;align-items:center;justify-content:center;gap:3px;max-width:100%;padding:1px 7px;border-radius:999px;font-size:9.5px;font-weight:800;line-height:1.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums;box-shadow:inset 0 -1.5px 0 rgba(0,0,0,.18),0 1px 2px rgba(0,0,0,.12)}
+      ${U} .ax-chip img{width:12px;height:12px;object-fit:contain;flex:none}
+      ${U} .ax-chip small{font-size:8px;opacity:.8}
+      ${U} .ax-chip .ax-estrella{color:#FFD54A;text-shadow:0 0 4px rgba(255,213,74,.7)}
+      ${U} .ax-c-oro{background:linear-gradient(#FFE07A,#F5B323);color:#5A3A00}
+      ${U} .ax-c-carta{background:linear-gradient(#5B3492,#2E1A55);color:#FFEEC2}
+      ${U} .ax-c-cielo{background:linear-gradient(#6FD0F7,#2E8FD0);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.2)}
+      ${U} .ax-c-verde{background:linear-gradient(#6BDB88,#2FA84F);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.2)}
+      ${U} .ax-c-mar{color:#fff;text-shadow:0 1px 1px rgba(0,0,0,.35)}
+      ${U} .ax-c-marllena{background:linear-gradient(#35D0C0,#119C8E)}
+      ${U} .ax-c-torre{background:linear-gradient(#A77BFF,#6A3FD6);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.2)}
+      ${U} .ax-c-rey{background:linear-gradient(#FFE88A,#E6A800);color:#4A3300}
+      ${U} .ax-c-escudo{background:linear-gradient(#FF9A7A,#E0543A);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.2)}
+      ${U} .ax-c-gris{background:rgba(127,127,127,.18);color:inherit;opacity:.75;box-shadow:none}
       ${U} .ax-item.ax-aqui{outline:2px solid #2FA84F;outline-offset:-2px}`;
     document.head.appendChild(st);
   }
