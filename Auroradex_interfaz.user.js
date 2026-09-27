@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.10.2
+// @version      1.10.3
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1022,7 +1022,7 @@
   /* ─── Datos sueltos de algunos accesos: se leen en su página y, fuera, pidiéndola en segundo plano ───
    * Fichas de la Máquina, monedas de Cartas, cuánto le falta al Valle para llenarse (solo el tiempo), la marea de la
    * Isla, los retos de hoy de la Torre (sumando las ligas) y los Tronos (si tienes alguno y los retos que llevas parados). */
-  const INFO_KEY = 'adx-accesos-info2';
+  const INFO_KEY = 'adx-accesos-info3';
   // Elementos cuyo texto cumple `re`, quitando los que solo lo cumplen porque lo lleva un hijo
   const hojasQue = (raiz, re) => { const t = [...raiz.querySelectorAll('*')].filter(el => re.test(textoDe(el))); return t.filter(el => !t.some(o => o !== el && el.contains(o))); };
   const plural = (n, s) => `${n} ${s}${n === 1 ? '' : 's'}`;
@@ -1059,12 +1059,24 @@
       const n = hs.reduce((s, h) => s + parseInt(textoDe(h), 10), 0);
       return { n, txt: plural(n, 'reto') };
     },
+    /* En la lista, tu trono lleva la pastilla «👑 TUYO» (y los demás «🔒 tienes el de Veneno»); los retos parados solo salen
+     * al abrir tu trono («Lo tienes tú» · «⏱ Llevas 56m · 0 retos parados»), así que se guardan y se enseña lo último visto. */
     '/tronos': m => {
       if (!/trono/i.test(textoDe(m))) return null;
-      const tuyos = hojasQue(m, /^lo tienes t[uú]$/i).length;
-      if (!tuyos) return { tuyos: 0, txt: 'sin trono' };
-      const n = hojasQue(m, /\d+\s*retos?\s+parados?/i).reduce((s, h) => s + parseInt(textoDe(h).match(/(\d+)\s*retos?\s+parados?/i)[1], 10), 0);
-      return { tuyos, parados: n, txt: `${tuyos > 1 ? tuyos + ' tronos' : 'tienes trono'} · ${plural(n, 'parado')}` };
+      const prev = lsJSON(INFO_KEY, {})['/tronos'] || {};
+      const tuyo = hojasQue(m, /^👑\s*tuyo$/i)[0];
+      let tipo = tuyo ? textoDe((tuyo.closest('button, [data-axt-trono]') || m).querySelector('p.font-display')) : '';
+      if (!tipo) { const t = hojasQue(m, /^🔒\s*tienes el de\s+\S/i)[0]; if (t) tipo = textoDe(t).replace(/^🔒\s*tienes el de\s+/i, ''); }
+      const enDetalle = hojasQue(m, /^lo tienes t[uú]$/i).length > 0;
+      if (!tipo && !enDetalle) {
+        // «sin trono» solo si se ve la lista entera de tronos (en la ficha de un trono ajeno no se sabe)
+        const lista = m.querySelectorAll('section button.tarjeta').length >= 6;
+        return lista ? { tuyos: 0, txt: 'sin trono' } : null;
+      }
+      if (!tipo) tipo = prev.tuyos ? prev.tipo || '' : '';
+      const pm = enDetalle && hojasQue(m, /\d+\s*retos?\s+parados?/i).map(h => +textoDe(h).match(/(\d+)\s*retos?\s+parados?/i)[1])[0];
+      const parados = typeof pm === 'number' ? pm : prev.tuyos && prev.tipo === tipo && prev.parados != null ? prev.parados : null;
+      return { tuyos: 1, tipo, parados, txt: `trono ${tipo} · ${parados == null ? '?' : plural(parados, 'parado')}` };
     },
   };
   function guardarInfo(href, v) {
@@ -1096,8 +1108,8 @@
       case '/tronos':
         if (g.tuyos == null) return null;
         if (!g.tuyos) return chip('ax-c-gris', 'Sin trono');
-        return chip('ax-c-rey', `👑 ${g.tuyos > 1 ? g.tuyos + ' tronos' : 'Tuyo'}`)
-          + chip(g.parados ? 'ax-c-escudo' : 'ax-c-gris', `🛡️ ${g.parados || 0} parado${g.parados === 1 ? '' : 's'}`);
+        return chip('ax-c-rey', `👑 ${kEsc(g.tipo || 'Tuyo')}`)
+          + (g.parados == null ? '' : chip(g.parados ? 'ax-c-escudo' : 'ax-c-gris', `🛡️ ${g.parados} parado${g.parados === 1 ? '' : 's'}`));
     }
     return null;
   }
