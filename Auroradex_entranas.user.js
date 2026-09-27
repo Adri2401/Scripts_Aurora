@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.9.0
+// @version      1.9.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.9.0';
+  const VERSION = '1.9.1';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -395,7 +395,10 @@
   // «progreso» (por defecto): a por esquirlas mientras Sangre de la veta no esté al máximo (en el laboratorio, cada nivel de
   // Sangre vale muchísimos pisos: 2/5 → piso 74, 3/5 → 89, 4/5 → 138, 5/5 → 246 de media) y luego, equilibrio.
   const sangrePendiente = () => (mejAhora(), memoMej.sp);
-  const modoPrioridad = () => conf.prioridad === 'progreso' ? (sangrePendiente() ? 'esquirlas' : 'equilibrio') : conf.prioridad;
+  // …y cuando ya no queda nada útil que comprar (las hogueras y empezar más abajo no cuentan), las esquirlas no sirven:
+  // solo bajar. Si aparece una mejora nueva, vuelve solo a valorarlas.
+  const comprasPendientes = () => (mejAhora(), memoMej.cp);
+  const modoPrioridad = () => conf.prioridad === 'progreso' ? (sangrePendiente() ? 'esquirlas' : comprasPendientes() ? 'equilibrio' : 'pisos') : conf.prioridad;
   const pesoEsq = (piso = 1) => { const m = modoPrioridad(); return m === 'esquirlas' ? 1 : m === 'pisos' ? 0.05 : 0.4 - 0.35 * clamp((piso - 15) / 30, 0, 1); };
   const guardaConf = () => lsPut(LS_CONF, conf);
   const media2 = x => x && x.n ? Math.exp(x.s / x.n) : 1;
@@ -533,7 +536,8 @@
   let memoMej = { k: null, v: null };
   const mejAhora = () => {
     const k = Object.entries(kb.mejoras).map(([n, m]) => n + ':' + m.nivel).join('|');
-    if (memoMej.k !== k) memoMej = { k, v: efectosMejoras(), sp: Object.values(kb.mejoras).some(m => { const e = efectoDe(m.desc || ''); return e && e.hincha && m.nivel < m.max; }) };
+    if (memoMej.k !== k) memoMej = { k, v: efectosMejoras(), sp: Object.values(kb.mejoras).some(m => { const e = efectoDe(m.desc || ''); return e && e.hincha && m.nivel < m.max; }),
+      cp: Object.values(kb.mejoras).some(m => { const e = efectoDe(m.desc || ''); return m.coste && m.nivel < m.max && !(e && (e.descansoMas || e.inicio)); }) };
     return memoMej.v;
   };
 
@@ -1973,7 +1977,7 @@
       <table style="margin-top:4px"><tr><th>Cuándo</th><th>Prestado</th><th class="num">piso</th><th class="num">💎</th><th>Dónde cayó</th></tr>${b.slice(0, 25).map(x => `<tr><td>${x.t ? new Date(x.t).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '—'}</td><td>${kEsc(x.prestado || '')}</td><td class="num">${x.piso}</td><td class="num">${x.esq ?? '—'}</td><td>${kEsc(x.causa || '')}</td></tr>`).join('')}</table></div>`;
   }
   function htmlDatos() {
-    return `<div class="caja"><p><b>⚙️ Cómo juega</b></p><p class="s">Siempre lo más óptimo según el laboratorio (miles de bajadas simuladas con lo aprendido de las tuyas): esquirlas mientras Sangre de la veta no esté al máximo (${sangrePendiente() ? 'ahora' : 'ya está: ahora a bajar'}), Élite hasta que tu principal (el prestado) esté al Nv.100 y luego tesoros, misterios y descansos, solo reclutas buenos para los biomas, y cada decisión pensada a fondo.</p></div>
+    return `<div class="caja"><p><b>⚙️ Cómo juega</b></p><p class="s">Siempre lo más óptimo según el laboratorio (miles de bajadas simuladas con lo aprendido de las tuyas): esquirlas mientras Sangre de la veta no esté al máximo, y mientras quede algo útil que comprar (${modoPrioridad() === 'pisos' ? 'ya lo tienes todo: ahora solo bajar' : modoPrioridad() === 'esquirlas' ? 'ahora, a por esquirlas' : 'ahora, bajar y algo de esquirlas'}), Élite hasta que tu principal (el prestado) esté al Nv.100 y luego tesoros, misterios y descansos, solo reclutas buenos para los biomas, y cada decisión pensada a fondo.</p></div>
       <div class="caja"><p><b>💾 Datos</b></p><p class="s">Diario: <span class="n-diario">…</span> pasos. Todo se queda en este navegador; exporta para pasármelo o para llevarlo a otro.</p>
       <div class="fila" style="margin-top:6px"><button type="button" class="exp" style="flex:1">📤 Exportar</button><button type="button" class="imp" style="flex:1">📥 Importar</button><button type="button" class="cop" style="flex:1">📋 HTML</button></div>
       <div class="fila" style="margin-top:6px"><button type="button" class="reset" style="flex:1">🗑️ Borrar lo aprendido</button></div>
