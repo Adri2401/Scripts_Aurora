@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Huerto de Bayas (automático)
 // @namespace    auroradex-huerto
-// @version      1.3.1
+// @version      1.3.2
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
 // @description  En el Huerto de Bayas: eliges una baya (solo su icono) y con un botón cosecha lo que esté listo, planta esa baya en todo lo vacío y riega todo, con los botones de la propia página.
@@ -284,11 +284,17 @@
     }
     return f;
   }
+  // React guarda dos copias de cada componente (la de pantalla y la anterior) y a veces se leía la anterior: justo
+  // después de plantar decía «nada que regar». Se miran las dos y se queda la más reciente según lo que se ve
   function estadoHuerto() {
     const h1 = $$('main h1').find(h => /huerto de bayas/i.test(h.textContent || ''));
     for (let f = actual(fibraDe(h1)), i = 0; f && i < 40; f = f.return, i++) {
-      const p = f.memoizedProps;
-      if (p && p.estado && Array.isArray(p.estado.parcelas)) return p.estado;
+      const cands = [f, f.alternate].map(x => x && x.memoizedProps && x.memoizedProps.estado).filter(e => e && Array.isArray(e.parcelas));
+      if (!cands.length) continue;
+      if (cands.length === 1 || cands[0] === cands[1]) return cands[0];
+      // la más reciente: la que cuadra con los botones de la página (si «Regar todo» está encendido, hay algo que regar…)
+      const nota = e => (!!libre(bRegar()) === regables(e).length > 0 ? 1 : 0) + (!!libre(bCosechar()) === listas(e).length > 0 ? 1 : 0) + (!!libre(bPlantar()) === vacias(e).length > 0 ? 1 : 0);
+      return nota(cands[1]) > nota(cands[0]) ? cands[1] : cands[0];
     }
     return null;
   }
@@ -330,6 +336,14 @@
     return (listas(e).length > 0 && apagado(bCosechar())) || (regables(e).length > 0 && apagado(bRegar())) || (vacias(e).length > 0 && apagado(bPlantar()));
   };
   async function esperarLibre(ms = 12000) { await sleep(300); await esperarA(() => !ocupada(), ms); await sleep(250); }
+  // Si la lista de «¿Qué plantas en las…?» se ha quedado abierta, se cierra (puede tapar o apagar «Regar todo»)
+  async function cerrarListaPlantar() {
+    const lista = () => $$('main section').find(s => /qu[eé] plantas en las/i.test(s.textContent || ''));
+    const l = lista();
+    if (!l) return;
+    const x = $$('button', l).find(b => /cerrar|cancelar|volver|listo|^✕$|^×$/i.test((b.textContent || '').trim() || b.getAttribute('aria-label') || ''));
+    if (x) { x.click(); await esperarA(() => !lista(), 3000); await sleep(200); }
+  }
   let desdeMarcha = 0;
   async function hacerTodo() {
     if (enMarcha && Date.now() - desdeMarcha < 90000) return;      // por si alguna vez se quedara colgado
@@ -340,6 +354,7 @@
     try {
       pintar();
       // hasta 3 vueltas: al cosechar o plantar puede quedar algo nuevo que regar
+      let plantadoAhora = 0;
       for (let vuelta = 0; vuelta < 3; vuelta++) {
         let algo = false;
         await esperarLibre();
@@ -370,26 +385,32 @@
               b.click();
               await esperarA(() => { const x = estadoHuerto(); return x && !vacias(x).length; });
               await esperarLibre();
+              plantadoAhora = cuantas;
               hecho.push(`🌱 ${cuantas} ${cat.nombre} plantada${cuantas === 1 ? '' : 's'}`);
               log(`🌱 Plantadas ${cuantas} ${cat.nombre} (${cat.semilla * cuantas} $).`);
               e = estadoHuerto() || e; algo = true;
             }
           }
         }
-        // 3) regar todo lo que se pueda
-        if (regables(e).length) {
-          const b = await esperarA(() => libre(bRegar()) && bRegar(), 5000);
-          if (!b) log('⚠ Hay plantas por regar pero el botón «Regar todo» no se activa.');
-          else {
-            const n = regables(e).length;
+        // 3) regar todo lo que se pueda. Se decide por el botón «Regar todo» de la página (los datos pueden ir un paso
+        // por detrás justo después de plantar); si se acaba de plantar se le dan unos segundos para encenderse
+        if (plantadoAhora) await cerrarListaPlantar();
+        e = estadoHuerto() || e;
+        if (regables(e).length || plantadoAhora || libre(bRegar())) {
+          const b = await esperarA(() => libre(bRegar()) && bRegar(), plantadoAhora || regables(e).length ? 7000 : 800);
+          if (!b) {
+            if (regables(e).length || plantadoAhora) log(bRegar() ? '⚠ El botón «Regar todo» está apagado: el juego no deja regar ahora.' : '⚠ No encuentro el botón «Regar todo».');
+          } else {
+            const n = regables(e).length || plantadoAhora || 0;
             b.click();
-            await esperarA(() => { const x = estadoHuerto(); return x && !regables(x).length; });
+            await esperarA(() => { const x = estadoHuerto(); return !libre(bRegar()) || (x && !regables(x).length); }, 8000);
             await esperarLibre();
-            hecho.push(`💧 ${n} regada${n === 1 ? '' : 's'}`);
-            log(`💧 Regadas ${n}.`);
+            hecho.push(n ? `💧 ${n} regada${n === 1 ? '' : 's'}` : '💧 regado');
+            log(n ? `💧 Regadas ${n}.` : '💧 Regado.');
             e = estadoHuerto() || e; algo = true;
           }
         }
+        plantadoAhora = 0;
         if (!algo) break;
       }
       if (!hecho.length) log('Nada que hacer ahora mismo.');
