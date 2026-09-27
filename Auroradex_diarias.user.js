@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.3.0
-// @description  Juega solo las diarias. «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Botón «Jugar todas las diarias» en el menú: va a cada diaria pendiente que sabe jugar, la termina y pasa a la siguiente. Panel con lo que va haciendo y botón para parar.
+// @version      1.4.0
+// @description  Juega solo las diarias. «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto) y vuelve a la tuya. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_diarias.user.js
@@ -15,7 +15,7 @@
   'use strict';
   // Pokédex nacional (1-1025): nombre en español y, si cambia, el inglés detrás de «/»
   const NOMBRES_DATOS = 'Bulbasaur|Ivysaur|Venusaur|Charmander|Charmeleon|Charizard|Squirtle|Wartortle|Blastoise|Caterpie|Metapod|Butterfree|Weedle|Kakuna|Beedrill|Pidgey|Pidgeotto|Pidgeot|Rattata|Raticate|Spearow|Fearow|Ekans|Arbok|Pikachu|Raichu|Sandshrew|Sandslash|Nidoran♀|Nidorina|Nidoqueen|Nidoran♂|Nidorino|Nidoking|Clefairy|Clefable|Vulpix|Ninetales|Jigglypuff|Wigglytuff|Zubat|Golbat|Oddish|Gloom|Vileplume|Paras|Parasect|Venonat|Venomoth|Diglett|Dugtrio|Meowth|Persian|Psyduck|Golduck|Mankey|Primeape|Growlithe|Arcanine|Poliwag|Poliwhirl|Poliwrath|Abra|Kadabra|Alakazam|Machop|Machoke|Machamp|Bellsprout|Weepinbell|Victreebel|Tentacool|Tentacruel|Geodude|Graveler|Golem|Ponyta|Rapidash|Slowpoke|Slowbro|Magnemite|Magneton|Farfetch’d|Doduo|Dodrio|Seel|Dewgong|Grimer|Muk|Shellder|Cloyster|Gastly|Haunter|Gengar|Onix|Drowzee|Hypno|Krabby|Kingler|Voltorb|Electrode|Exeggcute|Exeggutor|Cubone|Marowak|Hitmonlee|Hitmonchan|Lickitung|Koffing|Weezing|Rhyhorn|Rhydon|Chansey|Tangela|Kangaskhan|Horsea|Seadra|Goldeen|Seaking|Staryu|Starmie|Mr. Mime|Scyther|Jynx|Electabuzz|Magmar|Pinsir|Tauros|Magikarp|Gyarados|Lapras|Ditto|Eevee|Vaporeon|Jolteon|Flareon|Porygon|Omanyte|Omastar|Kabuto|Kabutops|Aerodactyl|Snorlax|Articuno|Zapdos|Moltres|Dratini|Dragonair|Dragonite|Mewtwo|Mew|Chikorita|Bayleef|Meganium|Cyndaquil|Quilava|Typhlosion|Totodile|Croconaw|Feraligatr|Sentret|Furret|Hoothoot|Noctowl|Ledyba|Ledian|Spinarak|Ariados|Crobat|Chinchou|Lanturn|Pichu|Cleffa|Igglybuff|Togepi|Togetic|Natu|Xatu|Mareep|Flaaffy|Ampharos|Bellossom|Marill|Azumarill|Sudowoodo|Politoed|Hoppip|Skiploom|Jumpluff|Aipom|Sunkern|Sunflora|Yanma|Wooper|Quagsire|Espeon|Umbreon|Murkrow|Slowking|Misdreavus|Unown|Wobbuffet|Girafarig|Pineco|Forretress|Dunsparce|Gligar|Steelix|Snubbull|Granbull|Qwilfish|Scizor|Shuckle|Heracross|Sneasel|Teddiursa|Ursaring|Slugma|Magcargo|Swinub|Piloswine|Corsola|Remoraid|Octillery|Delibird|Mantine|Skarmory|Houndour|Houndoom|Kingdra|Phanpy|Donphan|Porygon2|Stantler|Smeargle|Tyrogue|Hitmontop|Smoochum|Elekid|Magby|Miltank|Blissey|Raikou|Entei|Suicune|Larvitar|Pupitar|Tyranitar|Lugia|Ho-Oh|Celebi|Treecko|Grovyle|Sceptile|Torchic|Combusken|Blaziken|Mudkip|Marshtomp|Swampert|Poochyena|Mightyena|Zigzagoon|Linoone|Wurmple|Silcoon|Beautifly|Cascoon|Dustox|Lotad|Lombre|Ludicolo|Seedot|Nuzleaf|Shiftry|Taillow|Swellow|Wingull|Pelipper|Ralts|Kirlia|Gardevoir|Surskit|Masquerain|Shroomish|Breloom|Slakoth|Vigoroth|Slaking|Nincada|Ninjask|Shedinja|Whismur|Loudred|Exploud|Makuhita|Hariyama|Azurill|Nosepass|Skitty|Delcatty|Sableye|Mawile|Aron|Lairon|Aggron|Meditite|Medicham|Electrike|Manectric|Plusle|Minun|Volbeat|Illumise|Roselia|Gulpin|Swalot|Carvanha|Sharpedo|Wailmer|Wailord|Numel|Camerupt|Torkoal|Spoink|Grumpig|Spinda|Trapinch|Vibrava|Flygon|Cacnea|Cacturne|Swablu|Altaria|Zangoose|Seviper|Lunatone|Solrock|Barboach|Whiscash|Corphish|Crawdaunt|Baltoy|Claydol|Lileep|Cradily|Anorith|Armaldo|Feebas|Milotic|Castform|Kecleon|Shuppet|Banette|Duskull|Dusclops|Tropius|Chimecho|Absol|Wynaut|Snorunt|Glalie|Spheal|Sealeo|Walrein|Clamperl|Huntail|Gorebyss|Relicanth|Luvdisc|Bagon|Shelgon|Salamence|Beldum|Metang|Metagross|Regirock|Regice|Registeel|Latias|Latios|Kyogre|Groudon|Rayquaza|Jirachi|Deoxys|Turtwig|Grotle|Torterra|Chimchar|Monferno|Infernape|Piplup|Prinplup|Empoleon|Starly|Staravia|Staraptor|Bidoof|Bibarel|Kricketot|Kricketune|Shinx|Luxio|Luxray|Budew|Roserade|Cranidos|Rampardos|Shieldon|Bastiodon|Burmy|Wormadam|Mothim|Combee|Vespiquen|Pachirisu|Buizel|Floatzel|Cherubi|Cherrim|Shellos|Gastrodon|Ambipom|Drifloon|Drifblim|Buneary|Lopunny|Mismagius|Honchkrow|Glameow|Purugly|Chingling|Stunky|Skuntank|Bronzor|Bronzong|Bonsly|Mime Jr.|Happiny|Chatot|Spiritomb|Gible|Gabite|Garchomp|Munchlax|Riolu|Lucario|Hippopotas|Hippowdon|Skorupi|Drapion|Croagunk|Toxicroak|Carnivine|Finneon|Lumineon|Mantyke|Snover|Abomasnow|Weavile|Magnezone|Lickilicky|Rhyperior|Tangrowth|Electivire|Magmortar|Togekiss|Yanmega|Leafeon|Glaceon|Gliscor|Mamoswine|Porygon-Z|Gallade|Probopass|Dusknoir|Froslass|Rotom|Uxie|Mesprit|Azelf|Dialga|Palkia|Heatran|Regigigas|Giratina|Cresselia|Phione|Manaphy|Darkrai|Shaymin|Arceus|Victini|Snivy|Servine|Serperior|Tepig|Pignite|Emboar|Oshawott|Dewott|Samurott|Patrat|Watchog|Lillipup|Herdier|Stoutland|Purrloin|Liepard|Pansage|Simisage|Pansear|Simisear|Panpour|Simipour|Munna|Musharna|Pidove|Tranquill|Unfezant|Blitzle|Zebstrika|Roggenrola|Boldore|Gigalith|Woobat|Swoobat|Drilbur|Excadrill|Audino|Timburr|Gurdurr|Conkeldurr|Tympole|Palpitoad|Seismitoad|Throh|Sawk|Sewaddle|Swadloon|Leavanny|Venipede|Whirlipede|Scolipede|Cottonee|Whimsicott|Petilil|Lilligant|Basculin|Sandile|Krokorok|Krookodile|Darumaka|Darmanitan|Maractus|Dwebble|Crustle|Scraggy|Scrafty|Sigilyph|Yamask|Cofagrigus|Tirtouga|Carracosta|Archen|Archeops|Trubbish|Garbodor|Zorua|Zoroark|Minccino|Cinccino|Gothita|Gothorita|Gothitelle|Solosis|Duosion|Reuniclus|Ducklett|Swanna|Vanillite|Vanillish|Vanilluxe|Deerling|Sawsbuck|Emolga|Karrablast|Escavalier|Foongus|Amoonguss|Frillish|Jellicent|Alomomola|Joltik|Galvantula|Ferroseed|Ferrothorn|Klink|Klang|Klinklang|Tynamo|Eelektrik|Eelektross|Elgyem|Beheeyem|Litwick|Lampent|Chandelure|Axew|Fraxure|Haxorus|Cubchoo|Beartic|Cryogonal|Shelmet|Accelgor|Stunfisk|Mienfoo|Mienshao|Druddigon|Golett|Golurk|Pawniard|Bisharp|Bouffalant|Rufflet|Braviary|Vullaby|Mandibuzz|Heatmor|Durant|Deino|Zweilous|Hydreigon|Larvesta|Volcarona|Cobalion|Terrakion|Virizion|Tornadus|Thundurus|Reshiram|Zekrom|Landorus|Kyurem|Keldeo|Meloetta|Genesect|Chespin|Quilladin|Chesnaught|Fennekin|Braixen|Delphox|Froakie|Frogadier|Greninja|Bunnelby|Diggersby|Fletchling|Fletchinder|Talonflame|Scatterbug|Spewpa|Vivillon|Litleo|Pyroar|Flabébé|Floette|Florges|Skiddo|Gogoat|Pancham|Pangoro|Furfrou|Espurr|Meowstic|Honedge|Doublade|Aegislash|Spritzee|Aromatisse|Swirlix|Slurpuff|Inkay|Malamar|Binacle|Barbaracle|Skrelp|Dragalge|Clauncher|Clawitzer|Helioptile|Heliolisk|Tyrunt|Tyrantrum|Amaura|Aurorus|Sylveon|Hawlucha|Dedenne|Carbink|Goomy|Sliggoo|Goodra|Klefki|Phantump|Trevenant|Pumpkaboo|Gourgeist|Bergmite|Avalugg|Noibat|Noivern|Xerneas|Yveltal|Zygarde|Diancie|Hoopa|Volcanion|Rowlet|Dartrix|Decidueye|Litten|Torracat|Incineroar|Popplio|Brionne|Primarina|Pikipek|Trumbeak|Toucannon|Yungoos|Gumshoos|Grubbin|Charjabug|Vikavolt|Crabrawler|Crabominable|Oricorio|Cutiefly|Ribombee|Rockruff|Lycanroc|Wishiwashi|Mareanie|Toxapex|Mudbray|Mudsdale|Dewpider|Araquanid|Fomantis|Lurantis|Morelull|Shiinotic|Salandit|Salazzle|Stufful|Bewear|Bounsweet|Steenee|Tsareena|Comfey|Oranguru|Passimian|Wimpod|Golisopod|Sandygast|Palossand|Pyukumuku|Código Cero/Type: Null|Silvally|Minior|Komala|Turtonator|Togedemaru|Mimikyu|Bruxish|Drampa|Dhelmise|Jangmo-o|Hakamo-o|Kommo-o|Tapu Koko|Tapu Lele|Tapu Bulu|Tapu Fini|Cosmog|Cosmoem|Solgaleo|Lunala|Nihilego|Buzzwole|Pheromosa|Xurkitree|Celesteela|Kartana|Guzzlord|Necrozma|Magearna|Marshadow|Poipole|Naganadel|Stakataka|Blacephalon|Zeraora|Meltan|Melmetal|Grookey|Thwackey|Rillaboom|Scorbunny|Raboot|Cinderace|Sobble|Drizzile|Inteleon|Skwovet|Greedent|Rookidee|Corvisquire|Corviknight|Blipbug|Dottler|Orbeetle|Nickit|Thievul|Gossifleur|Eldegoss|Wooloo|Dubwool|Chewtle|Drednaw|Yamper|Boltund|Rolycoly|Carkol|Coalossal|Applin|Flapple|Appletun|Silicobra|Sandaconda|Cramorant|Arrokuda|Barraskewda|Toxel|Toxtricity|Sizzlipede|Centiskorch|Clobbopus|Grapploct|Sinistea|Polteageist|Hatenna|Hattrem|Hatterene|Impidimp|Morgrem|Grimmsnarl|Obstagoon|Perrserker|Cursola|Sirfetch’d|Mr. Rime|Runerigus|Milcery|Alcremie|Falinks|Pincurchin|Snom|Frosmoth|Stonjourner|Eiscue|Indeedee|Morpeko|Cufant|Copperajah|Dracozolt|Arctozolt|Dracovish|Arctovish|Duraludon|Dreepy|Drakloak|Dragapult|Zacian|Zamazenta|Eternatus|Kubfu|Urshifu|Zarude|Regieleki|Regidrago|Glastrier|Spectrier|Calyrex|Wyrdeer|Kleavor|Ursaluna|Basculegion|Sneasler|Overqwil|Enamorus|Sprigatito|Floragato|Meowscarada|Fuecoco|Crocalor|Skeledirge|Quaxly|Quaxwell|Quaquaval|Lechonk|Oinkologne|Tarountula|Spidops|Nymble|Lokix|Pawmi|Pawmo|Pawmot|Tandemaus|Maushold|Fidough|Dachsbun|Smoliv|Dolliv|Arboliva|Squawkabilly|Nacli|Naclstack|Garganacl|Charcadet|Armarouge|Ceruledge|Tadbulb|Bellibolt|Wattrel|Kilowattrel|Maschiff|Mabosstiff|Shroodle|Grafaiai|Bramblin|Brambleghast|Toedscool|Toedscruel|Klawf|Capsakid|Scovillain|Rellor|Rabsca|Flittle|Espathra|Tinkatink|Tinkatuff|Tinkaton|Wiglett|Wugtrio|Bombirdier|Finizen|Palafin|Varoom|Revavroom|Cyclizar|Orthworm|Glimmet|Glimmora|Greavard|Houndstone|Flamigo|Cetoddle|Cetitan|Veluza|Dondozo|Tatsugiri|Annihilape|Clodsire|Farigiraf|Dudunsparce|Kingambit|Colmilargo/Great Tusk|Colagrito/Scream Tail|Furioseta/Brute Bonnet|Melenaleteo/Flutter Mane|Reptalada/Slither Wing|Pelarena/Sandy Shocks|Ferrodada/Iron Treads|Ferrosaco/Iron Bundle|Ferropalmas/Iron Hands|Ferrocuello/Iron Jugulis|Ferropolilla/Iron Moth|Ferropúas/Iron Thorns|Frigibax|Arctibax|Baxcalibur|Gimmighoul|Gholdengo|Wo-Chien|Chien-Pao|Ting-Lu|Chi-Yu|Bramaluna/Roaring Moon|Ferropaladín/Iron Valiant|Koraidon|Miraidon|Ondulagua/Walking Wake|Ferroverdor/Iron Leaves|Dipplin|Poltchageist|Sinistcha|Okidogi|Munkidori|Fezandipiti|Ogerpon|Archaludon|Hydrapple|Flamariete/Gouging Fire|Electrofuria/Raging Bolt|Ferromole/Iron Boulder|Ferrotesta/Iron Crown|Terapagos|Pecharunt';
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.0';
   const PANEL_ID = 'axd-panel';
   const LS_AUTO = 'axd-auto';
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -194,7 +194,8 @@
     rec(0, new Set(), []);
     return mejor;
   }
-  const hoy = () => new Date().toISOString().slice(0, 10);
+  // el día del juego es el de aquí (a medianoche de España cambian las diarias), no el UTC
+  const hoy = () => new Date().toLocaleDateString('sv');
   const POKEATHLON = {
     id: 'pokeathlon',
     nombre: '🏟️ Cúpula Pokéathlon',
@@ -344,27 +345,254 @@
     },
   };
 
-  const DIARIAS = [QUIEN, POKEATHLON, MUELLE];
+  const principal = () => $$('main button.boton-principal').find(b => !ajeno(b) && !b.disabled && visible(b));
+  // innerText (no textContent): separa los bloques, que si no se pegan («Hoy0Hoy se corre en…»)
+  const textoMain = () => { const m = document.querySelector('main'); return m ? (m.innerText || m.textContent || '').replace(/\s+/g, ' ').trim() : ''; };
+  // el valor que va debajo de una etiqueta («Hoy se corre en» → «Con obstáculos»)
+  const etiqueta = re => $$('main p, main span').find(x => !ajeno(x) && re.test(texto(x)) && x.nextElementSibling);
+  // el elegido entre varios botones iguales: el único con un aspecto distinto (el juego lo marca)
+  function marcadoEntre(bs) {
+    if (bs.length < 3) return null;
+    const cuenta = {};
+    bs.forEach(b => { cuenta[b.className] = (cuenta[b.className] || 0) + 1; });
+    const raros = bs.filter(b => cuenta[b.className] === 1);
+    return raros.length === 1 ? raros[0] : null;
+  }
+  async function pulsar(b, msg, tras = [900, 1500]) {
+    await pausa(600, 1200);
+    if (!document.contains(b) || b.disabled) return true;
+    if (msg) log(msg);
+    b.click(); otraAccion();
+    await pausa(tras[0], tras[1]);
+    return true;
+  }
+
+  /* ══════════ DIARIA 4 · Carreras de Rattata ══════════
+   * Cuatro ratas y una pista del día: cada rata tiene su estilo y la pista dice cuál le va. Se elige por la pista (con lo
+   * que se va aprendiendo de tus carreras: energía media por pista y rata) y se apuesta. Dos carreras al día. */
+  const ESTILO = {
+    chispa: /cort|sprint|veloc|explos|salida|llan|volando/gi,
+    rosca: /larg|fondo|resist|aguant|marat|cuesta|subida|vueltas|recorrido|final/gi,
+    tuerca: /obst[aá]cul|despist|charco|caja|cubo|regular|curva|trampa|pieg|barro/gi,
+    pinza: /azar|sorpres|caos|loc[ao]\b|niebla|oscur|suerte|lotería/gi,
+  };
+  const CARRERAS = {
+    id: 'carreras',
+    nombre: '🐀 Carreras de Rattata',
+    detecta: () => $$('main h1').find(h => /carreras de rattata/i.test(texto(h))),
+    // la pista: su nombre y su descripción
+    pista() {
+      const e = etiqueta(/^hoy se corre en$/i);
+      if (!e) return { nombre: '', desc: '' };
+      const n = e.nextElementSibling, d = n.nextElementSibling;
+      return { nombre: texto(n), desc: texto(n) + ' ' + texto(d) };
+    },
+    // apuestas de hoy (dos al día): así no se apuesta dos veces en la misma aunque la página se recargue
+    hoyN() { const c = lsGet('axd-carreras-dia', {}); return c.fecha === hoy() ? c.n : 0; },
+    ratas: () => $$('main ul button').filter(b => !ajeno(b) && visible(b) && b.querySelector('img[alt]')),
+    elegir(pista) {
+      const L = lsGet('axd-carreras', {})[pista.nombre.toLowerCase()] || {};
+      let mejor = null;
+      for (const rata of Object.keys(ESTILO)) {
+        // cuantas más pistas de su estilo trae la descripción, mejor; sin pistas, la fiable (Tuerca)
+        const prior = 6 + 3 * (pista.desc.match(ESTILO[rata]) || []).length + (rata === 'tuerca' ? 1.5 : 0);
+        const d = L[rata] || [0, 0];
+        const v = (prior * 2 + d[0]) / (2 + d[1]);
+        if (!mejor || v > mejor.v) mejor = { rata, v };
+      }
+      return mejor.rata;
+    },
+    apuesta: null,
+    apuntar() {
+      // al acabar la carrera: la energía que ha dado, para aprender qué rata va mejor en cada pista
+      const a = this.apuesta;
+      if (!a || Date.now() - a.t < 2500) return;
+      const t = textoMain();
+      let premio = null;
+      const m = t.match(/\+\s*(15|10|5)\s*(?:de\s*)?(?:energ|⚡)/i);
+      if (m) premio = +m[1];
+      else if (/(últim|cuart)[ao]\b|sin premio|no te llevas nada|te quedas sin/i.test(t)) premio = 0;
+      if (premio == null && Date.now() - a.t < 30000) return;
+      this.apuesta = null;
+      if (premio == null) return;
+      const L = lsGet('axd-carreras', {}), k = a.pista.nombre.toLowerCase();
+      L[k] = L[k] || {}; const d = L[k][a.rata] || [0, 0]; L[k][a.rata] = [d[0] + premio, d[1] + 1];
+      lsPut('axd-carreras', L);
+      log(`📒 ${a.rata} en «${k}»: ${premio} ⚡`);
+    },
+    hecho: new Set(),
+    async paso() {
+      this.apuntar();
+      const ratas = this.ratas().filter(b => !b.disabled);
+      if (ratas.length >= 2) {
+        const pista = this.pista(), quiero = this.elegir(pista), clave = this.hoyN() + '|' + quiero;
+        const boton = ratas.find(b => norm(b.querySelector('img').alt) === quiero);
+        const marcada = marcadoEntre(ratas);
+        if (boton && marcada !== boton && !this.hecho.has('r' + clave)) {
+          this.hecho.add('r' + clave);
+          return pulsar(boton, `🐀 Pista «${pista.nombre || '?'}»: voy con ${boton.querySelector('img').alt}.`);
+        }
+        const bt = principal();
+        if (bt && !this.hecho.has('a' + clave) && this.hoyN() < 2 && !/cierra|vuelve|mañana/i.test(texto(bt))) {
+          this.hecho.add('a' + clave);
+          lsPut('axd-carreras-dia', { fecha: hoy(), n: this.hoyN() + 1 });
+          this.apuesta = { pista, rata: quiero, t: Date.now() };
+          return pulsar(bt, `💰 ${texto(bt)}`, [3000, 4000]);
+        }
+      }
+      return pulsarSeguir();
+    },
+  };
+
+  /* ══════════ DIARIA 5 · Rutas submarinas (buceo) ══════════
+   * Se paga la bombona y se baja 12 veces; en cada bajada se elige zona (algas, arena o grieta). Va a la zona elegida en
+   * el panel del menú: por defecto la grieta (lo más raro y lo que solo sale ahí). */
+  const ZONAS = { algas: /alga/i, arena: /arena/i, grieta: /grieta/i };
+  const BUCEO = {
+    id: 'buceo',
+    nombre: '🤿 Rutas submarinas',
+    detecta: () => $$('main h1').find(h => /rutas submarinas/i.test(texto(h))),
+    async paso() {
+      const zonas = $$('main button').filter(b => !ajeno(b) && !b.disabled && visible(b) && Object.values(ZONAS).some(re => re.test(texto(b))));
+      if (zonas.length >= 2) {
+        const pref = lsGet('axd-buceo-zona', 'grieta');
+        const b = zonas.find(x => ZONAS[pref].test(texto(x))) || zonas[0];
+        return pulsar(b, `🤿 Bajo a ${texto(b).split(/[·(\d]/)[0].trim()}`, [1800, 2600]);
+      }
+      const bt = principal();
+      if (bt && /baj|bucea|sumerg|inmers|bombona|empez|entrar|800/i.test(texto(bt)) && lsGet('axd-buceo', '') !== hoy()) {
+        lsPut('axd-buceo', hoy());
+        return pulsar(bt, `🤿 ${texto(bt)}`);
+      }
+      return pulsarSeguir();
+    },
+  };
+
+  /* ══════════ DIARIA 6 · El Tren de Biscuit (solo en Teselia) ══════════
+   * Rebusca en el vagón de chatarra (600 $, 3 al día). Las mercancías no se compran solas. */
+  const TREN = {
+    id: 'tren',
+    nombre: '🚂 El Tren de Biscuit',
+    detecta: () => $$('main h1').find(h => /tren de biscuit/i.test(texto(h))),
+    listo() { const c = lsGet('axd-tren', {}); return c.fecha === hoy() && c.n >= 3 && !$$('main button').some(x => !ajeno(x) && !x.disabled && /rebusc|chatarra/i.test(texto(x))); },
+    async paso() {
+      const b = $$('main button').find(x => !ajeno(x) && !x.disabled && visible(x) && /rebusc|chatarra/i.test(texto(x)));
+      const c = lsGet('axd-tren', {});
+      if (b && !(c.fecha === hoy() && c.n >= 3)) {
+        lsPut('axd-tren', { fecha: hoy(), n: (c.fecha === hoy() ? c.n : 0) + 1 });
+        return pulsar(b, `🚂 ${texto(b)}`, [1500, 2500]);
+      }
+      return pulsarSeguir();
+    },
+  };
+
+  /* ══════════ Safari (una visita al día en cada reserva) ══════════
+   * Lo juega el script Safari Auto: aquí solo se le da a su «🧠 Estrategia» y se espera a que termine. Solo en la ruta. */
+  const REGIONES = ['Kanto', 'Johto', 'Hoenn', 'Sinnoh', 'Teselia'];
+  // la región que sale ANTES en el texto («Estás en sinnoh · Kanto · Johto…» → Sinnoh)
+  const regionDe = t => { const n = norm(t); let mejor = '', pos = Infinity; for (const r of REGIONES) { const i = n.indexOf(norm(r)); if (i >= 0 && i < pos) { pos = i; mejor = r; } } return mejor; };
+  const SAFARI = {
+    id: 'safari',
+    nombre: '🌾 Safari',
+    soloRuta: true, sinPanel: true,
+    detecta: () => ruta() === '/safari' && $$('main h1')[0],
+    region() {
+      const h = $$('main h1')[0], antes = h && h.previousElementSibling;
+      return regionDe(texto(antes) || texto(h && h.parentElement).slice(0, 40));
+    },
+    cerrada: () => /visita de hoy|abre otra vez mañana/i.test(textoMain()),
+    apuntar() {
+      const reg = this.region();
+      if (reg) { const s = safarisHoy(); if (!s.hechas.includes(reg)) { s.hechas.push(reg); lsPut('axd-safaris', s); } }
+    },
+    listo() {
+      if (!this.cerrada()) return false;
+      this.apuntar();
+      return true;
+    },
+    desde: 0, arrancado: false,
+    async paso() {
+      if (this.cerrada()) return false;
+      const p = document.getElementById('ax-safari-auto');
+      if (!p) {
+        if (!this.desde) this.desde = Date.now();
+        if (Date.now() - this.desde > 10000) {
+          const r = ssGet();
+          if (r && !r.sinSafari) { r.sinSafari = true; ssPut(r); log('⚠ No veo el script Safari Auto: instálalo para que juegue los Safaris.'); }
+        }
+        return false;
+      }
+      const parar = p.querySelector('[data-ax="stop"]');
+      if (parar && !parar.hidden) return true;               // Safari Auto está jugando
+      if (this.arrancado) this.apuntar();                    // ha terminado
+      const fin = $$('main button').find(b => !ajeno(b) && !b.closest('#ax-safari-auto') && !b.disabled && visible(b) && /se acab/i.test(texto(b)));
+      if (fin) return pulsar(fin, `🌾 ${texto(fin)}`);
+      const smart = p.querySelector('[data-ax="smart"]');
+      if (smart && !smart.disabled && !this.arrancado) {
+        this.arrancado = true;
+        return pulsar(smart, `🌾 ${this.region() || 'Safari'}: Safari Auto en modo estrategia.`, [2000, 3000]);
+      }
+      return pulsarSeguir();
+    },
+  };
+  // una región sin reserva (o que no deja entrar) no se vuelve a probar en una semana
+  function sinReserva(g) { let sr = lsGet('axd-sin-reserva', {}); if (!sr || Array.isArray(sr)) sr = {}; sr[g] = Date.now(); lsPut('axd-sin-reserva', sr); }
+  function safarisHoy() {
+    const s = lsGet('axd-safaris', null);
+    return s && s.fecha === hoy() ? s : { fecha: hoy(), hechas: [] };
+  }
+
+  /* ══════════ Viaje entre regiones (para los Safaris de las demás) ══════════ */
+  const VIAJE = {
+    id: 'viaje',
+    nombre: '🧭 Viaje',
+    soloRuta: true, sinPanel: true,
+    detecta: () => $$('main h1').find(h => /las regiones/i.test(texto(h))),
+    estoy() {
+      const e = etiqueta(/^est[aá]s en$/i);
+      if (e) return regionDe(texto(e.nextElementSibling));
+      const m = textoMain().match(/est[aá]s en\s*([A-Za-zÁÉÍÓÚáéíóú]+)/i); return m ? regionDe(m[1]) : '';
+    },
+    destino() { const r = ssGet(); return r && r.actual && r.actual.viaje; },
+    listo() { const d = this.destino(); return !!d && this.estoy() === d; },
+    hecho: '',
+    async paso() {
+      const d = this.destino();
+      if (!d || this.estoy() === d) return false;
+      const b = $$('main button').find(x => !ajeno(x) && !x.disabled && visible(x) && new RegExp(`(volver|viajar|ir|cruzar)\\s+a\\s+${d}`, 'i').test(texto(x)));
+      if (!b || this.hecho === d) return false;
+      this.hecho = d;
+      return pulsar(b, `🧭 ${texto(b)}`, [2500, 3500]);
+    },
+  };
+
+  // Diarias que aún no sé jugar: solo se monta el panel, para poder copiar su HTML
+  const sinJugar = (id, nombre, re) => ({ id, nombre, soloRuta: true, detecta: () => $$('main h1').find(h => re.test(texto(h))), paso: async () => false });
+
+  const DIARIAS = [QUIEN, POKEATHLON, MUELLE, CARRERAS, BUCEO, TREN, SAFARI, VIAJE,
+    sinJugar('cantera', '⛏️ La Cantera (aún no sé)', /la cantera/i), sinJugar('album', '📷 El Álbum (aún no sé)', /[aá]lbum de braulio/i)];
 
   /* ══════════ Ruta: jugar todas las diarias seguidas ══════════
    * Desde el menú se apuntan las diarias de «Para hoy» que aún no están hechas y que el script sabe jugar; se va a
-   * cada una, se juega hasta que no queda nada que hacer y se pasa a la siguiente. Al acabar vuelve al menú con el
-   * resumen. Va en sessionStorage: sobrevive a las recargas de esta pestaña y muere al cerrarla. */
+   * cada una, se juega hasta que no queda nada que hacer y se pasa a la siguiente. Luego, los Safaris de las demás
+   * regiones (se viaja a cada una y se vuelve a la tuya al final). Al acabar vuelve al menú con el resumen. Va en
+   * sessionStorage: sobrevive a las recargas de esta pestaña y muere al cerrarla. */
   const SS_RUTA = 'axd-ruta';
   const ssGet = () => { try { return JSON.parse(sessionStorage.getItem(SS_RUTA) || 'null'); } catch { return null; } };
   const ssPut = r => { try { if (r) sessionStorage.setItem(SS_RUTA, JSON.stringify(r)); else sessionStorage.removeItem(SS_RUTA); } catch { /* nada */ } };
-  // dirección → diaria que la juega (las que no están aquí se dicen y se saltan)
-  const RUTAS = { '/siluetas': QUIEN, '/pokeathlon': POKEATHLON, '/pesca': MUELLE };
+  // dirección → diaria que la juega
+  const RUTAS = { '/siluetas': QUIEN, '/pokeathlon': POKEATHLON, '/pesca': MUELLE, '/carreras': CARRERAS, '/buceo': BUCEO, '/safari': SAFARI, '/tren': TREN };
+  // las que no sé jugar (se dicen y se saltan)
+  const NO_SE = { '/cantera': 'aún no sé jugarla', '/album': 'aún no sé jugarla', '/jessie-y-james': 'hay que ir a pelear a su tramo, esa es tuya' };
   const ruta = () => location.pathname.replace(/\/+$/, '') || '/';
-  const CERRADA = /🔒|vuelve mañana|por hoy (ya|se)|mañana (hay|pican|más)|se acab[oó] el programa/i;
-  const POR_DIARIA_MS = 5 * 60 * 1000;          // por si una se atasca: como mucho 5 min en cada una
+  const CERRADA = /🔒|vuelve mañana|por hoy (ya|se)|mañana (hay|pican|más|pican)|se acab[oó] el programa|cierra el puesto|visita de hoy/i;
+  const POR_DIARIA_MS = 8 * 60 * 1000;          // por si una se atasca (el Safari es lo más largo)
   function leerMenu() {
     // Las diarias son enlaces del menú; las hechas van dentro del desplegable «hechos hoy» (y su pastilla lo dice)
-    const enlaces = $$('main a[href]').filter(a => !ajeno(a));
     const out = [];
-    for (const a of enlaces) {
+    for (const a of $$('main a[href]').filter(a => !ajeno(a))) {
       const href = (a.getAttribute('href') || '').replace(/[?#].*$/, '').replace(/\/+$/, '');
-      if (!(RUTAS[href] || NOMBRES_RUTA[href]) || out.some(x => x.href === href)) continue;
+      if (!(RUTAS[href] || NO_SE[href]) || out.some(x => x.href === href)) continue;
       const estado = texto(a.querySelector('.pastilla'));
       const hecha = !!a.closest('details') || /hecho|parad|cerrad|mañana|tumbad/i.test(estado);
       const nombre = texto(a.querySelector('.font-extrabold')) || texto(a).replace(estado, '');
@@ -372,51 +600,81 @@
     }
     return out;
   }
+  // la región en la que estás (la dice el enlace de viajar) y, si el Safari de aquí ya está hecho, se apunta
+  function apuntarSafariCasa(menu) {
+    const ev = enlaceViaje(), casa = ev ? regionDe(texto(ev).replace(/viajar a otra regi[oó]n.*/i, '')) : '';
+    const s = safarisHoy();
+    if (casa && menu.some(d => d.href === '/safari' && d.hecha) && !s.hechas.includes(casa)) { s.hechas.push(casa); lsPut('axd-safaris', s); }
+    return casa;
+  }
+  const enlaceViaje = () => $$('main a[href]').find(a => !ajeno(a) && /viajar a otra regi/i.test(texto(a)));
   function iniciarRuta() {
-    if (ruta() !== '/menu') { ssPut({ preparar: true, log: [] }); location.assign('/menu'); return; }
+    if (ruta() !== '/menu') { ssPut({ preparar: true }); location.assign('/menu'); return; }
     const menu = leerMenu();
-    const cola = menu.filter(d => !d.hecha && d.sabe).map(d => d.href);
-    const log0 = [];
-    menu.filter(d => !d.hecha && !d.sabe).forEach(d => log0.push(`⏭ ${d.nombre}: ${typeof NOMBRES_RUTA[d.href] === 'string' ? NOMBRES_RUTA[d.href] : 'aún no sé jugarla'}, te la dejo.`));
+    const cola = menu.filter(d => !d.hecha && d.sabe).map(d => ({ href: d.href }));
+    const log0 = menu.filter(d => !d.hecha && !d.sabe).map(d => `⏭ ${d.nombre}: ${NO_SE[d.href]}, te la dejo.`);
+    // Safaris de las demás regiones (y el Tren, que está en Teselia): se viaja y al final se vuelve
+    const ev = enlaceViaje(), casa = apuntarSafariCasa(menu);
+    const s = safarisHoy();
+    if (casa) {
+      const sr0 = lsGet('axd-sin-reserva', {}), sinReserva = Object.keys(sr0).filter(g => Date.now() - sr0[g] < 7 * 864e5);
+      const tren = lsGet('axd-tren', {});
+      const destinos = REGIONES.filter(g => norm(texto(ev)).includes(norm(g)));
+      const fuera = destinos.filter(g => g !== casa && ((!s.hechas.includes(g) && !sinReserva.includes(g)) || (g === 'Teselia' && !(tren.fecha === hoy() && tren.n >= 3))));
+      for (const g of fuera) {
+        cola.push({ viaje: g });
+        if (!s.hechas.includes(g) && !sinReserva.includes(g)) cola.push({ href: '/safari', region: g });
+        if (g === 'Teselia') cola.push({ href: '/tren', region: g });
+      }
+      if (fuera.length) cola.push({ viaje: casa, vuelta: true });
+    } else log0.push('⚠ No encuentro en el menú en qué región estás: solo juego las de aquí.');
     if (!cola.length) {
       ssPut(null);
       pintarMenu([...log0, '✅ Las que sé jugar ya están hechas hoy.']);
       return;
     }
-    const r = { cola, hechas: [], log: log0, actual: null };
+    const r = { cola, hechas: [], log: log0, actual: null, casa };
     ssPut(r);
-    pintarMenu([...log0, `▶ Voy a jugar: ${cola.map(h => RUTAS[h].nombre).join(', ')}.`]);
+    pintarMenu([...log0, `▶ Voy: ${cola.map(nombreDe).join(' → ')}.`]);
     siguiente(r);
   }
-  // diarias del menú que no sé jugar pero quiero mencionar (el resto de «Para hoy» ya tiene sus propios scripts)
-  const NOMBRES_RUTA = { '/carreras': 1, '/safari': 'tiene su propio script (Safari Auto)', '/cantera': 1, '/album': 1, '/buceo': 1, '/jessie-y-james': 1, '/tren': 1 };
+  const nombreDe = x => x.viaje ? `🧭 ${x.viaje}` : `${RUTAS[x.href].nombre}${x.region ? ' ' + x.region : ''}`;
   async function siguiente(r) {
-    const href = r.cola.shift();
-    r.actual = href ? { href, desde: Date.now() } : null;
+    let x = r.cola.shift();
+    // sin Safari Auto no merece la pena viajar: fuera los Safaris y los viajes (menos el de vuelta a casa)
+    while (x && r.sinSafari && (x.href === '/safari' || (x.viaje && !x.vuelta))) x = r.cola.shift();
+    if (x && r.sinSafari && x.vuelta && !r.fuera) x = r.cola.shift();
+    if (x && x.viaje && !x.vuelta) r.fuera = true;
+    r.actual = x ? { ...x, desde: Date.now() } : null;
     ssPut(r);
     await sleep(1500 + Math.random() * 1300);
     if (!ssGet()) return;                                    // lo han parado mientras
-    location.assign(href || '/menu');
+    // los viajes se empiezan desde el menú (el enlace a «Viajar a otra región» cambia según dónde estés)
+    location.assign(!x || x.viaje ? '/menu' : x.href);
   }
   function pararRuta(motivo) {
     const r = ssGet();
     if (!r) return;
     ssPut(null);
-    log(`⏹ ${motivo || 'Ruta parada.'}`);
+    log(`⏹ ${motivo || 'Ruta parada.'}${r.fuera ? ` Ojo: te he dejado fuera de ${r.casa}.` : ''}`);
   }
   // en una diaria de la ruta: ¿se ha acabado?
   let quietoDesde = 0;
   function rutaEnDiaria(d, hizo) {
     const r = ssGet();
     if (!r || !r.actual || r.actual.href !== ruta()) return;
-    if (hizo) { quietoDesde = 0; return; }
+    const listo = d.listo ? d.listo() : false;
+    if (hizo && !listo) { quietoDesde = 0; return; }
     if (!quietoDesde) quietoDesde = Date.now();
-    const cerrada = CERRADA.test(texto(document.querySelector('main')));
+    const cerrada = listo || CERRADA.test(textoMain());
     const quieto = Date.now() - quietoDesde;
     const agotada = Date.now() - r.actual.desde > POR_DIARIA_MS;
-    if ((cerrada && quieto > 3000) || quieto > 15000 || agotada) {
-      const msg = agotada ? `⚠ ${d.nombre}: se me ha atascado, la dejo.` : `✅ ${d.nombre}: hecha.`;
-      r.hechas.push(r.actual.href); r.log.push(msg); log(msg);
+    if ((cerrada && quieto > 2500) || quieto > 20000 || agotada) {
+      const nom = r.actual.viaje ? `🧭 Viaje a ${r.actual.viaje}` : `${d.nombre}${r.actual.region ? ' ' + r.actual.region : ''}`;
+      const msg = agotada ? `⚠ ${nom}: se me ha atascado, la dejo.` : cerrada ? `✅ ${nom}${r.actual.viaje ? '' : ': hecha'}.` : `⚠ ${nom}: no veo nada más que hacer (si no está hecha, pásame su HTML).`;
+      if (r.actual.viaje && r.actual.vuelta && listo) r.fuera = false;
+      if (!r.actual.viaje) r.hechas.push(r.actual.href);
+      r.log.push(msg); log(msg);
       quietoDesde = 0;
       ssPut(r);
       siguiente(r);
@@ -440,26 +698,49 @@
     p.id = MENU_ID;
     p.setAttribute('data-ax-ignore', '');
     p.style.cssText = 'background:#131A2B;border:2px solid #2E3B57;color:#C9D3E3;border-radius:22px;padding:10px 12px;font-size:12px;line-height:1.4;margin:6px 0 10px';
-    p.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><b style="flex:1">🗓️ Diarias</b>
+    const zona = lsGet('axd-buceo-zona', 'grieta');
+    p.innerHTML = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b style="flex:1">🗓️ Diarias</b>
+      <label style="font-size:11px">🤿 <select class="axd-zona" style="background:#2E3B57;color:#fff;border-radius:8px;padding:2px 4px">
+        ${['grieta', 'arena', 'algas'].map(z => `<option value="${z}"${z === zona ? ' selected' : ''}>${z}</option>`).join('')}</select></label>
       <button type="button" class="axd-todas" style="background:#2E3B57;color:#fff;border-radius:12px;padding:4px 10px;font-weight:800"></button></div>
-      <pre class="axd-log" style="white-space:pre-wrap;margin:6px 0 0;font:11px/1.4 ui-monospace,monospace;color:#9fb0c8;max-height:160px;overflow:auto"></pre>`;
+      <pre class="axd-log" style="white-space:pre-wrap;margin:6px 0 0;font:11px/1.4 ui-monospace,monospace;color:#9fb0c8;max-height:200px;overflow:auto"></pre>`;
+    p.querySelector('.axd-zona').addEventListener('change', e => lsPut('axd-buceo-zona', e.target.value));
     p.querySelector('.axd-todas').addEventListener('click', () => {
-      if (ssGet()) { ssPut(null); pintarMenu(['⏹ Parado.']); } else iniciarRuta();
+      if (ssGet()) { const r = ssGet(); ssPut(null); pintarMenu([`⏹ Parado.${r.fuera ? ` Ojo: estás fuera de ${r.casa}.` : ''}`]); } else iniciarRuta();
     });
     cab.insertAdjacentElement('afterend', p);
-    const pend = leerMenu().filter(d => !d.hecha && d.sabe);
-    pintarMenu([pend.length ? `Pendientes que sé jugar: ${pend.map(d => d.nombre).join(', ')}.` : 'Las que sé jugar ya están hechas hoy.']);
+    const r = ssGet();
+    if (r && r.log && r.log.length) { pintarMenu(r.log); return; }
+    const menu = leerMenu(); apuntarSafariCasa(menu);
+    const pend = menu.filter(d => !d.hecha && d.sabe);
+    pintarMenu([pend.length ? `Pendientes que sé jugar: ${pend.map(d => d.nombre).join(', ')}.` : 'Las de aquí que sé jugar ya están hechas hoy.',
+      `Safaris hechos hoy: ${safarisHoy().hechas.join(', ') || 'ninguno'}.`]);
   }
   function tickMenu() {
     montarMenu();
     const r = ssGet();
     if (!r || ocupado) return;
     if (r.preparar) { ocupado = true; ssPut(null); iniciarRuta(); ocupado = false; return; }
+    if (r.actual && r.actual.viaje && !r.actual.href) {
+      // a la página de viajes
+      const ev = enlaceViaje();
+      if (!ev) { r.log.push('⚠ No encuentro «Viajar a otra región» en el menú.'); r.actual = null; r.cola = r.cola.filter(x => !x.viaje && !x.region); ssPut(r); return; }
+      r.actual.href = (ev.getAttribute('href') || '').replace(/[?#].*$/, '').replace(/\/+$/, '');
+      ssPut(r);
+      if (regionDe(texto(ev).replace(/viajar a otra regi[oó]n.*/i, '')) === r.actual.viaje) {
+        // ya estoy ahí
+        r.log.push(`🧭 En ${r.actual.viaje}.`); if (r.actual.vuelta) r.fuera = false; ssPut(r);
+        ocupado = true; siguiente(r).finally(() => { ocupado = false; }); return;
+      }
+      ocupado = true;
+      sleep(800 + Math.random() * 800).then(() => { if (ssGet()) location.assign(r.actual.href); }).finally(() => { ocupado = false; });
+      return;
+    }
     if (r.actual) return;                                    // de camino a una diaria
     if (r.cola.length) { ocupado = true; siguiente(r).finally(() => { ocupado = false; }); return; }
     // se acabó la ruta
     ssPut(null);
-    pintarMenu([...r.log, `🏁 Ruta terminada: ${r.hechas.length} diaria${r.hechas.length === 1 ? '' : 's'} jugada${r.hechas.length === 1 ? '' : 's'}.`]);
+    pintarMenu([...r.log, `🏁 Ruta terminada: ${r.hechas.length} jugada${r.hechas.length === 1 ? '' : 's'}.`]);
   }
 
   // ¿toca jugar aquí? (modo solo, o esta página es la parada actual de la ruta; en el menú manda la ruta)
@@ -470,30 +751,51 @@
   }
 
   /* ── Bucle ── */
-  let ocupado = false, parado = false, buscando = 0;
+  let ocupado = false, parado = false, buscando = 0, perdido = 0;
+  // en la ruta pero en otra página (una redirección, el viaje que te lleva al mapa…): se vuelve, y a la tercera se salta
+  function perdida(r) {
+    if (!r || !r.actual || !r.actual.href || r.actual.href === ruta()) { perdido = 0; return false; }
+    if (!perdido) { perdido = Date.now(); return true; }
+    if (Date.now() - perdido < 8000) return true;
+    perdido = 0;
+    const a = r.actual;
+    a.perdido = (a.perdido || 0) + 1;
+    if (a.perdido > 2) {
+      if (a.href === '/safari' && a.region) sinReserva(a.region);
+      r.log.push(`⚠ ${a.viaje ? '🧭 Viaje a ' + a.viaje : a.href + (a.region ? ' en ' + a.region : '')}: no consigo llegar, lo salto.`);
+      ssPut(r); siguiente(r); return true;
+    }
+    if (a.viaje) { delete a.href; ssPut(r); location.assign('/menu'); } else { ssPut(r); location.assign(a.href); }
+    return true;
+  }
   async function tick() {
     if (ocupado) return;
-    if (ruta() === '/menu') { tickMenu(); return; }
     const r = ssGet();
+    if (perdida(r)) return;
+    if (ruta() === '/menu') { tickMenu(); return; }
+    const enRuta = !!(r && r.actual && r.actual.href === ruta());
     const d = DIARIAS.find(x => x.detecta());
     if (!d) {
       // en la ruta, en una diaria que no carga o que no reconozco: se espera un poco y se salta
-      if (r && r.actual && r.actual.href === ruta()) {
+      if (enRuta) {
         if (!buscando) buscando = Date.now();
-        else if (Date.now() - buscando > 20000) { buscando = 0; r.log.push(`⚠ ${r.actual.href}: no reconozco la página, la salto.`); ssPut(r); siguiente(r); }
+        else if (Date.now() - buscando > 20000) {
+          buscando = 0;
+          if (r.actual.href === '/safari' && r.actual.region) sinReserva(r.actual.region);
+          r.log.push(`⚠ ${r.actual.href}${r.actual.region ? ' en ' + r.actual.region : ''}: no reconozco la página, la salto.`); ssPut(r); siguiente(r);
+        }
       }
       return;
     }
     buscando = 0;
     const cab = d.detecta();
-    montarPanel(cab && (cab.closest('.tarjeta') || cab), d.nombre);
-    const enRuta = !!(r && r.actual && r.actual.href === ruta());
-    if (!auto && !enRuta) return;
+    if (!d.sinPanel || enRuta) montarPanel(cab && (cab.closest('.tarjeta') || cab), d.nombre);
+    if (!enRuta && (d.soloRuta || !auto)) return;
     ocupado = true;
     try {
       const hizo = await d.paso();
       if (hizo) parado = false;
-      else if (!parado) { parado = true; log('🏁 Hecho: nada más que hacer aquí por ahora.'); }
+      else if (!parado && !enRuta) { parado = true; log('🏁 Hecho: nada más que hacer aquí por ahora.'); }
       if (enRuta) rutaEnDiaria(d, hizo);
     } catch (e) { if (e !== PARADO) console.warn('[diarias]', e); }
     finally { ocupado = false; }
