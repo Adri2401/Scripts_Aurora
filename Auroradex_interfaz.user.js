@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.10.7
+// @version      1.11.0
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1464,6 +1464,22 @@
       </summary>
       <ul class="ax-grid px-3 pb-3"></ul>`;
     const ul = det.querySelector('ul');
+    // Acceso directo a la ruta de «Diarias (solas)»: juega todas las pendientes una tras otra (la arranca ese script en el Menú)
+    if (b.diario) {
+      const enMarcha = (() => { try { return !!sessionStorage.getItem('axd-ruta'); } catch { return false; } })();
+      const bt = document.createElement('button');
+      bt.type = 'button';
+      bt.className = 'boton-principal ax-todas mx-3 mb-2 !py-2 text-sm';
+      bt.style.width = 'calc(100% - 1.5rem)';
+      bt.textContent = enMarcha ? '🗓️ Jugando las diarias…' : '▶ Jugar todas las diarias';
+      bt.title = 'Necesita el script «Aurora Dex · Diarias (solas)»';
+      bt.addEventListener('click', ev => {
+        ev.preventDefault();
+        try { if (!sessionStorage.getItem('axd-ruta')) sessionStorage.setItem('axd-ruta', JSON.stringify({ preparar: true })); } catch { /* nada */ }
+        location.assign('/menu');
+      });
+      ul.insertAdjacentElement('beforebegin', bt);
+    }
     // En PvE, lo pendiente primero y lo hecho al final; los Safari van siempre aparte, al final y sin título
     const hecho = i => (esHecho(i, pillDe(i, est)) ? 1 : 0);
     const todos = b.diario ? itemsDe(b).sort((x, y) => hecho(x) - hecho(y)) : itemsDe(b);
