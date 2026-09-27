@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.10.1
+// @version      1.10.2
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1022,7 +1022,7 @@
   /* ─── Datos sueltos de algunos accesos: se leen en su página y, fuera, pidiéndola en segundo plano ───
    * Fichas de la Máquina, monedas de Cartas, cuánto le falta al Valle para llenarse (solo el tiempo), la marea de la
    * Isla, los retos de hoy de la Torre (sumando las ligas) y los Tronos (si tienes alguno y los retos que llevas parados). */
-  const INFO_KEY = 'adx-accesos-info';
+  const INFO_KEY = 'adx-accesos-info2';
   // Elementos cuyo texto cumple `re`, quitando los que solo lo cumplen porque lo lleva un hijo
   const hojasQue = (raiz, re) => { const t = [...raiz.querySelectorAll('*')].filter(el => re.test(textoDe(el))); return t.filter(el => !t.some(o => o !== el && el.contains(o))); };
   const plural = (n, s) => `${n} ${s}${n === 1 ? '' : 's'}`;
@@ -1086,14 +1086,11 @@
       case '/cartas': return g.n == null ? null
         : chip(n0(g.n) ? 'ax-c-gris' : 'ax-c-carta', `<span class="ax-estrella">★</span>${kEsc(g.n)}`);
       case '/valle':
-        if (g.at && g.at > Date.now()) return chip('ax-c-cielo', kEsc(textoRestante(g.at - Date.now())));
-        return g.at || g.txt === 'lleno' ? chip('ax-c-verde', '¡Lleno!') : null;
+        if (g.at && g.at > Date.now()) return chip('ax-c-plano', kEsc(textoRestante(g.at - Date.now())));
+        return g.at || g.txt === 'lleno' ? chip('ax-c-verde', 'lleno') : null;
       case '/isla': {
         if (g.v == null || !g.max) return null;
-        const pc = Math.max(0, Math.min(100, Math.round(g.v / g.max * 100)));
-        const lleno = g.v >= g.max;
-        return chip('ax-c-mar' + (lleno ? ' ax-c-marllena' : ''), `🌊 ${g.v}<small>/${g.max}</small>`,
-          lleno ? '' : `background:linear-gradient(90deg,#1E6FD9 ${pc}%,#7CC3F5 ${pc}%)`);
+        return chip(g.v >= g.max ? 'ax-c-marllena' : 'ax-c-mar', `🌊 ${g.v}<small>/${g.max}</small>`);
       }
       case '/torre': return g.n == null ? null : chip(g.n ? 'ax-c-torre' : 'ax-c-gris', `⚔️ ${g.n} reto${g.n === 1 ? '' : 's'}`);
       case '/tronos':
@@ -1307,21 +1304,21 @@
       ${U} .ax-sub{display:flex;flex-direction:column;gap:1px;max-width:100%;font-size:9px;font-weight:700;line-height:1.2;opacity:.85}
       ${U} .ax-sub>b{font-size:9px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
       ${U} .ax-sub>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      ${U} .ax-chips{display:flex;flex-direction:column;align-items:center;gap:2px;max-width:100%;margin-top:1px}
-      ${U} .ax-chip{display:inline-flex;align-items:center;justify-content:center;gap:3px;max-width:100%;padding:1px 7px;border-radius:999px;font-size:9.5px;font-weight:800;line-height:1.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums;box-shadow:inset 0 -1.5px 0 rgba(0,0,0,.18),0 1px 2px rgba(0,0,0,.12)}
-      ${U} .ax-chip img{width:12px;height:12px;object-fit:contain;flex:none}
-      ${U} .ax-chip small{font-size:8px;opacity:.8}
-      ${U} .ax-chip .ax-estrella{color:#FFD54A;text-shadow:0 0 4px rgba(255,213,74,.7)}
-      ${U} .ax-c-oro{background:linear-gradient(#FFE07A,#F5B323);color:#5A3A00}
-      ${U} .ax-c-carta{background:linear-gradient(#5B3492,#2E1A55);color:#FFEEC2}
-      ${U} .ax-c-cielo{background:linear-gradient(#6FD0F7,#2E8FD0);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.2)}
-      ${U} .ax-c-verde{background:linear-gradient(#6BDB88,#2FA84F);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.2)}
-      ${U} .ax-c-mar{color:#fff;text-shadow:0 1px 1px rgba(0,0,0,.35)}
-      ${U} .ax-c-marllena{background:linear-gradient(#35D0C0,#119C8E)}
-      ${U} .ax-c-torre{background:linear-gradient(#A77BFF,#6A3FD6);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.2)}
-      ${U} .ax-c-rey{background:linear-gradient(#FFE88A,#E6A800);color:#4A3300}
-      ${U} .ax-c-escudo{background:linear-gradient(#FF9A7A,#E0543A);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.2)}
-      ${U} .ax-c-gris{background:rgba(127,127,127,.18);color:inherit;opacity:.75;box-shadow:none}
+      ${U} .ax-chips{display:flex;flex-direction:column;align-items:center;gap:1px;max-width:100%}
+      ${U} .ax-chip{display:inline-flex;align-items:center;justify-content:center;gap:3px;max-width:100%;font-size:9px;font-weight:800;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+      ${U} .ax-chip img{width:11px;height:11px;object-fit:contain;flex:none}
+      ${U} .ax-chip small{font-size:8px;opacity:.7}
+      ${U} .ax-c-plano{opacity:.85}
+      ${U} .ax-c-oro{color:#E0A000}
+      ${U} .ax-c-carta{color:#9B6BFF}
+      ${U} .ax-c-carta .ax-estrella{color:#F5B323}
+      ${U} .ax-c-verde{color:#2FA84F}
+      ${U} .ax-c-mar,${U} .ax-c-marllena{color:#2E9BE0}
+      ${U} .ax-c-marllena{color:#17A99A}
+      ${U} .ax-c-torre{color:#9B6BFF}
+      ${U} .ax-c-rey{color:#E0A000}
+      ${U} .ax-c-escudo{color:#E8664A}
+      ${U} .ax-c-gris{opacity:.5}
       ${U} .ax-item.ax-aqui{outline:2px solid #2FA84F;outline-offset:-2px}`;
     document.head.appendChild(st);
   }
