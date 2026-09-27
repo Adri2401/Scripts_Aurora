@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.10.6
+// @version      1.10.7
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -490,19 +490,50 @@
     if (!btn || btn.disabled) { cerrar(); return false; }
     if (/estas aqui/.test(normalizarTexto(textoDe(btn)))) { cerrar(); return true; }
     btn.click();
-    await esperarA(() => !ul.isConnected, 15000);
+    await esperarA(() => !ul.isConnected || (btn.isConnected && /estas aqui/.test(normalizarTexto(textoDe(btn)))) || regionEnChapa() === id, 15000);
     lsPut(REGION_KEY, { id, t: Date.now() });
     regionMemo = { t: 0, v: null };
     return true;
   }
-  async function irAZona(item) {
-    if (item.destino && elPuerto()) { sessionStorage.removeItem(ZONA_KEY); elPuerto().click(); return; }   // ya en la isla
+  /* Cuánto tarda cada paso del viaje al Frente (se ve en un aviso si pasa de 8 s, para saber dónde se atasca) */
+  const FRENTE_T = 'adx-frente-tiempos';
+  function frenteMarca(paso, nuevo) {
+    let r = null;
+    try { r = nuevo ? null : JSON.parse(sessionStorage.getItem(FRENTE_T) || 'null'); } catch { r = null; }
+    if (r && Date.now() - r.t0 > 180000) r = null;
+    if (!r) { if (!nuevo) return; r = { t0: Date.now(), pasos: [] }; }
+    r.pasos.push([paso, Date.now()]);
+    sessionStorage.setItem(FRENTE_T, JSON.stringify(r));
+  }
+  function frenteFin() {
+    let r = null;
+    try { r = JSON.parse(sessionStorage.getItem(FRENTE_T) || 'null'); } catch { r = null; }
+    sessionStorage.removeItem(FRENTE_T);
+    if (!r || Date.now() - r.t0 > 180000) return;
+    const fin = Date.now(), total = fin - r.t0;
+    const partes = r.pasos.map((p, i) => `${p[0]}: ${(((r.pasos[i + 1] || [0, fin])[1] - p[1]) / 1000).toFixed(1)} s`);
+    lsPut('adx-frente-ultimo', { total, partes, t: fin });
+    if (total > 8000) kAviso({ tipo: 'info', app: 'Accesos', icono: '🏝️', titulo: `Frente Batalla en ${Math.round(total / 1000)} s`, lineas: partes, sonido: false });
+  }
+  async function irAZona(item, sinAtajo = false) {
+    if (item.destino) frenteMarca('salida', true);
+    if (item.destino && elPuerto()) { sessionStorage.removeItem(ZONA_KEY); frenteFin(); elPuerto().click(); return; }   // ya en la isla
+    // Ya en la isla (la web la llama «frontera») o en la propia página del Frente: directo, sin volver a Hoenn ni al mapa
+    if (item.destino && !sinAtajo && (regionActual() === 'frontera' || location.pathname === item.destino)) {
+      sessionStorage.removeItem(ZONA_KEY);
+      sessionStorage.setItem(DESTINO_KEY, JSON.stringify({ href: item.destino, t: Date.now(), atajo: true }));
+      frenteMarca('directo a la isla');
+      continuarDestino();
+      return;
+    }
     sessionStorage.setItem(ZONA_KEY, JSON.stringify({ zona: item.zona, boton: item.boton, destino: item.destino, region: item.region, label: item.label, t: Date.now() }));
     if (item.region && regionActual() !== item.region) {
       let ok = false;
+      if (item.destino) frenteMarca('cambio a ' + (item.regionLabel || cap(item.region)));
       try { ok = await cambiarRegionRapido(item.region, item.regionLabel || cap(item.region)); } catch (e) { console.warn('[adx región]', e); }
       if (!ok) { irConCambioDeRegion(item.region, item.regionLabel || cap(item.region), '/mapa'); return; }
     }
+    if (item.destino) frenteMarca('abrir el mapa');
     if (!/^\/mapa\/?$/.test(location.pathname)) await irA('/mapa');
     continuarZona();
   }
@@ -525,16 +556,27 @@
       if (!d.embarcado) {
         // 1) a /frontera y su «⛵ Embarcar»
         if (location.pathname !== d.href) { await irA(d.href); return; }       // al cambiar de página se sigue solo
-        const b = await esperarA(embarcarIsla, 5000);
-        if (!b) { sessionStorage.removeItem(DESTINO_KEY); return; }            // ya estabas dentro
+        await esperarA(() => hidratado(document.querySelector('main')), 6000);
+        const b = await esperarA(embarcarIsla, 1200);
+        if (!b) {
+          sessionStorage.removeItem(DESTINO_KEY);
+          // el atajo te ha traído sin estar en el Muelle: se hace el camino entero
+          const mal = d.atajo && /muelle del frente|ve al muelle|tienes que (ir|estar)/i.test(textoDe(document.querySelector('main')));
+          if (mal) { const it = BLOQUES.flatMap(x => x.items).find(x => x.destino === d.href); if (it) { irAZona(it, true); return; } }
+          frenteFin();
+          return;                                                               // ya estabas dentro
+        }
+        frenteMarca('barco a la isla');
         d.embarcado = true; d.t = Date.now(); guarda();
         embarcando = true;
         try { b.click(); await esperarA(() => !b.isConnected || location.pathname !== d.href || elPuerto(), 8000); await esperaMs(300); }
         finally { embarcando = false; }
       }
       // 2) ya en la isla: «El puerto»
+      frenteMarca('entrar al puerto');
       const a = await esperarA(elPuerto, 6000);
       sessionStorage.removeItem(DESTINO_KEY);
+      frenteFin();
       if (a && location.pathname !== d.href) a.click();
       else if (location.pathname !== d.href) irA(d.href);
     } finally { destinoEnMarcha = false; }
@@ -553,7 +595,7 @@
     if (sessionStorage.getItem(ADX_PENDING_KEY)) return;            // aún cambiando de región
     if (!/^\/mapa\/?$/.test(location.pathname)) return;
     zonaEnMarcha = true;
-    const fallo = texto => { sessionStorage.removeItem(ZONA_KEY); kAviso({ tipo: 'error', app: 'Accesos', icono: '🏝️', titulo: `No he podido llegar a ${pend.label || pend.zona}`, texto }); };
+    const fallo = texto => { sessionStorage.removeItem(ZONA_KEY); sessionStorage.removeItem(FRENTE_T); kAviso({ tipo: 'error', app: 'Accesos', icono: '🏝️', titulo: `No he podido llegar a ${pend.label || pend.zona}`, texto }); };
     const buscada = normalizarTexto(pend.zona);
     const re = pend.boton ? new RegExp('^[^a-z0-9]*' + pend.boton, 'i') : null;
     // el botón del final («Embarcar»): si se ve, ya estás en el tramo
@@ -578,6 +620,7 @@
       sessionStorage.removeItem(ZONA_KEY);
       if (!re) return;
       await cerrarLista();
+      if (pend.destino) frenteMarca('embarcar en el Muelle');
       const b = await esperarA(botonFinal, 8000);
       if (!b) return fallo(`Estoy en ${pend.zona} pero no encuentro «${cap(pend.boton)}».`);
       if (pend.destino) sessionStorage.setItem(DESTINO_KEY, JSON.stringify({ href: pend.destino, t: Date.now() }));
@@ -604,6 +647,7 @@
       if (esAqui(btn)) return await terminar();      // ya estabas ahí
       if (!btn) { await cerrarLista(); btn = [...document.querySelectorAll('main a, main button')].find(x => visibleEl(x) && !x.querySelector('h1') && normalizarTexto(textoDe(x)).startsWith(buscada)); }
       if (!btn) return fallo(`No veo «${pend.zona}» en el mapa de ${cap(pend.region || '')}.`);
+      if (pend.destino) frenteMarca('ir al ' + pend.zona);
       if (btn.disabled) { await cerrarLista(); return fallo(`«${pend.zona}» está cerrado en el mapa.`); }
       btn.click();
       // si pide confirmar el viaje, se confirma (una vez)
