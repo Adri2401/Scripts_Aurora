@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.7.2
+// @version      1.8.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.7.2';
+  const VERSION = '1.8.0';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -382,7 +382,7 @@
   // 1.6: la estrategia no se elige: siempre lo más óptimo según el laboratorio (miles de bajadas simuladas con tu base).
   // · progreso: esquirlas mientras Sangre de la veta no esté al máximo, luego bajar · Élite hasta que los tres que pelean
   //   (el prestado) esté al Nv.100 · Sanguijuela, lo que diga la IA (forzarla no cambia nada) · pensar a fondo · ordenar el equipo solo
-  Object.assign(conf, { prioridad: 'progreso', eliteHasta: 'principal', sanguijuelas: 0, esfuerzo: 'alto', reordenar: true });
+  Object.assign(conf, { prioridad: 'progreso', eliteHasta: 'principal', sanguijuelas: 0, esfuerzo: 'alto', reordenar: true, velocidad: 'normal' });
   // 1.5: «progreso» pasa a ser lo de por defecto (lo que más rápido lleva hondo, según el laboratorio)
   if (!conf.v15) { if (conf.prioridad === 'equilibrio' || conf.prioridad === 'pisos') conf.prioridad = 'progreso'; conf.v15 = true; lsPut(LS_CONF, conf); }
   if (!conf.v12) { if (conf.prioridad === 'pisos') conf.prioridad = 'equilibrio'; conf.v12 = true; lsPut(LS_CONF, conf); }
@@ -1011,8 +1011,9 @@
     const cN = calidad(e, null), cn = cN.total, cO = S.eq.map(y => calidadObj(y, null)), cs = cO.map(c => c.total);
     const hueco = S.eq.length < S.plazas;
     let peor = 0; cs.forEach((c, k) => { if (c < cs[peor]) peor = k; });
-    if (hueco) { if (cs.length && cn < AJ.recluta * media(cs)) return; }
-    else if (!(cn > cs[peor] + 0.06)) {
+    // con menos de tres (faltan luchadores: los guardianes sacan tres) se es menos exigente que para la reserva
+    if (hueco) { if (cs.length && cn < (S.eq.length < 3 ? AJ.reclutaFalta : AJ.recluta) * media(cs)) return; }
+    else if (!(cn > cs[peor] + AJ.cambioMargen)) {
       // no es mejor de media que el peor… pero quizá tapa el bioma flojo del equipo (p. ej. un Lucha para el Glaciar)
       if (!AJ.cobertura) return;
       const base = coberturaDe(cO); let mejor = -1, mv = base + AJ.cobMin;
@@ -1030,7 +1031,7 @@
   // · Curar al ganar (Sanguijuela) vale mucho hasta que entre todo cura ~100% por victoria; luego ya no suma.
   // · Subir niveles vale poco (al 100 se llega igual y ahí no hace nada). Botín vale más cuanto más queda por bajar.
   // Ajustes de la estrategia (los que se afinan en el laboratorio: miles de bajadas simuladas con los mismos dados)
-  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0.2, recluta: 0.7, nivelesPeso: 0.5, curarPeleando: 0, pelearLleno: 0, antesGuardian: 0, misterioPrimero: 0, cobertura: 0, cobMin: 0.03 };
+  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0.2, recluta: 0.7, nivelesPeso: 0.5, curarPeleando: 0, pelearLleno: 0, antesGuardian: 0, misterioPrimero: 0, cobertura: 0, cobMin: 0.03, reclutaFalta: 0.5, faltaBloquea: 0, cambioMargen: 0.06, buscarRecluta: 0.8 };
   function valorRapidoBend(S, e) {
     if (!e) return 0.01;
     const eq = S.eq, n = Math.max(1, eq.length);
@@ -1162,12 +1163,18 @@
     // en el piso de antes del guardián, a por él con todo el equipo lleno
     if (AJ.antesGuardian && S.piso % 5 === 4 && hay('descanso') && (t.falta || t.minVida < AJ.antesGuardian)) return 'descanso';
     if (!t.al100) {
-      if (hay('elite') && t.h >= AJ.eliteVida && !t.falta) return 'elite';
-      if (hay('descanso') && (t.h < AJ.descansoVida || t.falta)) return 'descanso';
+      // Élite si el principal está en pie y con vida y el resto no va muy tocado. Un recluta caído no la impide (pelean
+      // los tres primeros que sigan en pie): antes sí, y por eso las simulaciones veían peor tener reclutas.
+      const pv = t.principal ? t.principal.vida : 0;
+      const eliteOk = AJ.faltaBloquea ? t.h >= AJ.eliteVida && !t.falta : pv >= AJ.eliteVida && t.h >= 0.45;
+      if (hay('elite') && eliteOk) return 'elite';
+      if (hay('descanso') && (AJ.faltaBloquea ? (t.h < AJ.descansoVida || t.falta) : (pv < AJ.descansoVida || t.h < 0.45))) return 'descanso';
       // sin Élite: Combate (2 niveles) si aún queda mucho para el 100; si ya casi, lo que da esquirlas sin pelear
       orden = t.h >= 0.45 && !t.falta && t.minL < 90 ? ['combate', 'tesoro', 'misterio', 'oculta', 'descanso', 'elite'] : ['tesoro', 'misterio', 'descanso', 'oculta', 'combate', 'elite'];
     } else {
       const cura = S.ef.curaVictoria + S.mej.curaVictoria;
+      // con menos de tres Pokémon, al guardián se llega en inferioridad: un combate trae un recluta
+      if (AJ.buscarRecluta && S.eq.length < 3 && hay('combate') && t.h >= AJ.buscarRecluta) return 'combate';
       // con mucha cura al ganar (Sanguijuela + Zurrón), un combate cura y además da esquirlas (no levanta a los caídos)
       if (AJ.curarPeleando && cura >= AJ.curarPeleando && hay('combate') && !t.falta && (t.h < AJ.descanso100 || t.minVida < 0.7)) return 'combate';
       if (hay('descanso') && (t.h < AJ.descanso100 || t.falta || t.minVida < 0.7)) return 'descanso';
@@ -1352,6 +1359,8 @@
         return { mejor: o, lista: [{ o, v: 0, techo: 0, vivo: 1, pierde: pierde / 48, dTecho: 0 }], texto: o.nombre, porque: `${t.flojo.nombre}${t.flojo === t.principal ? ' (tu principal)' : ''} aún está en Nv.${Math.round(t.flojo.L)}: Élite da 3 niveles (Combate, 2) y más esquirlas; se pierde ${pct(pierde / 48)} de las veces` };
       }
     }
+    // · Al Nv.100 con menos de tres Pokémon: a por un recluta (a los guardianes, que sacan tres, se llega en inferioridad)
+    if (t.al100 && pc === 'combate' && S0.eq.length < 3) { const o = ops.find(x => x.clase === 'combate'); return { mejor: o, lista: [{ o, v: 0, techo: 0, vivo: 1, dTecho: 0 }], texto: o.nombre, porque: `solo tienes ${S0.eq.length} Pokémon y los guardianes sacan tres: un combate trae un recluta` }; }
     // · Ya al Nv.100: solo compiten las puertas sin pelea (si solo hay una, ni se piensa)
     const candidatas = t.al100 ? ops.filter(o => !['elite', 'combate'].includes(o.clase)) : ops;
     if (t.al100 && candidatas.length === 1) return { mejor: candidatas[0], lista: [{ o: candidatas[0], v: 0, techo: 0, vivo: 1, dTecho: 0 }], texto: candidatas[0].nombre, porque: 'ya están al Nv.100: la única puerta sin pelea' };
@@ -1394,7 +1403,8 @@
       if (x.o.dejar) return true;
       const gana = x.v - dej.v;
       const m = cs.length ? media(cs) : 0;
-      if (x.o.meter) return (cn.total >= AJ.recluta * m && gana >= 0.3) || (cn.total >= (AJ.recluta - 0.2) * m && gana >= 2);
+      const f = S0.eq.length < 3 ? AJ.reclutaFalta : AJ.recluta;       // faltan luchadores: menos exigente
+      if (x.o.meter) return (cn.total >= f * m && gana >= 0.3) || (cn.total >= (f - 0.2) * m && gana >= 2);
       // cambiar a uno: tiene que subir la cobertura del equipo (sobre todo en su bioma más flojo) y rendir más jugándolo
       return (cn.total > cs[x.o.cambia] + 0.06 || (AJ.cobertura && cobCon(x.o.cambia) > cob0 + AJ.cobMin)) && gana >= 0.5;
     };
