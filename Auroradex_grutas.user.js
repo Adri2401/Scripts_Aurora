@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Grutas del Subsuelo (todas las vetas)
 // @namespace    auroradex-grutas
-// @version      0.2.0
-// @description  Solo en /subsuelo. Pica todas las vetas por el camino más corto (el mínimo de pasos, que es lo que cuesta energía al andar): lee el mapa (del juego o aprendido de lo que se ve), calcula el mejor orden y desde qué lado picar cada una, lo dibuja encima del mapa y lo recorre solo con flechas y clics (hasta 3 casillas por clic cuando es seguro; si las flechas no van, solo con clics). Nunca pisa escaleras, la Sima ni puertas. Se para si no llega la energía y sigue donde lo dejó; recuerda las vetas ya picadas (vuelven a las 12 h).
+// @version      0.3.0
+// @description  Solo en /subsuelo. Pica las vetas por el camino más corto (el mínimo de pasos, que es lo que cuesta energía al andar; con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa que manda el servidor, con cada veta, su tipo y cuándo se vuelve a llenar) y recuerda todo lo que ve; «🧭 Explorar» recorre lo que falta para conocer todas las vetas. Eliges qué tipos picar (p. ej. solo 🔴 Esfera roja). Calcula el mejor orden y lado de cada veta, lo dibuja encima del mapa y lo recorre solo con flechas y clics (hasta 3 casillas por clic cuando es seguro). Nunca pisa escaleras, la Sima ni puertas. Se para si no llega la energía y sigue donde lo dejó.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_grutas.user.js
@@ -299,7 +299,7 @@
    *  AJUSTES Y MEMORIA
    * ------------------------------------------------------------------ */
   const PANEL_ID = 'axsub-panel', U = '#' + PANEL_ID, DIBUJO_ID = 'axsub-dibujo';
-  const VERSION = '0.2.0';
+  const VERSION = '0.3.0';
   const LS_CFG = 'axsub-cfg', LS_MEM = 'axsub-mem-v1';
   const H12 = 12 * 3600e3, H24 = 24 * 3600e3;
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -521,6 +521,9 @@
     }
     return null;
   }
+  // La ventana que manda el servidor: un trozo del mapa (19×15) alrededor de ti, con sus coordenadas de verdad
+  const comoVentana = o => o && Number.isInteger(o.xBase) && Number.isInteger(o.yBase) && Number.isInteger(o.ancho) && Number.isInteger(o.alto)
+    && Array.isArray(o.tiles) && o.tiles.length === o.ancho * o.alto;
   function escanear(v, ruta, visto, res, prof) {
     if (!v || typeof v !== 'object' || visto.has(v) || prof > 5) return;
     if (typeof Node !== 'undefined' && v instanceof Node) return;
@@ -537,8 +540,8 @@
       }
       return;
     }
-    const g = rejillaPlana(v);
-    if (g) res.rejillas.push({ ruta, ...g, crudo: v });
+    if (comoVentana(v)) res.ventanas.push({ ruta, v });
+    else { const g = rejillaPlana(v); if (g) res.rejillas.push({ ruta, ...g, crudo: v }); }
     const p = posDe(v);
     if (p) res.posiciones.push({ ruta, ...p });
     let n = 0;
@@ -551,9 +554,24 @@
     }
   }
   let datosMemo = { t: 0, v: null };
+  let sitioVentana = null;                        // {tipo, donde}: en qué componente y estado está la ventana (para leerla rápido)
+  function ventanaRapida(t) {
+    if (!sitioVentana) return null;
+    let f = actual(fibraDe(t.cv));
+    for (let i = 0; f && i < 30; f = f.return, i++) {
+      if (f.type !== sitioVentana.tipo) continue;
+      const par = valoresFibra(f).find(([k]) => k === sitioVentana.donde);
+      if (par && comoVentana(par[1])) return { ruta: sitioVentana.ruta, v: par[1] };
+      return null;
+    }
+    return null;
+  }
   function datosPagina(t, forzar = false) {
-    if (!forzar && datosMemo.v && Date.now() - datosMemo.t < 1500) return datosMemo.v;
-    const res = { rejillas: [], listas: [], posiciones: [], funciones: new Set(), fibras: [] };
+    // la ventana cambia con cada paso: se lee siempre fresca (por el camino rápido si ya se sabe dónde está)
+    const rapida = !forzar && ventanaRapida(t);
+    if (rapida && datosMemo.v && Date.now() - datosMemo.t < 1500) { datosMemo.v.ventana = rapida; return datosMemo.v; }
+    if (!forzar && !sitioVentana && datosMemo.v && Date.now() - datosMemo.t < 1500) return datosMemo.v;
+    const res = { rejillas: [], listas: [], posiciones: [], funciones: new Set(), fibras: [], ventanas: [] };
     const vistas = new Set(), visto = new Set();
     for (const el of [t.cv, t.capa, t.caja]) {
       let f = actual(fibraDe(el));
@@ -564,12 +582,19 @@
         if (!vals.length) continue;
         const nom = nombreFibra(f);
         res.fibras.push({ nivel: i, nombre: nom, vals });
-        for (const [dónde, v] of vals) escanear(v, nom + '.' + dónde, visto, res, 0);
+        for (const [dónde, v] of vals) {
+          const antes = res.ventanas.length;
+          escanear(v, nom + '.' + dónde, visto, res, 0);
+          for (const w of res.ventanas.slice(antes)) if (w.ruta === nom + '.' + dónde) { w.tipo = f.type; w.donde = dónde; }
+        }
       }
     }
     res.rejillas.sort((a, b) => b.w * b.h - a.w * a.h);
     // el mapa entero: más grande que lo que se ve (una rejilla del tamaño de la pantalla es solo la vista)
     res.rejilla = res.rejillas.find(g => g.w * g.h >= 100 && (g.w > t.cols || g.h > t.rows)) || null;
+    // la ventana buena es la del estado (se actualiza al andar), no la inicial de las props
+    res.ventana = res.ventanas.find(w => /\.hook\d+$/.test(w.ruta) && w.tipo) || res.ventanas.find(w => w.tipo) || res.ventanas[0] || null;
+    if (res.ventana && res.ventana.tipo) sitioVentana = { tipo: res.ventana.tipo, donde: res.ventana.donde, ruta: res.ventana.ruta };
     datosMemo = { t: Date.now(), v: res };
     return res;
   }
@@ -654,16 +679,18 @@
   async function observar() {
     const t = tablero();
     if (!t) return { error: 'No veo el mapa de las grutas.' };
+    const { cosas, yo, entreCasillas } = leerCosas(t);
+    if (!yo) return { error: 'No te veo en el mapa.' };
+    if (entreCasillas) return { error: 'Moviéndose…', moviendo: true, t, cosas, yo };
+    const datos0 = datosPagina(t);
+    if (datos0.ventana) return observarDatos(t, cosas, yo, datos0);
     await cargarRefs(t.tc);
     if (!refs.length) return { error: refsError || 'No cargo las imágenes de la leyenda.' };
     const v = leerVista(t);
     if (v.error) return { error: v.error };
-    const { cosas, yo, entreCasillas } = leerCosas(t);
-    if (!yo) return { error: 'No te veo en el mapa.' };
-    if (entreCasillas) return { error: 'Moviéndose…', moviendo: true, t, v, cosas, yo };
     const dibujadas = v.tipos.flat().filter(x => x !== 'fuera' && x !== 'raro').length;
     if (dibujadas < 30) return { error: dibujadas ? 'No reconozco el dibujo del mapa (pulsa «📋 Copiar datos» y pégamelo).' : 'El mapa aún no se ha dibujado.', t, v, cosas, yo };
-    const datos = datosPagina(t);
+    const datos = datos0;
     const G = datos.rejilla;
     const nuevoMarco = G ? 'juego:' + G.w + 'x' + G.h : 'propio';
     if (nuevoMarco !== marco) { marco = nuevoMarco; camPrev = null; prediccion = null; }
@@ -735,6 +762,105 @@
     ultimaObs = o;
     return o;
   }
+  /* ── Con los datos del juego: coordenadas de verdad, lo que es cada casilla y cada veta con su tipo ── */
+  // Códigos de casilla vistos en el juego: 1 suelo, 3 agua, 0 roca, 7 veta, 9 puerta de base, 11 cámara
+  const CODIGOS = { 0: 'pared', 1: 'suelo', 3: 'agua', 7: 'nodo', 9: 'puerta', 11: 'losa' };
+  const lista = v => Array.isArray(v) ? v : (v && typeof v === 'object' ? [v] : []);
+  function hashCanvas(t) {
+    try { const d = t.cv.getContext('2d').getImageData(0, 0, t.cv.width, t.cv.height).data; let h = 0; for (let i = 0; i < d.length; i += 97) h = (h * 31 + d[i]) | 0; return h; }
+    catch { return 0; }
+  }
+  function observarDatos(t, cosas, yo, datos) {
+    const vp = datos.ventana.v;
+    if (marco !== 'datos') { marco = 'datos'; camPrev = null; prediccion = null; }
+    const m = mem();
+    for (const k of ['cod', 'nodos', 'objs', 'vetas', 'sinPaso', 'pisables', 'costes']) if (!m[k]) m[k] = {};
+    // cámara: por los nombres de las bases (exacto); si no hay ninguna a la vista, la ventana va centrada
+    const votos = new Map();
+    const bases = lista(vp.basesVisibles);
+    for (const c of cosas) {
+      if (c.tipo !== 'puerta') continue;
+      const nom = c.titulo.replace(/^base (secreta )?de\s*/i, '').trim();
+      const b = bases.find(x => x && x.nombre === nom);
+      if (b) { const k = K(b.x - c.c, b.y - c.f); votos.set(k, (votos.get(k) || 0) + 1); }
+    }
+    let cam;
+    if (votos.size) cam = deK([...votos].sort((a, b) => b[1] - a[1])[0][0]);
+    else cam = { x: vp.xBase + Math.floor((vp.ancho - t.cols) / 2), y: vp.yBase + Math.floor((vp.alto - t.rows) / 2) };
+    camPrev = cam;
+    const ahora = Date.now();
+    const x0 = vp.xBase, y0 = vp.yBase, x1 = x0 + vp.ancho - 1, y1 = y0 + vp.alto - 1;
+    const enVentana = (x, y) => x >= x0 && y >= y0 && x <= x1 && y <= y1;
+    for (let y = 0; y < vp.alto; y++) for (let x = 0; x < vp.ancho; x++) m.cod[K(x0 + x, y0 + y)] = vp.tiles[y * vp.ancho + x];
+    // vetas (todas las de la ventana vienen en la lista: las que ya no están se borran)
+    for (const k of Object.keys(m.nodos)) { const p = deK(k); if (enVentana(p.x, p.y)) delete m.nodos[k]; }
+    for (const n of lista(vp.nodosVisibles)) {
+      if (!n || !Number.isInteger(n.x) || !Number.isInteger(n.y)) continue;
+      m.nodos[K(n.x, n.y)] = { tipo: String(n.tipoId ?? n.tipo ?? 'veta'), activo: n.activo !== false, disp: n.disponibleEn ?? null, visto: ahora };
+    }
+    // lo que no se puede pisar: puertas de bases, cámaras, escaleras, la Sima
+    for (const k of Object.keys(m.objs)) { const p = deK(k); if (enVentana(p.x, p.y)) delete m.objs[k]; }
+    const poner = (it, tipo, titulo) => {
+      if (!it || !Number.isInteger(it.x) || !Number.isInteger(it.y)) return;
+      const w = Number.isInteger(it.ancho) ? it.ancho : Number.isInteger(it.w) ? it.w : 1, h = Number.isInteger(it.alto) ? it.alto : Number.isInteger(it.h) ? it.h : 1;
+      for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) m.objs[K(it.x + dx, it.y + dy)] = { t: tipo, titulo, visto: ahora };
+    };
+    for (const b of bases) poner(b, 'puerta', 'Base de ' + (b && b.nombre));
+    for (const c of lista(vp.camarasVisibles)) poner(c, 'losa', c && c.nombre);
+    for (const s of lista(vp.salidasVisibles)) poner(s, 'salida', 'Escalera');
+    for (const s of lista(vp.simaVisible)) poner(s, 'sima', 'La Sima');
+    // y cualquier otra cosa que se vea encima del mapa y no venga en los datos
+    for (const c of cosas) {
+      c.x = cam.x + c.c; c.y = cam.y + c.f;
+      if (c.tipo === 'veta' || c.tipo === 'ball' || c.tipo === 'puerta' || c.tipo === 'losa') continue;
+      for (let dy = 0; dy < c.h; dy++) for (let dx = 0; dx < c.w; dx++) m.objs[K(c.x + dx, c.y + dy)] = { t: c.tipo, titulo: c.titulo, visto: ahora };
+    }
+    const pos = { x: cam.x + yo.c, y: cam.y + yo.f };
+    // si estás encima de una casilla, esa clase de casilla se puede pisar (así se aprenden los códigos nuevos)
+    const bajo = m.cod[K(pos.x, pos.y)];
+    if (bajo != null && !CODIGOS[bajo]) m.pisables[bajo] = true;
+    guardarMem();
+    const enVista = (x, y) => x >= cam.x && y >= cam.y && x < cam.x + t.cols && y < cam.y + t.rows;
+    const o = { ok: true, t, cosas, yo, cam, pos, datos, vp, fuente: 'datos', hash: hashCanvas(t) ^ (pos.x * 7919 + pos.y), enVista,
+      pasosHastaGasto: vp.pasosHastaGasto, pasosPorEnergia: vp.pasosPorEnergia };
+    ultimaObs = o;
+    return o;
+  }
+  const EMOJI_TIPO = [[/roja/i, '🔴'], [/azul/i, '🔵'], [/f[oó]sil|cr[aá]neo|coraza/i, '🦴'], [/magma/i, '🌋'], [/placa/i, '📜'], [/ball|poke/i, '⚪'], [/fil[oó]n|brillante/i, '🌟'], [/mineral/i, '💠'], [/veta|peque|grande/i, '💎']];
+  const emojiTipo = tp => (EMOJI_TIPO.find(([re]) => re.test(tp)) || [0, '⛏️'])[1];
+  const nombreTipo = tp => { const s = String(tp).replace(/[-_]+/g, ' ').trim(); return s.charAt(0).toUpperCase() + s.slice(1); };
+  // Un tipo nuevo (que aparece más tarde) se pica solo si no has quitado ninguno: si has elegido, lo nuevo empieza quitado
+  const quiereTipo = tp => {
+    const t = cfg.tipos || {};
+    if (tp in t) return t[tp] !== false;
+    return !Object.values(t).some(v => v === false);
+  };
+  function construirMapaDatos(o) {
+    const m = mem(), ahora = Date.now();
+    const tipoDeCod = c => CODIGOS[c] || (m.pisables[c] ? 'suelo' : 'desconocido');
+    const tipoEn = (x, y) => { const c = m.cod[K(x, y)]; return c == null ? 'desconocido' : tipoDeCod(c); };
+    const bloqueadas = new Set([...Object.keys(m.objs), ...Object.keys(m.nodos), ...Object.keys(m.sinPaso)]);
+    const pisable = (x, y) => {
+      if (x === o.pos.x && y === o.pos.y) return true;
+      const t = tipoEn(x, y);
+      if (!(t === 'suelo' || (t === 'agua' && cfg.agua))) return false;
+      return !bloqueadas.has(K(x, y));
+    };
+    const vetas = [];
+    for (const [k, n] of Object.entries(m.nodos)) {
+      const { x, y } = deK(k), mv = m.vetas[k];
+      const t = aTiempo(n.disp);
+      let ok = n.activo && (!t || t <= ahora);
+      if (!n.activo && t && t <= ahora) ok = true;                   // ya se ha vuelto a llenar desde que la viste
+      if (mv && mv.picada && mv.picada >= n.visto && ahora - mv.picada < H12) ok = false;
+      if (fallidas.has(k)) ok = false;
+      const coste = m.costes[n.tipo] ?? costeDeTexto(n.tipo);
+      vetas.push({ x, y, k, t: 'veta', tipoId: n.tipo, ok: ok && quiereTipo(n.tipo), existe: ok, coste, deTipo: quiereTipo(n.tipo) });
+    }
+    const ps = Object.keys(m.cod).map(deK);
+    const X0 = Math.min(...ps.map(p => p.x)), X1 = Math.max(...ps.map(p => p.x)), Y0 = Math.min(...ps.map(p => p.y)), Y1 = Math.max(...ps.map(p => p.y));
+    return { tipoEn, pisable, vetas: vetas.filter(v => v.deTipo), todasVetas: vetas, x0: X0, y0: Y0, x1: X1, y1: Y1, charTipo: new Map() };
+  }
   function alinearTodos(G, vista) {
     // todas las posiciones con su encaje (solo para desempatar la primera vez)
     const { ids, chars } = idsRejilla(G);
@@ -760,6 +886,20 @@
    * ------------------------------------------------------------------ */
   const PRIOR = [[/suelo|floor|camino|tierra|^\.$/i, 'suelo'], [/pared|roca|muro|wall|^#$/i, 'pared'], [/agua|water|^~$/i, 'agua'], [/lava/i, 'lava'], [/salida|escalera|exit|stairs/i, 'salida']];
   function construirMapa(o) {
+    if (o.fuente === 'datos') return conRejilla(construirMapaDatos(o));
+    return conRejilla(construirMapaVista(o));
+  }
+  // Se precalcula qué se puede pisar en una rejilla (para que buscar caminos sea rápido en mapas grandes)
+  function conRejilla(mapa) {
+    const W = mapa.x1 - mapa.x0 + 1, H = mapa.y1 - mapa.y0 + 1;
+    if (!(W > 0 && H > 0)) { mapa.x0 = mapa.y0 = 0; mapa.x1 = mapa.y1 = 0; }
+    const w = mapa.x1 - mapa.x0 + 1, h = mapa.y1 - mapa.y0 + 1;
+    const pasa = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) pasa[y * w + x] = mapa.pisable(mapa.x0 + x, mapa.y0 + y) ? 1 : 0;
+    mapa.pasa = pasa;
+    return mapa;
+  }
+  function construirMapaVista(o) {
     const m = mem(), G = o.G;
     // de cada letra del mapa del juego: qué es (por lo que se ha visto de ella) y si es una veta u otra cosa
     const charTipo = new Map(), charVeta = new Map();
@@ -880,7 +1020,7 @@
         const nx = x + dx, ny = y + dy;
         if (nx < mapa.x0 || ny < mapa.y0 || nx > mapa.x1 || ny > mapa.y1) continue;
         const j = idx(nx, ny);
-        if (dist[j] >= 0 || !mapa.pisable(nx, ny)) continue;
+        if (dist[j] >= 0 || !(mapa.pasa ? mapa.pasa[j] : mapa.pisable(nx, ny))) continue;
         dist[j] = dist[i] + 1; if (prev) prev[j] = i; cola[b++] = j;
       }
     }
@@ -932,7 +1072,36 @@
     const pasos = ruta.length - 1;
     const picar = paradas.reduce((a, p) => a + (p.v.coste || 0), 0);
     const costesDesconocidos = paradas.filter(p => p.v.coste == null).length;
-    return { ruta, paradas, pasos, picar, costesDesconocidos, sinCamino, total: mapa.vetas.length, disponibles: disp.length, mapa, cursor: 0, t: Date.now() };
+    return { ruta, paradas, pasos, picar, costesDesconocidos, sinCamino, total: mapa.vetas.length, disponibles: disp.length, mapa, cursor: 0, t: Date.now(), firma: firmaDe(mapa), agua: cfg.agua };
+  }
+  function planExplorar(o) {
+    const mapa = construirMapa(o), m = mem();
+    const sinVer = (x, y) => o.fuente === 'datos' ? m.cod[K(x, y)] == null : mapa.tipoEn(x, y) === 'desconocido';
+    const r = bfs(mapa, o.pos, true);
+    let mejor = -1, md = Infinity;
+    for (let i = 0; i < r.dist.length; i++) {
+      const d = r.dist[i];
+      if (d < 1 || d >= md) continue;
+      const x = i % r.W + mapa.x0, y = Math.floor(i / r.W) + mapa.y0;
+      if (V4.some(([dx, dy]) => sinVer(x + dx, y + dy))) { md = d; mejor = i; }
+    }
+    if (mejor < 0) return { explorar: true, ruta: [{ ...o.pos }], paradas: [], mapa, cursor: 0, t: Date.now(), agua: cfg.agua, pasos: 0, total: 0, disponibles: 0, sinCamino: 0 };
+    const ruta = [];
+    const s0 = r.idx(o.pos.x, o.pos.y);
+    for (let i = mejor; i !== s0 && i >= 0; i = r.prev[i]) ruta.push({ x: i % r.W + mapa.x0, y: Math.floor(i / r.W) + mapa.y0 });
+    ruta.push({ ...o.pos });
+    ruta.reverse();
+    const meta = ruta[ruta.length - 1];
+    return { explorar: true, ruta, paradas: [{ idx: ruta.length - 1, meta }], mapa, cursor: 0, t: Date.now(), agua: cfg.agua, pasos: ruta.length - 1, total: 0, disponibles: 0, sinCamino: 0, sinVer };
+  }
+  function planExplorarVale(p, o) {
+    if (!p || !p.explorar || !p.paradas.length || p.agua !== cfg.agua) return false;
+    const i = p.ruta.findIndex((c, j) => j >= p.cursor && c.x === o.pos.x && c.y === o.pos.y);
+    if (i < 0) return false;
+    p.cursor = i;
+    const { meta } = p.paradas[0];
+    // la meta sigue teniendo algo sin ver al lado (si ya se ve todo, se busca la siguiente)
+    return i < p.paradas[0].idx && V4.some(([dx, dy]) => p.sinVer(meta.x + dx, meta.y + dy));
   }
   function ordenExacto(obj, D, n) {
     const N = obj.length;
@@ -1051,12 +1220,14 @@
     return m ? { e: +m[1], max: +m[2] } : null;
   }
   function pasosParaCobro() {
+    if (ultimaObs && ultimaObs.ok && Number.isInteger(ultimaObs.pasosHastaGasto) && ultimaObs.pasosHastaGasto > 0) return ultimaObs.pasosHastaGasto;
     const el = $$('main [title]').find(e => /andar cuesta/i.test(e.title));
     const m = el && el.textContent.match(/(\d+)\s*pasos?/i);
     return m ? +m[1] : null;
   }
   // energía que cuesta andar N pasos si faltan r pasos para el siguiente cobro (1 cada 5)
-  const cobroAndar = (N, r) => { r = r || 5; return N < r ? 0 : 1 + Math.floor((N - r) / 5); };
+  const pasosPorPunto = () => (ultimaObs && ultimaObs.ok && Number.isInteger(ultimaObs.pasosPorEnergia) && ultimaObs.pasosPorEnergia > 0) ? ultimaObs.pasosPorEnergia : 5;
+  const cobroAndar = (N, r, per = pasosPorPunto()) => { r = r || per; return N < r ? 0 : 1 + Math.floor((N - r) / per); };
 
   /* ------------------------------------------------------------------ *
    *  MOVERSE Y PICAR (con los mismos controles que tú: flechas, clic en el mapa y clic en la veta)
@@ -1180,7 +1351,7 @@
         const ob = await esperarQuieto(600);
         const cosa = ob.ok ? elementoVeta(ob, v) : null;
         if (!cosa || cosa.vacia) { hecho = intento > 0; if (!hecho) { const mv = m.vetas[v.k] || (m.vetas[v.k] = {}); mv.vacia = Date.now(); } break; }
-        if (intento === 0) log(`⛏️ Pico ${cosa.titulo && !/acércate/i.test(cosa.titulo) ? cosa.titulo : 'la veta'} (${v.x},${v.y})…`);
+        if (intento === 0) log(`⛏️ Pico ${v.tipoId ? emojiTipo(v.tipoId) + ' ' + nombreTipo(v.tipoId) : cosa.titulo && !/acércate/i.test(cosa.titulo) ? cosa.titulo : 'la veta'} (${v.x},${v.y})…`);
         cosa.el.click();
         const t0 = Date.now();
         while (Date.now() - t0 < 6000 && corriendo) {
@@ -1203,7 +1374,8 @@
         picadas++;
         const e1 = energia();
         const gasto = e0 && e1 ? e0.e - e1.e : null;
-        log(`✅ Veta picada${gasto != null && gasto > 0 ? ` (−${gasto} ⚡)` : ''}${botin.length ? ': ' + botin.slice(0, 2).join(' · ') : ''}`);
+        if (v.tipoId && gasto > 0 && m.costes) m.costes[v.tipoId] = gasto;
+        log(`✅ ${v.tipoId ? emojiTipo(v.tipoId) + ' ' + nombreTipo(v.tipoId) : 'Veta'} picada${gasto != null && gasto > 0 ? ` (−${gasto} ⚡)` : ''}${botin.length ? ': ' + botin.slice(0, 2).join(' · ') : ''}`);
         botinSesion.push(...botin);
         guardarMem();
       }
@@ -1221,8 +1393,16 @@
     if (motivo) { log((tipo === 'aviso' || tipo === 'error' ? '⚠️ ' : '') + motivo); kAviso({ tipo, app: 'Grutas', icono: '⛏️', titulo: motivo.length < 60 ? motivo : 'Grutas: me he parado', texto: motivo.length < 60 ? '' : motivo }); }
     pintar();
   }
+  const firmaDe = mapa => mapa.vetas.filter(v => v.ok).map(v => v.k).sort().join('|');
   function planVale(p, o) {
-    if (!p || Date.now() - p.t > 120000) return false;
+    if (!p || Date.now() - p.t > 120000 || p.agua !== cfg.agua) return false;
+    if (o.fuente === 'datos') {
+      // con los datos del juego: vale mientras sigas en el camino y las vetas buscadas sean las mismas
+      const i = p.ruta.findIndex((c, j) => j >= p.cursor && c.x === o.pos.x && c.y === o.pos.y);
+      if (i < 0 || firmaDe(construirMapaDatos(o)) !== p.firma) return false;
+      p.cursor = i;
+      return !!p.paradas.find(x => x.idx >= i);
+    }
     const i = p.ruta.findIndex((c, j) => j >= p.cursor && c.x === o.pos.x && c.y === o.pos.y);
     if (i < 0) return false;
     p.cursor = i;
@@ -1232,14 +1412,16 @@
     if (o.enVista(sig.v.x, sig.v.y) && (!mv || mv.vacia)) return false;
     return true;
   }
-  async function recorrer() {
+  let modo = 'picar';
+  async function recorrer(nuevoModo = 'picar') {
     if (corriendo) { parar('Parado.'); return; }
+    modo = nuevoModo; plan = null;
     corriendo = true; picadas = 0; botinSesion = []; fallidas.clear(); htmlDesconocido = '';
     { const m = mem(); if (m) m.sinPaso = {}; for (const k in intentosPaso) delete intentosPaso[k]; }
     kPedirPermiso();
     pintar();
-    log('▶ Empiezo: camino más corto por todas las vetas.');
-    let fallosSeguidos = 0, esperasMov = 0;
+    log(modo === 'explorar' ? '🧭 Exploro lo que falta del mapa (sin picar).' : '▶ Empiezo: camino más corto por todas las vetas.');
+    let fallosSeguidos = 0, esperasMov = 0, pasosExplorando = 0;
     try {
       while (corriendo) {
         if (!enGrutas() || !tablero()) { parar('Has salido de las grutas.'); break; }
@@ -1248,21 +1430,34 @@
         if (o.ok) esperasMov = 0;
         if (!o.ok && o.moviendo && ++esperasMov < 60) { await sleep(200); continue; }
         if (!o.ok) { ultimoError = o.error; if (++fallosSeguidos > 8) { parar(o.error, 'error'); break; } await sleep(500); continue; }
-        if (!planVale(plan, o) || plan.rapido) { plan = planificar(o); pintar(); }
+        if (modo === 'explorar') {
+          if (!planExplorarVale(plan, o)) { plan = planExplorar(o); pintar(); }
+          if (!plan.paradas.length) {
+            const m = mem(), nv = Object.keys(m.nodos || {}).length;
+            parar(`🗺️ Ya conozco todo el mapa al que se llega (${Object.keys(m.cod || m.celdas || {}).length} casillas, ${nv} veta(s)). Ahora «Picarlas todas» hace el camino óptimo por todas.`, 'fin');
+            break;
+          }
+          const en = energia();
+          if (en && en.e <= 0 && pasosParaCobro() <= 1) { parar('Sin energía para seguir explorando. Lo que he visto queda apuntado.', 'energia'); break; }
+          if (++pasosExplorando % 25 === 0) { const m = mem(); log(`🧭 Conozco ${Object.keys(m.cod || m.celdas || {}).length} casillas y ${Object.keys(m.nodos || {}).length} veta(s).`); }
+        } else if (!planVale(plan, o) || plan.rapido) { plan = planificar(o); pintar(); }
         const sig = plan.paradas.find(x => x.idx >= plan.cursor);
+        if (!sig && modo === 'explorar') { plan = null; continue; }
         if (!sig) {
           const partes = [];
           if (plan.sinCamino) partes.push(`No llego a ${plan.sinCamino} veta(s): el camino pasaría por escaleras, la Sima, puertas, otras vetas o zonas que aún no he visto.`);
+          if (o.fuente === 'datos' && planExplorar(o).paradas.length) partes.push('Queda mapa sin ver: puede haber más vetas. «🧭 Explorar» lo recorre y luego las pico todas por el camino óptimo.');
           if (o.fuente === 'propio') partes.push('Solo conozco las vetas que ya he visto: si hay zonas del mapa sin ver, puede haber más.');
           parar(`🏁 Hecho: ${picadas} veta(s) picada(s).${partes.length ? ' ' + partes.join(' ') : ''}`, 'fin');
           break;
         }
         // ¿llega la energía para este tramo y su veta?
-        if (plan.cursor === 0 || plan.paradas.some(x => x.idx === plan.cursor)) {
+        if (modo === 'picar' && (plan.cursor === 0 || plan.paradas.some(x => x.idx === plan.cursor))) {
           const en = energia(), N = sig.idx - plan.cursor;
           const hace = cobroAndar(N, pasosParaCobro()) + (sig.v.coste || 0);
           if (en && en.e < hace) { parar(`Sin energía: la siguiente veta pide ${hace} ⚡ (andar ${N} pasos + picar) y tienes ${en.e}. Vuelve cuando tengas más y sigo donde lo dejé.`, 'energia'); break; }
         }
+        if (plan.cursor === sig.idx && modo === 'explorar') { plan = null; continue; }
         if (plan.cursor === sig.idx) {
           await picar(o, sig.v);
           if (!corriendo) break;
@@ -1322,6 +1517,7 @@
       parar('Error: ' + (e && e.message || e), 'error');
     } finally {
       corriendo = false;
+      if (modo === 'explorar') plan = null;
       pintar();
     }
   }
@@ -1348,7 +1544,7 @@
     if (tramo.length > 1) html += `<polyline points="${pts}" fill="none" stroke="rgba(0,0,0,.55)" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/><polyline points="${pts}" fill="none" stroke="#FFD640" stroke-width="3.5" stroke-dasharray="7 5" stroke-linejoin="round" stroke-linecap="round"/>`;
     let n = 0;
     for (const p of plan.paradas) {
-      if (p.idx < plan.cursor) continue;
+      if (p.idx < plan.cursor || !p.v) continue;
       n++;
       html += `<g transform="translate(${cx(p.v.x)},${cy(p.v.y)})"><circle r="15" fill="none" stroke="#FF4D4D" stroke-width="3"/><circle cx="11" cy="-11" r="8" fill="#FF4D4D"/><text x="11" y="-7.5" font-size="10" font-weight="800" fill="#fff" text-anchor="middle" font-family="system-ui">${n}</text></g>`;
     }
@@ -1368,6 +1564,27 @@
     const o = {};
     for (const k of Object.keys(v).slice(0, 25)) { try { o[k] = forma(v[k], prof + 1); } catch { o[k] = '!'; } }
     return o;
+  }
+  // Repaso de todos los componentes de la página: rejillas grandes y listas con posiciones, estén donde estén
+  function repasoArbol(t) {
+    let raiz = actual(fibraDe(t.cv));
+    while (raiz && raiz.return) raiz = raiz.return;
+    const res = { rejillas: [], listas: [], posiciones: [], funciones: new Set(), fibras: [], ventanas: [] }, visto = new Set();
+    const pila = raiz ? [raiz] : [];
+    let n = 0;
+    const t0 = performance.now();
+    while (pila.length && n < 20000 && performance.now() - t0 < 1500) {
+      const f = pila.pop(); n++;
+      if (typeof f.type !== 'string') for (const [dónde, v] of valoresFibra(f)) escanear(v, nombreFibra(f) + '.' + dónde, visto, res, 1);
+      if (f.sibling) pila.push(f.sibling);
+      if (f.child) pila.push(f.child);
+    }
+    return {
+      fibras: n,
+      rejillas: res.rejillas.filter(g => g.w * g.h > 300).slice(0, 5).map(g => ({ ruta: g.ruta, w: g.w, h: g.h })),
+      ventanas: res.ventanas.map(w => ({ ruta: w.ruta, xBase: w.v.xBase, yBase: w.v.yBase, ancho: w.v.ancho, alto: w.v.alto })),
+      listas: res.listas.filter(l => l.items.length >= 3).slice(0, 15).map(l => ({ ruta: l.ruta, n: l.items.length, muestra: l.items.slice(0, 2).map(x => forma(x)) })),
+    };
   }
   async function copiarDatos() {
     const t = tablero();
@@ -1390,9 +1607,16 @@
     }
     const o = ultimaObs;
     if (o && o.ok) out.encaje = { fuente: o.fuente, cam: o.cam, pos: o.pos, marco };
+    if (o && o.ok && o.vp) {
+      const vp = o.vp, hist = {};
+      for (const c of vp.tiles) hist[c] = (hist[c] || 0) + 1;
+      out.ventana = { ruta: o.datos.ventana.ruta, xBase: vp.xBase, yBase: vp.yBase, ancho: vp.ancho, alto: vp.alto, codigos: hist, claves: Object.keys(vp),
+        nodos: lista(vp.nodosVisibles).slice(0, 30), salidas: lista(vp.salidasVisibles).slice(0, 10), sima: vp.simaVisible, jugadores: lista(vp.jugadoresCerca).slice(0, 5).map(x => forma(x)) };
+    }
+    if (t) out.arbol = repasoArbol(t);
     if (plan) out.plan = { pasos: plan.pasos, vetas: plan.paradas.map(p => [p.v.x, p.v.y, p.v.coste]), disponibles: plan.disponibles, total: plan.total, sinCamino: plan.sinCamino, chars: [...plan.mapa.charTipo] };
     const m = mem();
-    if (m) out.memoria = { celdas: Object.keys(m.celdas).length, vetas: m.vetas, objs: m.objs, sinPaso: m.sinPaso };
+    if (m) out.memoria = { celdas: Object.keys(m.celdas || {}).length, cod: Object.keys(m.cod || {}).length, nodos: m.nodos, pisables: m.pisables, costes: m.costes, vetas: m.vetas, objs: Object.keys(m.objs || {}).length, sinPaso: m.sinPaso };
     if (htmlDesconocido) out.ventana = htmlDesconocido.slice(0, 20000);
     const txt = JSON.stringify(out, null, 1);
     try { await navigator.clipboard.writeText(txt); log('📋 Datos copiados: pégamelos en el chat.'); }
@@ -1434,11 +1658,13 @@
           <div class="${K_TILE}"><b class="axsub-t-gasto tabular-nums">–</b><small>⚡ Gasto</small></div>
           <div class="${K_TILE}"><b class="axsub-t-tienes tabular-nums">–</b><small>⚡ Tienes</small></div>
         </div>
+        <div hidden><p class="axsub-info" style="margin-bottom:4px">Qué picar (toca para quitar o poner; el número es cuántas hay ahora):</p><div class="axsub-tipos k-chips"></div></div>
         <p class="axsub-info"></p>
         <p class="axsub-err" hidden></p>
         <label class="k-switch"><input type="checkbox" class="axsub-agua"><span class="text-xs font-bold text-tinta-600">🌊 Cruzar el agua (Medalla Ciénaga)</span></label>
         <label class="k-switch"><input type="checkbox" class="axsub-dib"><span class="text-xs font-bold text-tinta-600">🗺️ Dibujar el camino en el mapa</span></label>
         <button type="button" class="axsub-go boton-principal w-full !py-2.5 text-sm">⛏️ Picarlas todas (camino más corto)</button>
+        <button type="button" class="axsub-exp boton-secundario w-full !py-2 text-xs">🧭 Explorar el mapa (para conocer todas las vetas)</button>
         <div class="${K_LOG}"></div>
         <button type="button" class="axsub-copiar boton-suave axsub-mini w-full">📋 Copiar datos (si algo no va bien, pégamelos)</button>`;
       const caja = p.querySelector('.k-log');
@@ -1447,8 +1673,21 @@
       ag.checked = cfg.agua; di.checked = cfg.dibujar;
       ag.addEventListener('change', () => { cfg.agua = ag.checked; guardaCfg(); plan = null; refrescar(true); });
       di.addEventListener('change', () => { cfg.dibujar = di.checked; guardaCfg(); dibujar(ultimaObs); });
-      p.querySelector('.axsub-go').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); recorrer(); });
+      p.querySelector('.axsub-go').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); recorrer('picar'); });
+      p.querySelector('.axsub-exp').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); recorrer('explorar'); });
       p.querySelector('.axsub-copiar').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); copiarDatos(); });
+      p.querySelector('.axsub-tipos').addEventListener('click', e => {
+        const b = e.target.closest('button[data-tipo]');
+        if (!b) return;
+        e.preventDefault(); e.stopPropagation();
+        cfg.tipos = cfg.tipos || {};
+        const tp = b.dataset.tipo;
+        // al tocar uno se fija la elección de todos los que se ven (para que lo nuevo no cambie lo elegido)
+        for (const x of p.querySelectorAll('.axsub-tipos button[data-tipo]')) cfg.tipos[x.dataset.tipo] = quiereTipo(x.dataset.tipo);
+        cfg.tipos[tp] = !cfg.tipos[tp];
+        if (Object.values(cfg.tipos).every(Boolean)) cfg.tipos = {};
+        guardaCfg(); plan = null; refrescar(true);
+      });
     }
     if (p.previousElementSibling !== ancla) ancla.insertAdjacentElement('afterend', p);
     return p;
@@ -1459,13 +1698,21 @@
     const o = ultimaObs;
     kBadge(p.querySelector('.k-badge'), corriendo ? 'on' : (o && !o.ok ? 'warn' : 'off'), corriendo ? 'PICANDO' : (o && !o.ok ? 'AVISO' : 'LISTO'));
     const b = p.querySelector('.axsub-go');
-    kSet(b, corriendo ? '■ Parar' : '⛏️ Picarlas todas (camino más corto)');
+    kSet(b, corriendo && modo === 'picar' ? '■ Parar' : '⛏️ Picarlas todas (camino más corto)');
+    const bx = p.querySelector('.axsub-exp');
+    kSet(bx, corriendo && modo === 'explorar' ? '■ Parar de explorar' : '🧭 Explorar el mapa (para conocer todas las vetas)');
+    b.disabled = corriendo && modo !== 'picar'; bx.disabled = corriendo && modo !== 'explorar';
     const en = energia();
     kSet(p.querySelector('.axsub-t-tienes'), en ? String(en.e) : '–');
     const err = p.querySelector('.axsub-err');
     const msg = o && !o.ok ? o.error : '';
     kSet(err, msg); err.hidden = !msg;
-    if (plan) {
+    if (plan && plan.explorar) {
+      const m = mem();
+      const info = p.querySelector('.axsub-info:not([style])');
+      kSet(info, `🧭 Explorando: conozco ${Object.keys(m.cod || m.celdas || {}).length} casillas y ${Object.keys(m.nodos || {}).length} veta(s).`);
+      delete info.dataset.h;
+    } else if (plan) {
       const quedan = plan.paradas.filter(x => x.idx >= plan.cursor);
       const pasos = quedan.length ? quedan[quedan.length - 1].idx - plan.cursor : 0;
       const andar = cobroAndar(pasos, pasosParaCobro());
@@ -1473,19 +1720,36 @@
       kSet(p.querySelector('.axsub-t-vetas'), `${quedan.length}/${plan.total}`);
       kSet(p.querySelector('.axsub-t-pasos'), String(pasos));
       kSet(p.querySelector('.axsub-t-gasto'), (andar + picarC) + (dudas ? '+' : ''));
-      const fuente = o && o.ok ? (o.fuente === 'juego' ? `mapa del juego (${o.G.w}×${o.G.h})` : `mapa aprendido (${Object.keys(mem().celdas).length} casillas vistas)`) : '';
+      const fuente = o && o.ok ? (o.fuente === 'datos' ? `mapa del juego: ${Object.keys(mem().cod).length} casillas conocidas (se amplía al andar)` : o.fuente === 'juego' ? `mapa del juego (${o.G.w}×${o.G.h})` : `mapa aprendido (${Object.keys(mem().celdas).length} casillas vistas)`) : '';
       const partes = [];
-      partes.push(quedan.length ? `<b>${quedan.length}</b> veta(s) por picar: <b>${pasos}</b> pasos (−${andar} ⚡ andando) + picar (−${picarC}${dudas ? '+' : ''} ⚡).` : 'No queda ninguna veta disponible que conozca.');
+      const txtPicar = dudas && !picarC ? 'picar (lo que cueste: aún no sé cuánto)' : `picar (−${picarC}${dudas ? '+' : ''} ⚡)`;
+      partes.push(quedan.length ? `<b>${quedan.length}</b> veta(s) por picar: <b>${pasos}</b> pasos (−${andar} ⚡ andando) + ${txtPicar}.` : 'No queda ninguna veta disponible que conozca.');
       if (plan.sinCamino) partes.push(`${plan.sinCamino} sin camino (habría que pisar escaleras, la Sima, puertas u otras vetas, o es zona sin ver).`);
       if (plan.total - plan.disponibles > 0) partes.push(`${plan.total - plan.disponibles} ya picada(s) o vacía(s).`);
       if (fuente) partes.push('Usando el ' + fuente + '.');
-      const info = p.querySelector('.axsub-info');
+      const info = p.querySelector('.axsub-info:not([style])');
       const html = partes.join(' ');
       if (info.dataset.h !== html) { info.innerHTML = html; info.dataset.h = html; }
     } else {
       kSet(p.querySelector('.axsub-t-vetas'), '–'); kSet(p.querySelector('.axsub-t-pasos'), '–'); kSet(p.querySelector('.axsub-t-gasto'), '–');
     }
+    pintarTipos(p);
     dibujar(o);
+  }
+  // Qué tipos de veta picar (salen los que se conocen; todos marcados de primeras)
+  function pintarTipos(p) {
+    const caja = p.querySelector('.axsub-tipos');
+    const m = mem();
+    const cuenta = new Map();
+    if (m && m.nodos && marco === 'datos') {
+      const mapa = ultimaObs && ultimaObs.ok && ultimaObs.fuente === 'datos' ? construirMapaDatos(ultimaObs) : null;
+      for (const n of Object.values(m.nodos)) if (!cuenta.has(n.tipo)) cuenta.set(n.tipo, 0);
+      if (mapa) for (const v of mapa.todasVetas) if (v.existe) cuenta.set(v.tipoId, (cuenta.get(v.tipoId) || 0) + 1);
+    }
+    const tipos = [...cuenta.keys()].sort();
+    const html = tipos.map(tp => { const on = quiereTipo(tp); return `<button type="button" data-tipo="${kEsc(tp)}" aria-pressed="${on}" class="${on ? K_ON : K_OFF}" title="${on ? 'Se pica' : 'No se pica'}">${emojiTipo(tp)} ${kEsc(nombreTipo(tp))} · ${cuenta.get(tp)}</button>`; }).join('');
+    caja.parentElement.hidden = !tipos.length;
+    if (caja.dataset.h !== html) { caja.innerHTML = html; caja.dataset.h = html; }
   }
   let refrescando = false, ultimaHuella = '';
   async function refrescar(forzar = false) {
@@ -1494,7 +1758,7 @@
     try {
       const o = await observar();
       if (o.ok) {
-        const huella = [o.pos.x, o.pos.y, o.cosas.map(c => c.tipo + c.x + ',' + c.y + (c.vacia ? 'v' : '')).join('|'), cfg.agua].join(';');
+        const huella = [o.pos.x, o.pos.y, o.cosas.map(c => c.tipo + c.x + ',' + c.y + (c.vacia ? 'v' : '')).join('|'), cfg.agua, o.fuente === 'datos' ? firmaDe(construirMapaDatos(o)) : ''].join(';');
         if (forzar || huella !== ultimaHuella || !plan || Date.now() - plan.t > 30000) { ultimaHuella = huella; plan = planificar(o, 150); plan.rapido = true; }
         else planVale(plan, o);
       } else if (!o.moviendo) ultimaObs = o;
