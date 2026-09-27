@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Grutas del Subsuelo (todas las vetas)
 // @namespace    auroradex-grutas
-// @version      0.6.0
+// @version      0.6.1
 // @description  Solo en /subsuelo. «🧭 Explorar y picar»: recorre el mapa deprisa y pica cada veta (y Poké Ball) que ve de los tipos elegidos. «⛏️ Picarlas todas»: el camino más corto por todas las que conoce (el mínimo de pasos, que es lo que cuesta energía al andar; con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa del servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar y el ritmo (humano por defecto). Dibuja el camino y se para si no llega la energía; sigue donde lo dejó.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -299,7 +299,7 @@
    *  AJUSTES Y MEMORIA
    * ------------------------------------------------------------------ */
   const PANEL_ID = 'axsub-panel', U = '#' + PANEL_ID, DIBUJO_ID = 'axsub-dibujo';
-  const VERSION = '0.6.0';
+  const VERSION = '0.6.1';
   const LS_CFG = 'axsub-cfg', LS_MEM = 'axsub-mem-v1';
   const H12 = 12 * 3600e3, H24 = 24 * 3600e3;
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -832,6 +832,8 @@
     if (marco !== 'datos') { marco = 'datos'; camPrev = null; prediccion = null; }
     const m = mem();
     for (const k of ['cod', 'nodos', 'objs', 'vetas', 'sinPaso', 'pisables', 'costes', 'codMal', 'votos']) if (!m[k]) m[k] = {};
+    // (las cuentas viejas de «no deja pasar» eran por intento, no por casilla: se tiran)
+    for (const c of Object.keys(m.codMal)) if (!Array.isArray(m.codMal[c])) delete m.codMal[c];
     const vista = refs && refs.length ? leerVista(t) : null;
     // cámara: la ventana del juego va centrada en ti; lo que se ve encima (puertas por su nombre, vetas y cámaras en su
     // sitio) y el suelo dibujado lo confirman. Si hay dos copias de los datos (la actual y la anterior), gana la que encaja
@@ -923,7 +925,7 @@
         for (let r = 0; r < t.rows; r++) for (let c = 0; c < t.cols; c++) {
           const tp = vista.tipos[r][c];
           // (la lava tiene un color tan suyo que se le deja algo más de margen)
-          if (tp === 'fuera' || tp === 'raro' || vista.difs[r][c] > (tp === 'lava' ? 60 : 35) || ocupada.has(K(c, r)) || (c === yo.c && r === yo.f)) continue;
+          if (tp === 'fuera' || tp === 'raro' || vista.difs[r][c] > 35 || ocupada.has(K(c, r)) || (c === yo.c && r === yo.f)) continue;
           const cod = m.cod[K(cam.x + c, cam.y + r)];
           if (cod == null) continue;
           const vv = m.votos[cod] || (m.votos[cod] = {});
@@ -957,22 +959,25 @@
     if (!vv) return null;
     const tot = Object.values(vv).reduce((a, b) => a + b, 0);
     const [tp, n] = Object.entries(vv).sort((a, b) => b[1] - a[1])[0] || [];
-    return tot >= 4 && n / tot >= 0.7 ? tp : null;
+    return tot >= 8 && n / tot >= 0.85 ? tp : null;
   }
-  function construirMapaDatos(o) {
+  // relajado: no se fía de lo aprendido al fallar pasos (ni de las casillas sueltas que no dejaron pasar): sirve para
+  // volver a intentarlo antes de dar el mapa por acabado
+  function construirMapaDatos(o, relajado = false) {
     const m = mem(), ahora = Date.now();
     const tipoDeCod = c => {
       if (m.pisables[c] && CODIGOS[c] !== 'agua') return 'suelo';
       if (CODIGOS[c]) return CODIGOS[c];
       const vd = votado(m, c);
-      if (vd === 'lava' || vd === 'pared' || vd === 'salida') return vd;
-      if ((m.codMal[c] || 0) >= 2) return 'pared';
+      if (vd === 'lava' || vd === 'salida') return vd;
+      if (vd === 'pared' && !relajado) return vd;
+      if (!relajado && Array.isArray(m.codMal[c]) && m.codMal[c].length >= 3) return 'pared';
       if (vd === 'agua') return 'agua';
       return 'probar';
     };
     const codEn = (x, y) => { const c = m.cod[K(x, y)]; return c == null ? codPlano(x, y) : c; };
     const tipoEn = (x, y) => { const c = codEn(x, y); return c == null ? 'desconocido' : tipoDeCod(c); };
-    const bloqueadas = new Set([...Object.keys(m.objs), ...Object.keys(m.nodos), ...Object.keys(m.sinPaso)]);
+    const bloqueadas = new Set([...Object.keys(m.objs), ...Object.keys(m.nodos), ...(relajado ? [] : Object.keys(m.sinPaso))]);
     const pisable = (x, y) => {
       if (x === o.pos.x && y === o.pos.y) return true;
       const t = tipoEn(x, y);
@@ -1019,8 +1024,8 @@
    *  EL MAPA PARA PLANIFICAR: qué hay en cada casilla y qué vetas hay
    * ------------------------------------------------------------------ */
   const PRIOR = [[/suelo|floor|camino|tierra|^\.$/i, 'suelo'], [/pared|roca|muro|wall|^#$/i, 'pared'], [/agua|water|^~$/i, 'agua'], [/lava/i, 'lava'], [/salida|escalera|exit|stairs/i, 'salida']];
-  function construirMapa(o) {
-    if (o.fuente === 'datos') return conRejilla(construirMapaDatos(o));
+  function construirMapa(o, relajado = false) {
+    if (o.fuente === 'datos') return conRejilla(construirMapaDatos(o, relajado));
     return conRejilla(construirMapaVista(o));
   }
   // Se precalcula qué se puede pisar en una rejilla (para que buscar caminos sea rápido en mapas grandes)
@@ -1208,8 +1213,8 @@
     const costesDesconocidos = paradas.filter(p => p.v.coste == null).length;
     return { ruta, paradas, pasos, picar, costesDesconocidos, sinCamino, total: mapa.vetas.length, disponibles: disp.length, mapa, cursor: 0, t: Date.now(), firma: firmaDe(mapa), agua: cfg.agua };
   }
-  function planExplorar(o) {
-    const mapa = construirMapa(o), m = mem();
+  function planExplorar(o, relajado = false) {
+    const mapa = construirMapa(o, relajado), m = mem();
     const r = bfs(mapa, o.pos, true);
     const W = r.W, H = mapa.y1 - mapa.y0 + 1;
     const vacio = { explorar: true, ruta: [{ ...o.pos }], paradas: [], mapa, cursor: 0, t: Date.now(), agua: cfg.agua, pasos: 0, total: 0, disponibles: 0, sinCamino: 0 };
@@ -1252,6 +1257,24 @@
     ruta.reverse();
     const meta = ruta[ruta.length - 1];
     return { ...vacio, ruta, paradas: [{ idx: ruta.length - 1, meta }], pasos: ruta.length - 1, sinVer };
+  }
+  // Qué hay en lo que queda sin ver y qué cree el script de cada código (para el mensaje final y «Copiar datos»)
+  function resumenCodigos() {
+    const m = mem();
+    if (!m || !m.cod) return [];
+    const sinVer = {}, total = {};
+    if (planoMemo) for (let y = 0; y < planoMemo.alto; y++) for (let x = 0; x < planoMemo.ancho; x++) {
+      const c = planoMemo.tiles[y * planoMemo.ancho + x];
+      total[c] = (total[c] || 0) + 1;
+      if (m.cod[K(x, y)] == null) sinVer[c] = (sinVer[c] || 0) + 1;
+    }
+    const mapa = ultimaObs && ultimaObs.ok && ultimaObs.fuente === 'datos' ? construirMapaDatos(ultimaObs) : null;
+    const tipo = c => { if (!mapa) return '?'; for (const k in m.cod) if (m.cod[k] == c) { const p = deK(k); return mapa.tipoEn(p.x, p.y); } return 'sin ver'; };
+    return Object.keys(total).map(c => ({ cod: +c, total: total[c], sinVer: sinVer[c] || 0, cree: CODIGOS[c] || tipo(c), pisado: !!(m.pisables && m.pisables[c]), votos: m.votos && m.votos[c], noDejo: m.codMal && m.codMal[c] }));
+  }
+  function motivoSinVer() {
+    const r = resumenCodigos().filter(x => x.sinVer && x.cod !== 0 && x.cod !== 4).sort((a, b) => b.sinVer - a.sinVer);
+    return 'Sin ver: ' + r.slice(0, 6).map(x => `${x.sinVer} de código ${x.cod} (${x.cree})`).join(', ') + '. Si es suelo al que se puede llegar, pulsa «📋 Copiar datos» y pégamelo.';
   }
   // Lo que queda por ver (del mapa entero) y a lo que no se llega
   function porVer() {
@@ -1606,7 +1629,7 @@
     pintar();
     if (marco === 'datos' && !(await leerPlano()) && !planoMemo) log('ℹ️ No he podido leer el mapa entero («Ver mapa»): sigo con lo que voy viendo.');
     log(modo === 'explorar' ? '🧭 Exploro lo que falta del mapa y pico cada veta que vea.' : '▶ Empiezo: camino más corto por todas las vetas.');
-    let fallosSeguidos = 0, esperasMov = 0, pasosExplorando = 0;
+    let fallosSeguidos = 0, esperasMov = 0, pasosExplorando = 0, reintentos = 0;
     try {
       while (corriendo) {
         if (!enGrutas() || !tablero()) { parar('Has salido de las grutas.'); break; }
@@ -1619,7 +1642,7 @@
           // Explorar y picar: si hay vetas por picar (de los tipos elegidos) se va a por ellas en el mejor orden;
           // si no, al sitio más cercano desde el que se vea algo nuevo. Si aparece una veta nueva, se cambia de plan
           const firmaV = o.fuente === 'datos' ? firmaDe(construirMapaDatos(o)) : '';
-          const vale = plan && (plan.explorar ? planExplorarVale(plan, o) : planVale(plan, o)) && plan.firmaV === firmaV;
+          const vale = plan && (plan.explorar ? planExplorarVale(plan, o) : planVale(plan, o)) && plan.firmaV === firmaV && !(plan.relajado && Object.keys(mem().sinPaso).length);
           if (!vale) {
             const pp = firmaV ? planificar(o, 400) : null;
             plan = pp && pp.paradas.length ? pp : planExplorar(o);
@@ -1627,9 +1650,20 @@
             if (!plan.explorar) for (const pa of plan.paradas) if (!anunciadas.has(pa.v.k)) { anunciadas.add(pa.v.k); log(`👀 ${pa.v.tipoId ? emojiTipo(pa.v.tipoId) + ' ' + nombreTipo(pa.v.tipoId) : 'Veta'} a la vista (${pa.v.x},${pa.v.y}): voy a picarla.`); }
             pintar();
           }
+          if (plan.explorar && !plan.paradas.length && porVer() && reintentos < 6) {
+            const pr = planExplorar(o, true);
+            if (pr.paradas.length) {
+              reintentos++;
+              const m = mem(); m.sinPaso = {};
+              log(`🔁 Quedan ${porVer()} casillas sin ver: vuelvo a probar por donde antes no me dejó pasar.`);
+              plan = pr; plan.firmaV = firmaV; plan.relajado = true;
+              pintar();
+            }
+          }
           if (plan.explorar && !plan.paradas.length) {
             const m = mem(), nv = Object.keys(m.nodos || {}).length;
             const pv = porVer(o);
+            if (pv) log('ℹ️ ' + motivoSinVer());
             parar(`🗺️ Ya he visto todo lo que se puede alcanzar y he picado lo que había (${picadas} veta(s); ${nv} apuntadas${pv ? `; ${pv} casillas no se alcanzan: agua sin cruzar, lava, losas o zonas cerradas` : ''}). Cuando se vuelvan a llenar, «Picarlas todas» hace el camino óptimo por todas.`, 'fin');
             break;
           }
@@ -1706,7 +1740,11 @@
           if (intentosPaso[kk] < 2) { fallosSeguidos++; continue; }
           mem().sinPaso[kk] = Date.now();
           const cm = plan && plan.mapa && plan.mapa.codEn ? plan.mapa.codEn(meta.x, meta.y) : null;
-          if (cm != null && !CODIGOS[cm]) { const m = mem(); m.codMal = m.codMal || {}; m.codMal[cm] = (m.codMal[cm] || 0) + 1; }
+          if (cm != null && !CODIGOS[cm]) {
+            const m = mem(); m.codMal = m.codMal || {};
+            const l = Array.isArray(m.codMal[cm]) ? m.codMal[cm] : (m.codMal[cm] = []);
+            if (!l.includes(kk) && l.length < 10) l.push(kk);
+          }
           guardarMem();
           log(`ℹ️ No se puede pasar por (${meta.x},${meta.y}): busco otro camino.`);
           plan = null;
@@ -1817,6 +1855,7 @@
     if (t) out.arbol = repasoArbol(t);
     if (plan) out.plan = { pasos: plan.pasos, vetas: plan.paradas.map(p => [p.v.x, p.v.y, p.v.coste]), disponibles: plan.disponibles, total: plan.total, sinCamino: plan.sinCamino, chars: [...plan.mapa.charTipo] };
     const m = mem();
+    out.codigos = resumenCodigos();
     if (m) out.memoria = { celdas: Object.keys(m.celdas || {}).length, cod: Object.keys(m.cod || {}).length, nodos: m.nodos, pisables: m.pisables, codMal: m.codMal, votos: m.votos, costes: m.costes, vetas: m.vetas, objs: Object.keys(m.objs || {}).length, sinPaso: m.sinPaso };
     if (htmlDesconocido) out.htmlVentana = htmlDesconocido.slice(0, 20000);
     out.registro = registro.slice(-40).map(([ts, tx]) => new Date(ts).toTimeString().slice(0, 8) + '  ' + tx);
