@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.9.2
+// @version      1.10.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
-// @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
+// @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Bendiciones: nunca Veterano ni Reclutador, y las Afinidades de un tipo solo si ese tipo es mayoría en el equipo. Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.9.2';
+  const VERSION = '1.10.0';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -1072,14 +1072,26 @@
     if (e.reclutaNiv) v += S.eq.length < S.plazas ? 0.04 : 0.015;
     return v;
   }
+  /* Bendiciones que no se cogen: Veterano (subir niveles) y Reclutador (reclutas con más nivel) nunca; las Afinidades de
+   * un tipo solo si más de la mitad del equipo es de ese tipo (si no, se prefieren las que ayudan a todo el equipo) */
+  function vetoBendicion(S, nombre, desc) {
+    const e = efectoDe(desc || '') || {};
+    if (/^(veterano|reclutador)$/i.test(String(nombre || '').trim()) || e.niveles || e.reclutaNiv) return 'nunca';
+    if (e.tipo) {
+      const n = S.eq.length, con = S.eq.filter(x => (x.tipos || []).includes(e.tipo)).length;
+      if (!(n && con * 2 > n)) return 'tipo';
+    }
+    return '';
+  }
   function darBendicion(S, rng) {
-    const cat = Object.entries(kb.bendiciones);
+    const cat = Object.entries(kb.bendiciones).filter(([n, b]) => vetoBendicion(S, n, b.desc) !== 'nunca');
     if (!cat.length) return;
     // tres distintas, cada una con la frecuencia con que el juego las ofrece de verdad
     const pool = cat.map(([n, b]) => ({ k: [n, b], w: Math.max(1, b.ofrecida || 1) })), tres = [];
     while (tres.length < 3 && pool.length) { const x = elige(pool, rng); tres.push(x.k); pool.splice(pool.indexOf(x), 1); }
     let mejor = null;
-    for (const [n, b] of tres) { const e = efectoDe(b.desc); const v = valorRapidoBend(S, e); if (!mejor || v > mejor.v) mejor = { n, b, e, v }; }
+    const buenas = tres.filter(([n, b]) => !vetoBendicion(S, n, b.desc));
+    for (const [n, b] of (buenas.length ? buenas : tres)) { const e = efectoDe(b.desc); const v = valorRapidoBend(S, e); if (!mejor || v > mejor.v) mejor = { n, b, e, v }; }
     aplicarBendicion(S, mejor.n, mejor.b.desc);
   }
   function aplicarBendicion(S, nombre, desc) {
@@ -1346,11 +1358,23 @@
     const inutil = o => { const e = efectoDe(o.desc || ''); return !!e && Object.keys(e).every(k => k === 'niveles') && S0.eq.length > 0 && S0.eq.every(x => x.L >= 100); };
     let ops = P.opciones.map(o => ({ ...o }));
     if (ops.some(o => !inutil(o))) ops = ops.filter(o => !inutil(o));
-    if (P.reroll && rerollEn !== (P.cab && P.cab.piso)) ops.push({ nombre: '🎲 Volver a tirar', reroll: true, azar: true });
+    // Veterano y Reclutador nunca; Afinidad de un tipo solo si ese tipo es mayoría en el equipo
+    const quitadas = ops.filter(o => vetoBendicion(S0, o.nombre, o.desc));
+    const permitidas = ops.filter(o => !vetoBendicion(S0, o.nombre, o.desc));
+    const puedeTirar = P.reroll && rerollEn !== (P.cab && P.cab.piso);
+    if (permitidas.length) ops = permitidas;
+    else if (!puedeTirar) {
+      // no hay otra: antes una Afinidad (aunque sea de pocos) que Veterano o Reclutador
+      const tipo = ops.filter(o => vetoBendicion(S0, o.nombre, o.desc) === 'tipo');
+      if (tipo.length) ops = tipo;
+    } else ops = [];
+    if (puedeTirar) ops.push({ nombre: '🎲 Volver a tirar', reroll: true, azar: true });
     const lista = await valorar(S0, ops, (S, o, rng) => { if (o.reroll) darBendicion(S, rng); else aplicarBendicion(S, o.nombre, o.desc); });
+    const nota = quitadas.length ? ` (descarto ${quitadas.map(o => o.nombre + (vetoBendicion(S0, o.nombre, o.desc) === 'nunca' ? '' : ': su tipo no es mayoría en el equipo')).join(', ')})` : '';
     for (const o of ops) if (!o.reroll) { const b = kb.bendiciones[o.nombre]; if (b && !efectoDe(o.desc)) b.noEntendida = true; }
     // volver a tirar solo si rinde claramente más (se pierde lo que hay y solo se puede una vez por bioma)
     if (lista[0].o.reroll && lista.length > 1 && lista[0].v - lista[1].v < 0.3) [lista[0], lista[1]] = [lista[1], lista[0]];
+    const soloTirar = lista.length === 1 && lista[0].o.reroll;
     // Sanguijuela (curar al ganar): se coge hasta tener las que digas (Datos) salvo que sea claramente peor (> 3 pisos)
     let regla = '';
     const cura = lista.find(x => { const e = !x.o.reroll && efectoDe(x.o.desc || ''); return e && e.curaVictoria; });
@@ -1366,7 +1390,7 @@
     const dif = lista.length > 1 ? Math.abs(lista[0].v - lista[1].v) : 0;
     const l0 = lista[0];
     const otra = lista.find(x => x !== l0 && !x.o.reroll);
-    return { mejor, tirar: !!mejor.reroll, lista, texto: explica(lista, o => o.nombre), porque: regla ? regla : mejor.reroll ? `las tres que hay rinden menos que tirar otra vez (+${dif.toFixed(1)})` : otra && otra.techo > l0.techo + 0.5 ? `con ${otra.o.nombre} se llegaría algo más hondo (piso ${otra.techo.toFixed(0)} frente a ${l0.techo.toFixed(0)}), pero las esquirlas que da el resto de la partida lo compensan de sobra (a estas alturas pesan mucho)` : `es la que más rinde para toda la partida: con ella se llega de media al piso ${l0.techo.toFixed(0)}${otra ? ` (con ${otra.o.nombre}, al ${otra.techo.toFixed(0)})` : ''}` };
+    return { mejor, tirar: !!mejor.reroll, lista, texto: explica(lista, o => o.nombre), porque: (soloTirar ? 'las que han salido no las cojo: tiro otra vez' : regla ? regla : mejor.reroll ? `las tres que hay rinden menos que tirar otra vez (+${dif.toFixed(1)})` : otra && otra.techo > l0.techo + 0.5 ? `con ${otra.o.nombre} se llegaría algo más hondo (piso ${otra.techo.toFixed(0)} frente a ${l0.techo.toFixed(0)}), pero las esquirlas que da el resto de la partida lo compensan de sobra (a estas alturas pesan mucho)` : `es la que más rinde para toda la partida: con ella se llega de media al piso ${l0.techo.toFixed(0)}${otra ? ` (con ${otra.o.nombre}, al ${otra.techo.toFixed(0)})` : ''}`) + nota };
   }
   // Puerta: la de la política (Élite hasta el 100; luego tesoros, misterios y descansos) salvo que jugarlas enteras diga
   // que otra es claramente mejor (más de un piso y medio), p. ej. porque el equipo va muy tocado para una Élite.
