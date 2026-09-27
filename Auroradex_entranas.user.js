@@ -1031,7 +1031,7 @@
   // · Curar al ganar (Sanguijuela) vale mucho hasta que entre todo cura ~100% por victoria; luego ya no suma.
   // · Subir niveles vale poco (al 100 se llega igual y ahí no hace nada). Botín vale más cuanto más queda por bajar.
   // Ajustes de la estrategia (los que se afinan en el laboratorio: miles de bajadas simuladas con los mismos dados)
-  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0.2, recluta: 0.7, nivelesPeso: 0.5, curarPeleando: 0, pelearLleno: 0, antesGuardian: 0, misterioPrimero: 0, cobertura: 0, cobMin: 0.03, reclutaFalta: 0.5, faltaBloquea: 0, cambioMargen: 0.06, buscarRecluta: 0.8 };
+  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0.2, recluta: 0.7, nivelesPeso: 0.5, curarPeleando: 0, pelearLleno: 0, antesGuardian: 0, misterioPrimero: 0, cobertura: 0, cobMin: 0.03, reclutaFalta: 0.5, faltaBloquea: 0, cambioMargen: 0.06, buscarRecluta: 0.8, sinAltarAntes: 0 };
   function valorRapidoBend(S, e) {
     if (!e) return 0.01;
     const eq = S.eq, n = Math.max(1, eq.length);
@@ -1180,6 +1180,8 @@
       if (hay('descanso') && (t.h < AJ.descanso100 || t.falta || t.minVida < 0.7)) return 'descanso';
       if (AJ.pelearLleno && cura >= AJ.pelearLleno && hay('combate') && !t.falta && !hay('tesoro')) return 'combate';
       orden = AJ.misterioPrimero ? ['misterio', 'tesoro', 'oculta', 'descanso', 'combate', 'elite'] : ['tesoro', 'misterio', 'oculta', 'descanso', 'combate', 'elite'];
+      // justo antes del guardián, un altar (−25% de PS) sale caro: Misterio detrás del descanso
+      if (AJ.sinAltarAntes && S.piso % 5 === 4) orden = ['tesoro', 'descanso', 'misterio', 'oculta', 'combate', 'elite'];
     }
     return orden.find(hay) || ops[0];
   }
