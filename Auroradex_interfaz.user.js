@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.9.1
-// @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), y las actividades nuevas del Menú se colocan solas.
+// @version      1.10.0
+// @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_interfaz.user.js
@@ -1019,6 +1019,90 @@
     finally { huertoPidiendo = false; }
   }
 
+  /* ─── Datos sueltos de algunos accesos: se leen en su página y, fuera, pidiéndola en segundo plano ───
+   * Fichas de la Máquina, monedas de Cartas, cuánto le falta al Valle para llenarse (solo el tiempo), la marea de la
+   * Isla, los retos de hoy de la Torre (sumando las ligas) y los Tronos (si tienes alguno y los retos que llevas parados). */
+  const INFO_KEY = 'adx-accesos-info';
+  // Elementos cuyo texto cumple `re`, quitando los que solo lo cumplen porque lo lleva un hijo
+  const hojasQue = (raiz, re) => { const t = [...raiz.querySelectorAll('*')].filter(el => re.test(textoDe(el))); return t.filter(el => !t.some(o => o !== el && el.contains(o))); };
+  const plural = (n, s) => `${n} ${s}${n === 1 ? '' : 's'}`;
+  const LECTORES = {
+    '/gachapon': m => {
+      const img = m.querySelector('img[src*="ficha-avatar"]');
+      const num = img && img.parentElement.querySelector('.tabular-nums');
+      const h = num ? null : hojasQue(m, /^[\d.]+\s*fichas?$/i)[0];
+      const v = parseInt(textoDe(num || h).replace(/\D/g, ''), 10);
+      return isNaN(v) ? null : { txt: plural(v, 'ficha') };
+    },
+    '/cartas': m => {
+      const mo = m.querySelector('.tcg-moneda');
+      const b = mo && mo.parentElement.querySelector('b, .tabular-nums');
+      const v = textoDe(b);
+      return /^[\d.]+$/.test(v) ? { txt: `${v} ★` } : null;
+    },
+    '/valle': m => {
+      const h = hojasQue(m, /^lleno en\s+\d/i)[0];
+      const ms = h ? tiempoAMs(textoDe(h)) : null;
+      if (ms != null) return { at: Date.now() + ms };
+      return hojasQue(m, /^¡?lleno!?$/i).length ? { txt: 'lleno' } : null;
+    },
+    '/isla': m => {
+      const t = [...m.querySelectorAll('.titulo-seccion')].find(p => /marea/i.test(textoDe(p)));
+      if (!t) return null;
+      const re = /(\d+)\s*\/\s*(\d+)/;
+      const mm = textoDe(t.nextElementSibling).match(re) || textoDe(t.parentElement).replace(textoDe(t), '').match(re);
+      return mm ? { txt: `${mm[1]}/${mm[2]}` } : null;
+    },
+    '/torre': m => {
+      const hs = hojasQue(m, /^\d+\s*retos?\s+hoy$/i);
+      if (!hs.length) return null;
+      return { txt: plural(hs.reduce((s, h) => s + parseInt(textoDe(h), 10), 0), 'reto') };
+    },
+    '/tronos': m => {
+      if (!/trono/i.test(textoDe(m))) return null;
+      const tuyos = hojasQue(m, /^lo tienes t[uú]$/i).length;
+      if (!tuyos) return { txt: 'sin trono' };
+      const n = hojasQue(m, /\d+\s*retos?\s+parados?/i).reduce((s, h) => s + parseInt(textoDe(h).match(/(\d+)\s*retos?\s+parados?/i)[1], 10), 0);
+      return { txt: `${tuyos > 1 ? tuyos + ' tronos' : 'tienes trono'} · ${plural(n, 'parado')}` };
+    },
+  };
+  function guardarInfo(href, v) {
+    if (!v) return;
+    const info = lsJSON(INFO_KEY, {}), g = info[href];
+    const igual = g && g.txt === v.txt && Math.abs((g.at || 0) - (v.at || 0)) <= 6e4;
+    if (igual && Date.now() - g.t < 30000) return;
+    info[href] = { ...v, t: Date.now() };
+    lsPut(INFO_KEY, info);
+    if (!igual) repintarPanel();
+  }
+  function subInfo(it) {
+    const g = !it.porRegion && lsJSON(INFO_KEY, {})[it.href];
+    if (!g) return '';
+    const txt = g.at ? (g.at > Date.now() ? textoRestante(g.at - Date.now()) : 'lleno') : g.txt;
+    return txt ? `<span class="ax-sub"><span>${kEsc(txt)}</span></span>` : '';
+  }
+  let infoIntento = {}, infoPidiendo = false;
+  const rutaAqui = () => location.pathname.replace(/\/+$/, '') || '/';
+  async function refrescarInfo(forzar = false) {
+    const lector = LECTORES[rutaAqui()], main = document.querySelector('main');
+    if (lector && main) guardarInfo(rutaAqui(), lector(main));
+    if (infoPidiendo || (!forzar && !document.getElementById(PANEL_ID))) return;
+    const info = lsJSON(INFO_KEY, {});
+    const tocan = Object.keys(LECTORES).filter(h => h !== rutaAqui()
+      && (forzar || (Date.now() - (infoIntento[h] || 0) >= 60000 && !(info[h] && Date.now() - info[h].t < MENU_REFRESCO))));
+    if (!tocan.length) return;
+    infoPidiendo = true;
+    try {
+      for (const h of tocan) {
+        infoIntento[h] = Date.now();
+        try {
+          const html = await pedirPagina(h);
+          if (html) { const d = new DOMParser().parseFromString(html, 'text/html'); guardarInfo(h, LECTORES[h](d.querySelector('main') || d.body)); }
+        } catch { /* sin red: se queda lo guardado */ }
+      }
+    } finally { infoPidiendo = false; }
+  }
+
   /* ─── Tren de Biscuit: con visitarlo ya cuenta como hecho hasta mañana ─── */
   function anotarTren() {
     if (/^\/tren\/?$/.test(location.pathname) && !hechosHoy().includes('/tren')) { marcarHecho({ href: '/tren' }); repintarPanel(); }
@@ -1221,6 +1305,7 @@
       ${item.href === '/subasta' ? subastaHTML() : ''}
       ${esMissingNo(item) ? subMissingNo() : ''}
       ${item.href === '/huerto' ? subHuerto() : ''}
+      ${subInfo(item)}
       ${req ? `<span class="text-[9px] font-extrabold uppercase tracking-wide text-cielo-600">${kEsc(req.label)}</span>` : ''}`;
 
     if (item.porRegion) a.addEventListener('click', (ev) => { if (ev.button === 0) marcarHecho(item); });   // Safari: al pulsarlo cuenta como hecho hoy
@@ -1302,7 +1387,7 @@
       if (ev.button !== 0 || ev.metaKey || ev.ctrlKey) return;
       ev.preventDefault();
       enlace.textContent = 'actualizando…';
-      Promise.all([refrescarMenu(true), refrescarGolf(true), refrescarSolar(true), refrescarHuerto(true), refrescarMissingNo(true)]).then(() => repintarPanel());
+      Promise.all([refrescarMenu(true), refrescarGolf(true), refrescarSolar(true), refrescarHuerto(true), refrescarMissingNo(true), refrescarInfo(true)]).then(() => repintarPanel());
     });
     return wrapper;
   }
@@ -1343,6 +1428,7 @@
       refrescarSolar();
       refrescarHuerto();
       refrescarMissingNo();
+      refrescarInfo();
       anotarTren();
     }, 150);
   });
@@ -1371,10 +1457,11 @@
     refrescarSolar();
     refrescarHuerto();
     refrescarMissingNo();
+    refrescarInfo();
     anotarTren();
     // Cada minuto: se pide el Menú si toca y se repinta (para que «hace N min» y las ✓ estén al día)
-    setInterval(() => { refrescarMenu(); refrescarGolf(); refrescarSolar(); refrescarHuerto(); refrescarMissingNo(); if (document.visibilityState === 'visible') repintarPanel(); }, 60000);
-    const alVolver = () => { menuIntento = golfIntento = solarIntento = huertoIntento = missingIntento = 0; refrescarMenu(); refrescarGolf(); refrescarSolar(); refrescarSalon(); refrescarHuerto(); refrescarMissingNo(); };
+    setInterval(() => { refrescarMenu(); refrescarGolf(); refrescarSolar(); refrescarHuerto(); refrescarMissingNo(); refrescarInfo(); if (document.visibilityState === 'visible') repintarPanel(); }, 60000);
+    const alVolver = () => { menuIntento = golfIntento = solarIntento = huertoIntento = missingIntento = 0; infoIntento = {}; refrescarMenu(); refrescarGolf(); refrescarSolar(); refrescarSalon(); refrescarHuerto(); refrescarMissingNo(); refrescarInfo(); };
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') alVolver(); });
     window.addEventListener('online', alVolver);
     window.addEventListener('pageshow', e => { if (e.persisted) alVolver(); });
