@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Grutas del Subsuelo (todas las vetas)
 // @namespace    auroradex-grutas
-// @version      0.6.2
+// @version      0.6.3
 // @description  Solo en /subsuelo. «🧭 Explorar y picar»: recorre el mapa deprisa y pica cada veta (y Poké Ball) que ve de los tipos elegidos. «⛏️ Picarlas todas»: el camino más corto por todas las que conoce (el mínimo de pasos, que es lo que cuesta energía al andar; con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa del servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar y el ritmo (humano por defecto). Dibuja el camino y se para si no llega la energía; sigue donde lo dejó.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -299,7 +299,7 @@
    *  AJUSTES Y MEMORIA
    * ------------------------------------------------------------------ */
   const PANEL_ID = 'axsub-panel', U = '#' + PANEL_ID, DIBUJO_ID = 'axsub-dibujo';
-  const VERSION = '0.6.2';
+  const VERSION = '0.6.3';
   const LS_CFG = 'axsub-cfg', LS_MEM = 'axsub-mem-v1';
   const H12 = 12 * 3600e3, H24 = 24 * 3600e3;
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -994,9 +994,10 @@
       let ok = n.activo && (!t || t <= ahora);
       if (!n.activo && t && t <= ahora) ok = true;                   // ya se ha vuelto a llenar desde que la viste
       if (mv && mv.picada && mv.picada >= n.visto && ahora - mv.picada < H12) ok = false;
+      const existe = ok;
       if (fallidas.has(k)) ok = false;
       const coste = m.costes[n.tipo] ?? costeDeTexto(n.tipo);
-      vetas.push({ x, y, k, t: 'veta', tipoId: n.tipo, ok: ok && quiereTipo(n.tipo), existe: ok, coste, deTipo: quiereTipo(n.tipo) });
+      vetas.push({ x, y, k, t: 'veta', tipoId: n.tipo, ok: ok && quiereTipo(n.tipo), existe, coste, deTipo: quiereTipo(n.tipo) });
     }
     let X0 = Infinity, X1 = -Infinity, Y0 = Infinity, Y1 = -Infinity;
     for (const k in m.cod) { const i = k.indexOf(','), x = +k.slice(0, i), y = +k.slice(i + 1); if (x < X0) X0 = x; if (x > X1) X1 = x; if (y < Y0) Y0 = y; if (y > Y1) Y1 = y; }
@@ -1176,7 +1177,10 @@
     // casillas desde las que se pica cada veta (al lado, sin diagonales)
     const obj = [];
     for (const v of disp) {
-      const lados = V4.map(([dx, dy]) => ({ x: v.x + dx, y: v.y + dy })).filter(p => (p.x === inicio.x && p.y === inicio.y) || mapa.pisable(p.x, p.y));
+      const libreEn = p => (p.x === inicio.x && p.y === inicio.y) || mapa.pisable(p.x, p.y);
+      let lados = V4.map(([dx, dy]) => ({ x: v.x + dx, y: v.y + dy })).filter(libreEn);
+      // sin ningún lado libre, se prueba desde una esquina (si el juego no deja, se apunta como fallida)
+      if (!lados.length) lados = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([dx, dy]) => ({ x: v.x + dx, y: v.y + dy })).filter(libreEn);
       if (lados.length) obj.push({ v, lados });
     }
     const nodos = [inicio];
@@ -1290,6 +1294,25 @@
     const si = {};
     for (let y = 0; y < planoMemo.alto; y++) for (let x = 0; x < planoMemo.ancho; x++) { const c = planoMemo.tiles[y * planoMemo.ancho + x]; if (m.cod[K(x, y)] != null) continue; if (!(c in si)) si[c] = codInteresa(mapa, c); if (si[c]) n++; }
     return n;
+  }
+  // Vetas que se saben disponibles (de los tipos elegidos) y no se van a picar, con el motivo
+  function vetasSinPicar(o) {
+    if (o.fuente !== 'datos') return [];
+    const mapa = construirMapa(o);
+    const r = bfs(mapa, o.pos);
+    const llega = (x, y) => { const i = r.idx(x, y); return i >= 0 && i < r.dist.length && r.dist[i] >= 0; };
+    const out = [];
+    for (const v of mapa.todasVetas || []) {
+      if (!v.existe || !v.deTipo) continue;
+      const lados = [...V4, [1, 1], [1, -1], [-1, 1], [-1, -1]].map(([dx, dy]) => ({ x: v.x + dx, y: v.y + dy }));
+      const alcanzable = lados.some(p => llega(p.x, p.y));
+      if (fallidas.has(v.k)) out.push({ v, por: 'no se deja picar' });
+      else if (!alcanzable) {
+        const cerca = lados.map(p => mapa.tipoEn(p.x, p.y));
+        out.push({ v, por: cerca.includes('agua') && !cfg.agua ? 'rodeada de agua (activa «Cruzar el agua»)' : cerca.includes('lava') ? 'entre lava' : 'sin camino hasta ella' });
+      }
+    }
+    return out;
   }
   function planExplorarVale(p, o) {
     if (!p || !p.explorar || !p.paradas.length || p.agua !== cfg.agua) return false;
@@ -1548,8 +1571,14 @@
     fin.hay = () => vistos.some(v => RE_BOTIN.test(v));
     return fin;
   }
-  const fallidas = new Set();
+  const fallidas = new Set(), intentosPicar = new Map();
   let picadas = 0, botinSesion = [];
+  // ¿Sigue la veta por picar según los datos del juego? (null si no hay datos o no está en la ventana)
+  const activaEnDatos = (ob, v) => {
+    if (!ob || !ob.ok || !ob.vp) return null;
+    const n = lista(ob.vp.nodosVisibles).find(x => x && x.x === v.x && x.y === v.y);
+    return n ? n.activo !== false : null;
+  };
   async function picar(o, v) {
     const m = mem();
     const e0 = energia();
@@ -1559,8 +1588,10 @@
     try {
       for (let intento = 0; intento < 3 && corriendo && !hecho; intento++) {
         const ob = await esperarQuieto(600);
-        const cosa = ob.ok ? elementoVeta(ob, v) : null;
-        if (!cosa || cosa.vacia) { hecho = intento > 0; if (!hecho) { const mv = m.vetas[v.k] || (m.vetas[v.k] = {}); mv.vacia = Date.now(); } break; }
+        let cosa = ob.ok ? elementoVeta(ob, v) : null;
+        const act = activaEnDatos(ob, v);
+        if (act === true && (!cosa || cosa.vacia)) cosa = { el: cosa && cosa.el, vacia: false, titulo: '' };   // los datos mandan
+        if (act === false || !cosa || cosa.vacia) { hecho = intento > 0 || act === false; if (!hecho) { const mv = m.vetas[v.k] || (m.vetas[v.k] = {}); mv.vacia = Date.now(); } break; }
         if (intento === 0) await respiro('antesPicar');
         if (intento === 0) log(`⛏️ Pico ${v.tipoId ? emojiTipo(v.tipoId) + ' ' + nombreTipo(v.tipoId) : cosa.titulo && !/acércate/i.test(cosa.titulo) ? cosa.titulo : 'la veta'} (${v.x},${v.y})…`);
         if (cosa.el) cosa.el.click(); else clicCasilla(ob.t, v.x - ob.cam.x, v.y - ob.cam.y);
@@ -1572,9 +1603,12 @@
           if (r === 'ok') continue;
           if (fin.hay()) { hecho = true; break; }
           const o2 = await observar();
-          if (o2.ok && o2.vp && lista(o2.vp.nodosVisibles).some(n => n && n.x === v.x && n.y === v.y && n.activo === false)) { hecho = true; break; }
-          const c2 = o2.ok ? elementoVeta(o2, v) : null;
-          if (!c2 || c2.vacia) { hecho = true; break; }
+          const act2 = activaEnDatos(o2, v);
+          if (act2 === false) { hecho = true; break; }
+          if (act2 === null) {                       // sin datos del juego: por el dibujo
+            const c2 = o2.ok ? elementoVeta(o2, v) : null;
+            if (!c2 || c2.vacia) { hecho = true; break; }
+          }
           const e1 = energia();
           if (e0 && e1 && e1.e < e0.e && Date.now() - t0 > 1500) { hecho = true; break; }
         }
@@ -1593,7 +1627,12 @@
         guardarMem();
       }
     }
-    if (!hecho) { fallidas.add(v.k); log(`⚠️ No he podido picar la veta (${v.x},${v.y}); la salto.`); }
+    if (!hecho) {
+      const n = (intentosPicar.get(v.k) || 0) + 1;
+      intentosPicar.set(v.k, n);
+      if (n >= 2) { fallidas.add(v.k); log(`⚠️ No he podido picar ${v.tipoId ? emojiTipo(v.tipoId) + ' ' + nombreTipo(v.tipoId) : 'la veta'} (${v.x},${v.y}) dos veces; la dejo para el final.`); }
+      else log(`⚠️ No he podido picar la veta (${v.x},${v.y}); lo vuelvo a intentar luego.`);
+    }
     return hecho;
   }
 
@@ -1630,13 +1669,13 @@
   async function recorrer(nuevoModo = 'picar') {
     if (corriendo) { parar('Parado.'); return; }
     modo = nuevoModo; plan = null;
-    corriendo = true; picadas = 0; botinSesion = []; fallidas.clear(); anunciadas.clear(); htmlDesconocido = '';
+    corriendo = true; picadas = 0; botinSesion = []; fallidas.clear(); intentosPicar.clear(); anunciadas.clear(); htmlDesconocido = '';
     { const m = mem(); if (m) m.sinPaso = {}; for (const k in intentosPaso) delete intentosPaso[k]; }
     kPedirPermiso();
     pintar();
     if (marco === 'datos' && !(await leerPlano()) && !planoMemo) log('ℹ️ No he podido leer el mapa entero («Ver mapa»): sigo con lo que voy viendo.');
     log(modo === 'explorar' ? '🧭 Exploro lo que falta del mapa y pico cada veta que vea.' : '▶ Empiezo: camino más corto por todas las vetas.');
-    let fallosSeguidos = 0, esperasMov = 0, pasosExplorando = 0, reintentos = 0;
+    let fallosSeguidos = 0, esperasMov = 0, pasosExplorando = 0, reintentos = 0, reintentoFallidas = false;
     try {
       while (corriendo) {
         if (!enGrutas() || !tablero()) { parar('Has salido de las grutas.'); break; }
@@ -1667,10 +1706,17 @@
               pintar();
             }
           }
+          if (plan.explorar && !plan.paradas.length && fallidas.size && !reintentoFallidas) {
+            reintentoFallidas = true;
+            log(`🔁 Vuelvo a por ${fallidas.size} veta(s) que no pude picar antes.`);
+            fallidas.clear(); plan = null; continue;
+          }
           if (plan.explorar && !plan.paradas.length) {
             const m = mem(), nv = Object.keys(m.nodos || {}).length;
             const pv = porVer(o);
             if (pv) log('ℹ️ ' + motivoSinVer());
+            const quedan = vetasSinPicar(o);
+            if (quedan.length) log(`ℹ️ Quedan ${quedan.length} veta(s) sin picar: ` + quedan.slice(0, 8).map(q => `${emojiTipo(q.v.tipoId || '')} ${nombreTipo(q.v.tipoId || 'veta')} (${q.v.x},${q.v.y}): ${q.por}`).join(' · '));
             parar(`🗺️ Ya he visto todo lo que se puede alcanzar y he picado lo que había (${picadas} veta(s); ${nv} apuntadas${pv ? `; ${pv} casillas no se alcanzan: agua sin cruzar, lava, losas o zonas cerradas` : ''}). Cuando se vuelvan a llenar, «Picarlas todas» hace el camino óptimo por todas.`, 'fin');
             break;
           }
@@ -1863,6 +1909,7 @@
     if (plan) out.plan = { pasos: plan.pasos, vetas: plan.paradas.map(p => [p.v.x, p.v.y, p.v.coste]), disponibles: plan.disponibles, total: plan.total, sinCamino: plan.sinCamino, chars: [...plan.mapa.charTipo] };
     const m = mem();
     out.codigos = resumenCodigos();
+    try { if (ultimaObs && ultimaObs.ok) out.sinPicar = vetasSinPicar(ultimaObs).map(q => ({ x: q.v.x, y: q.v.y, tipo: q.v.tipoId, por: q.por })); } catch { /* nada */ }
     if (m) out.memoria = { celdas: Object.keys(m.celdas || {}).length, cod: Object.keys(m.cod || {}).length, nodos: m.nodos, pisables: m.pisables, codMal: m.codMal, votos: m.votos, costes: m.costes, vetas: m.vetas, objs: Object.keys(m.objs || {}).length, sinPaso: m.sinPaso };
     if (htmlDesconocido) out.htmlVentana = htmlDesconocido.slice(0, 20000);
     out.registro = registro.slice(-40).map(([ts, tx]) => new Date(ts).toTimeString().slice(0, 8) + '  ' + tx);
