@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.11.0
+// @version      1.11.1
 // @description  Juega solo las diarias. «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -861,7 +861,7 @@
   }
   const enlaceViaje = () => $$('main a[href]').find(a => !ajeno(a) && /viajar a otra regi/i.test(texto(a)));
   async function iniciarRuta() {
-    if (ruta() !== '/menu') { ssPut({ preparar: true }); location.assign('/menu'); return; }
+    if (ruta() !== '/menu') { ssPut({ preparar: true, t: Date.now() }); location.assign('/menu'); return; }
     const menu = leerMenu();
     const cola = menu.filter(d => !d.hecha && d.sabe).map(d => ({ href: d.href }));
     pintarMenu(['Mirando qué queda…']);
@@ -1085,7 +1085,7 @@
     if (ssGet()) return;
     if (lsGet('axd-enlace', '') === hoy()) { log('ℹ️ Hoy ya se lanzó la ruta desde el enlace.'); return; }
     lsPut('axd-enlace', hoy());
-    ssPut({ preparar: true });
+    ssPut({ preparar: true, t: Date.now() });
     if (ruta() !== '/menu') location.assign('/menu');
   }
 

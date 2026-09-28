@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.12.0
+// @version      1.12.1
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1467,12 +1467,18 @@
     // Acceso a la ruta de «Diarias (solas)» (juega todas las pendientes una tras otra; la arranca ese script en el Menú):
     // un icono más, el primero del bloque
     if (b.diario) {
-      const enMarcha = (() => { try { return !!sessionStorage.getItem('axd-ruta'); } catch { return false; } })();
+      // ¿de verdad está en marcha? Una ruta que nadie juega (sin el script de Diarias, o que se quedó a medias) no cuenta:
+      // pedida hace más de 1 min sin empezar, o con la misma parada desde hace más de 20 min
+      const rutaGuardada = () => { try { return JSON.parse(sessionStorage.getItem('axd-ruta') || 'null'); } catch { return null; } };
+      const atascada = r => !!r && ((r.preparar && (!r.t || Date.now() - r.t > 60000)) || (r.actual && r.actual.desde && Date.now() - r.actual.desde > 20 * 60000) || (!r.preparar && !r.actual && !(r.cola && r.cola.length)));
+      const r0 = rutaGuardada();
+      if (atascada(r0)) { try { sessionStorage.removeItem('axd-ruta'); } catch { /* nada */ } }
+      const enMarcha = !!r0 && !atascada(r0);
       const li = document.createElement('li');
       const a = document.createElement('a');
       a.href = '/menu';
       a.className = 'ax-item ax-todas tarjeta' + (enMarcha ? ' ax-aqui' : '');
-      a.title = enMarcha ? 'Jugando todas las diarias…' : 'Jugar todas las diarias (necesita el script «Aurora Dex · Diarias»)';
+      a.title = enMarcha ? 'Jugando todas las diarias… (tócalo para verlo o pararlo)' : 'Jugar todas las diarias (necesita el script «Aurora Dex · Diarias»)';
       a.innerHTML = `
         ${enMarcha ? '<span class="ax-tag pastilla border-2 border-hoja-300 bg-hoja-50 text-hoja-700">…</span>' : ''}
         <span class="ax-ico" aria-hidden="true">${enMarcha ? '⏳' : '🤖'}</span>
@@ -1480,7 +1486,16 @@
       a.addEventListener('click', ev => {
         if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
         ev.preventDefault();
-        try { if (!sessionStorage.getItem('axd-ruta')) sessionStorage.setItem('axd-ruta', JSON.stringify({ preparar: true })); } catch { /* nada */ }
+        // en marcha: se puede parar (si no, al Menú a ver cómo va)
+        if (rutaGuardada() && !atascada(rutaGuardada())) {
+          if (confirm('La ruta de diarias está en marcha.\n\nAceptar = pararla · Cancelar = ir al Menú a verla')) {
+            try { sessionStorage.removeItem('axd-ruta'); } catch { /* nada */ }
+            location.reload();
+            return;
+          }
+        } else {
+          try { sessionStorage.setItem('axd-ruta', JSON.stringify({ preparar: true, t: Date.now() })); } catch { /* nada */ }
+        }
         location.assign('/menu');
       });
       li.appendChild(a);
