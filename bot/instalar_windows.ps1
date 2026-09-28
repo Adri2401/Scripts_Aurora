@@ -47,16 +47,26 @@ $ejecutar = Join-Path $bot 'ejecutar.ps1'
 $ajustes = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 6) -MultipleInstances IgnoreNew
 $quien = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 $islaHoras = 0..7 | ForEach-Object { New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.AddHours(3 * $_).AddMinutes(40)) }
+# las de franja (v) cambian de hora cada dia: al jugar, se vuelven a programar para el dia siguiente al azar dentro de ella
+$provisional = New-ScheduledTaskTrigger -Once -At ([datetime]::Now.AddDays(1))
 $tareas = @(
-  @{ n = 'diario';         t = @(New-ScheduledTaskTrigger -Daily -At '10:05') },
-  @{ n = 'subsuelo';       t = @((New-ScheduledTaskTrigger -Daily -At '23:00'), (New-ScheduledTaskTrigger -Daily -At '01:00')) },
-  @{ n = 'entranas-pases'; t = @(New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At '00:00') },
-  @{ n = 'isla';           t = $islaHoras }
+  @{ n = 'diario';         tarea = 'diario';   v = '08:00-12:00'; t = @($provisional) },
+  @{ n = 'subsuelo-tarde'; tarea = 'subsuelo'; v = '20:00-23:59'; t = @($provisional) },
+  @{ n = 'subsuelo-noche'; tarea = 'subsuelo'; v = '00:00-02:00'; t = @($provisional) },
+  @{ n = 'entranas-pases'; tarea = 'entranas-pases'; t = @(New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At '00:00') },
+  @{ n = 'isla';           tarea = 'isla';     t = $islaHoras }
 )
+Unregister-ScheduledTask -TaskPath '\AuroraDex\' -TaskName 'subsuelo' -Confirm:$false -ErrorAction SilentlyContinue   # la de antes (23:00 y 01:00 fijas)
 foreach ($x in $tareas) {
-  $accion = New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ejecutar`" -Tarea $($x.n)" -WorkingDirectory $bot
+  $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ejecutar`" -Tarea $($x.tarea)"
+  if ($x.v) { $arg += " -Nombre $($x.n) -Ventana $($x.v)" }
+  $accion = New-ScheduledTaskAction -Execute $ps -Argument $arg -WorkingDirectory $bot
   Register-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $x.n -Action $accion -Trigger $x.t -Settings $ajustes -Principal $quien -Force | Out-Null
-  Write-Host "  - $($x.n)"
+  if ($x.v) {
+    & $ps -NoProfile -ExecutionPolicy Bypass -File $ejecutar -Nombre $x.n -Ventana $x.v -SoloProgramar
+    $sig = (Get-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $x.n | Get-ScheduledTaskInfo).NextRunTime
+    Write-Host "  - $($x.n): cada dia entre $($x.v.Replace('-', ' y ')), la proxima $($sig.ToString('dd/MM HH:mm'))"
+  } else { Write-Host "  - $($x.n)" }
 }
 
 # 6) Tu sesion (la cookie de auroradex.es)
@@ -78,7 +88,7 @@ if ($pedir) {
 }
 
 Paso 'Hecho'
-Write-Host 'Tareas (hora de tu PC): diario 10:05, Subsuelo 23:00 y 01:00, Entranas con pases lunes 00:00, Isla cada 3 h (00:40, 03:40...).'
+Write-Host 'Tareas (hora de tu PC): diarias entre 08:00 y 12:00, Subsuelo entre 20:00 y 23:59 y otra entre 00:00 y 02:00 (a una hora distinta cada dia), Entranas con pases lunes 00:00, Isla cada 3 h (00:40, 03:40...).'
 Write-Host 'Deja el PC en SUSPENSION (no apagado) y con tu usuario iniciado: se despierta, juega y vuelve a dormirse.'
 Write-Host "Probar ahora:   cd `"$bot`";  node aurora.js tronos"
 Write-Host "Ver que ha hecho:   Get-Content `"$(Join-Path $bot 'aurora.log')`" -Tail 40"

@@ -1,11 +1,33 @@
 # Aurora Dex en Windows: lo lanza el Programador de tareas (despierta el PC, juega una tarea y deja que vuelva a dormirse).
-# Uso: powershell -ExecutionPolicy Bypass -File ejecutar.ps1 -Tarea diario
-param([string]$Tarea = 'diario')
+# Uso: powershell -ExecutionPolicy Bypass -File ejecutar.ps1 -Tarea diario [-Nombre diario -Ventana 08:00-12:00]
+# Con -Ventana, la tarea programada -Nombre se vuelve a programar para el dia siguiente a una hora al azar de esa franja
+# (-SoloProgramar: solo eso, sin jugar; lo usa el instalador).
+param([string]$Tarea = 'diario', [string]$Nombre = '', [string]$Ventana = '', [switch]$SoloProgramar)
 
 $bot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $raiz = Split-Path -Parent $bot
 $logf = Join-Path $bot 'aurora.log'
 function Log([string]$t) { Add-Content -Path $logf -Value ('[{0}] {1}' -f (Get-Date -Format 'dd/MM/yyyy HH:mm:ss'), $t) -Encoding UTF8 }
+
+# La siguiente vez: el dia despues de la franja que toca (o que se acaba de pasar), a una hora al azar dentro de ella
+function Programar-Siguiente {
+  if (-not $Ventana -or -not $Nombre) { return }
+  $p = $Ventana -split '-'
+  $ini = [TimeSpan]::Parse($p[0]); $fin = [TimeSpan]::Parse($p[1])
+  $ahora = Get-Date
+  $servido = if ($ahora.TimeOfDay -ge $ini) { $ahora.Date } else { $ahora.Date.AddDays(-1) }
+  $cuando = $null
+  for ($d = 1; $d -le 3; $d++) {
+    $cuando = $servido.AddDays($d).AddMinutes((Get-Random -Minimum ([int]$ini.TotalMinutes) -Maximum ([int]$fin.TotalMinutes + 1)))
+    if ($cuando -gt $ahora.AddMinutes(10)) { break }
+  }
+  try {
+    Set-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $Nombre -Trigger (New-ScheduledTaskTrigger -Once -At $cuando) -ErrorAction Stop | Out-Null
+    Log "Proxima '$Nombre': $($cuando.ToString('dd/MM HH:mm'))"
+  } catch { Log "No he podido programar '$Nombre': $($_.Exception.Message)" }
+}
+if ($SoloProgramar) { Programar-Siguiente; exit 0 }
+Programar-Siguiente
 
 # 1) Que Windows no vuelva a dormir el PC mientras juega (sin esto lo suspende a los ~2 minutos de despertarlo)
 Add-Type -Namespace Aurora -Name Energia -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'

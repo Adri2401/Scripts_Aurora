@@ -4,12 +4,12 @@ Juega con los mismos scripts de Tampermonkey en un navegador sin pantalla, a sus
 
 | Cuándo (hora de España) | Tarea | Qué hace |
 |---|---|---|
-| Cada día 10:05 | `diario` | Todas las diarias (y los Safaris, Tren y Casa Treta de las otras regiones), el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo»), los respiros del Salón, los 3 encuentros gratis de la manada de cada región, la marea de la Isla, los 3 encuentros gratis de la manada de cada región, la bajada gratis de las Entrañas (desde el piso 1), los Tronos (defiende el tuyo con el mejor equipo o reta al más fácil) y los retos a ciegas de la Torre |
-| 23:00 y 01:00 | `subsuelo` | Se pone las Botas de Andar del Huerto y pica todas las vetas del Subsuelo |
+| Cada día entre 08:00 y 12:00 | `diario` | Todas las diarias (y los Safaris, Tren y Casa Treta de las otras regiones), el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo»), los respiros del Salón, los 3 encuentros gratis de la manada de cada región, la marea de la Isla, los 3 encuentros gratis de la manada de cada región, la bajada gratis de las Entrañas (desde el piso 1), los Tronos (defiende el tuyo con el mejor equipo o reta al más fácil) y los retos a ciegas de la Torre |
+| Entre 20:00 y 23:59, y otra vez entre 00:00 y 02:00 | `subsuelo` | Se pone las Botas de Andar del Huerto y pica todas las vetas del Subsuelo |
 | Lunes 00:00 | `entranas-pases` | Baja las Entrañas con los Pases del monte hasta gastarlos, sin gastar energía |
 | Cada 3 horas | `isla` | Isla Espejismo: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura las que no tienes (y los variocolor), ordena el equipo para evolucionar y lucha contra el jefe cuando llega |
 
-Nunca entra en el Suelo Helado, Voltorb Flip ni las Ruinas Alfa.
+Las de franja salen cada día a una hora distinta dentro de ella. Nunca entra en el Suelo Helado, Voltorb Flip ni las Ruinas Alfa.
 
 1. Crea una VM «Always Free» en Oracle Cloud (Ubuntu 22.04 o 24.04; vale la ARM Ampere o la AMD micro) y entra por SSH.
 2. `sudo apt-get install -y git && git clone https://github.com/Adri2401/Scripts_Aurora.git && cd Scripts_Aurora/bot && bash instalar.sh`
