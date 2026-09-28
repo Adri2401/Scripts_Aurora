@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.24.0
-// @description  Solo en /castillo. Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
+// @version      0.25.0
+// @description  Solo en /castillo. Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y a un variocolor o legendario le lanza la Master Ball (y avisa).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_galerias.user.js
@@ -652,8 +652,18 @@
     const rara = r.shiny || r.legendario;
     // Variocolor o legendario: la macro se PARA del todo, avisa (mensaje + una vibración) y deja la ventana abierta
     // para que la captura la hagas tú a mano (con Master Ball). Luego se vuelve a activar la macro.
+    // Variocolor o legendario: Master Ball directa (y aviso). Si no queda ninguna, se para para que lo hagas tú.
+    const master = rara && v.bolas.find(x => tipoBola(norm(x.textContent)) === 'master' && !x.disabled);
+    if (master) {
+      msg = `${r.shiny ? '✨ ¡VARIOCOLOR!' : '👑 ¡LEGENDARIO!'} ${r.nombre}: Master Ball.`; pintar();
+      kAviso({ tipo: r.shiny ? 'shiny' : 'legendario', app: 'Galerías', titulo: `¡${r.shiny ? 'Variocolor' : 'Legendario'}: ${r.nombre}!`, sprite: r.sprite, lineas: ['Le lanzo la Master Ball.'] });
+      await pausa(500, 900);
+      master.click();
+      await pausa(1500, 2200);
+      return true;
+    }
     if (rara) {
-      const texto = `${r.shiny ? '✨ ¡VARIOCOLOR!' : '👑 ¡LEGENDARIO!'} ${r.nombre}: captúralo tú. Macro parada.`;
+      const texto = `${r.shiny ? '✨ ¡VARIOCOLOR!' : '👑 ¡LEGENDARIO!'} ${r.nombre}: captúralo tú (no te quedan Master Ball). Macro parada.`;
       explorando = false;
       msg = texto;
       kAviso({ tipo: r.shiny ? 'shiny' : 'legendario', app: 'Galerías', titulo: `¡${r.shiny ? 'Variocolor' : 'Legendario'}: ${r.nombre}!`, sprite: r.sprite, lineas: ['Captúralo tú (mejor con Master Ball).', 'He parado la exploración.'] });
@@ -1311,7 +1321,7 @@
       <button type="button" class="boton-principal w-full !py-2 text-[11px]" data-a="auto"></button>
       <button type="button" class="boton-secundario w-full !py-2 text-[11px]" data-a="todo"></button>
       <p class="text-[10px] font-semibold text-tinta-400">🗺️ Cada planta se guarda al verla (siempre son iguales): la próxima vez va derecho a la escalera aunque esté a oscuras. «Explorar todo» va a por todo lo que haya en la planta y después baja: si ya la conoces, derecho a cada cosa recordada, y solo descubre la oscuridad que aún no ha visto nunca.</p>
-      <p class="text-[10px] font-semibold text-tinta-400">Al explorar: combate a todos los entrenadores (pulsa SEGUIR), pisa los remolinos (encuentro salvaje), captura con Poké Ball a todos los Pokémon. Si sale un variocolor o legendario, se para del todo, avisa (vibra una vez) y la Master Ball la tiras tú.</p>
+      <p class="text-[10px] font-semibold text-tinta-400">Al explorar: combate a todos los entrenadores (pulsa SEGUIR), pisa los remolinos (encuentro salvaje), captura con Poké Ball a todos los Pokémon. Si sale un variocolor o legendario, le lanza la Master Ball y avisa.</p>
       <button type="button" class="boton-suave w-full !py-2 text-[11px]" data-a="diag">📋 Copiar diagnóstico del juego</button>
       <p class="axg-msg text-[11px] font-semibold text-tinta-400"></p>`;
     const on = (sel, fn) => sec.querySelector(sel).addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); fn(); });

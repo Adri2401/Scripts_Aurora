@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.12.1
-// @description  Auto-explora y captura; ante shiny/legendario vibra, notifica y PARA la macro para captura manual. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
+// @version      2.13.0
+// @description  Auto-explora y captura; ante shiny/legendario lanza la Master Ball solo y avisa (vibra y notifica). Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -81,6 +81,7 @@
 
     // Capturas
     USE_MASTER_BALL: true,
+    AUTO_MASTER: true,               // shiny/legendario: lanza la Master Ball solo (false = parar y que lo captures tú)
     UNREGISTERED_RE: /sin registrar/,   // pastilla «⭐ Sin registrar» (Pokémon que aún no está en tu Pokédex)
     SUPER_MIN_PCT: 70,                  // sin registrar: probabilidad >= 70% => Super Ball; < 70% => Ultra Ball
     MIN_RETHROW_MS: 600,                // separación mínima entre dos lanzamientos seguidos
@@ -1607,7 +1608,7 @@
       }
       return false;
     }
-    const info = readEncounter(scope);
+    let info = readEncounter(scope);
     // Un encuentro de verdad enseña la «Probabilidad de captura» o varias Balls distintas
     const kinds = new Set(balls.map(b => b.kind));
     if (!info.hasCatchPct && kinds.size < 2) {
@@ -1617,16 +1618,22 @@
       }
       return false;
     }
+    let info2 = info;
     if (info.shiny || info.legendary) {
       // Confirmación: se vuelve a leer tras un instante y ambas lecturas deben coincidir
       await pause(run, 350, 500);
       const b2 = getBalls();
       const scope2 = b2.length ? encounterScope(b2[0].el) : null;
       const again = scope2 && readEncounter(scope2);
-      if (again && again.name === info.name && (again.shiny || again.legendary)) return handleRareEncounter(again);
-      log('Aviso de shiny/legendario descartado (no se confirmó en la segunda lectura):', info.name, info.masterReason, info.pills);
-      return true;
+      if (!(again && again.name === info.name && (again.shiny || again.legendary))) {
+        log('Aviso de shiny/legendario descartado (no se confirmó en la segunda lectura):', info.name, info.masterReason, info.pills);
+        return true;
+      }
+      // confirmado: con la Master Ball (y aviso); solo se para si se ha pedido captura a mano
+      if (!CONFIG.AUTO_MASTER) return handleRareEncounter(again);
+      info2 = again;
     }
+    info = info2;
     const plan = ballPlan(info);
     const wantKind = plan.prefs[0];
     const pick = plan.prefs.map(k => balls.find(b => b.kind === k && !b.disabled)).find(Boolean);
