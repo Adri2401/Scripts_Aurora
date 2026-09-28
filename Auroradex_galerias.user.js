@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.26.0
-// @description  Solo en /castillo. /castillo?hasta=40: baja desde el sello más hondo derecho hasta esa planta y para. Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y a un variocolor o legendario le lanza la Master Ball (y avisa).
+// @version      0.28.0
+// @description  Solo en /castillo. /castillo?hasta=40: baja desde el sello más hondo derecho hasta la 40 y la termina (altar de Volcarona y salir con todo el botín). Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y a un variocolor o legendario le lanza la Master Ball (y avisa).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_galerias.user.js
@@ -196,6 +196,8 @@
       const nombre = ((src || bg).match(/\/([^\/"')]+)\.(?:png|webp|gif|jpe?g)/i) || [])[1] || '';
       let tipo, pos;
       if (/personajes\//.test(bg)) { tipo = /ricach|mercader|vendedor|nomada/i.test(nombre) ? 'mercader' : /espeleolog|arqueolog/i.test(nombre) ? 'arqueologo' : 'personaje'; pos = spritePos(el); }
+      else if (el.tagName === 'IMG' && (/\/sprites\/solar\//.test(src) || /242,\s*140,\s*40/.test(st.filter || '') || /^volcarona$/i.test(el.getAttribute('alt') || ''))) { tipo = 'altar'; pos = { c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w) }; }
+      else if (el.tagName === 'IMG' && /232,\s*184,\s*69/.test(st.filter || '')) { tipo = 'guardian'; pos = { c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w) }; }
       else {
         tipo = /entrenadores\//.test(src) ? 'entrenador' : /remolino|torbellino|vortice|portal|trampa/i.test(nombre) ? 'remolino' : /lapida|tumba|sepultura/i.test(nombre) ? 'lapida' : /jarron|vasija|urna|tinaja/i.test(nombre) ? 'jarron' : /movediza|arena|cienaga|pantano/i.test(nombre) ? 'movediza' : /puerta/i.test(nombre) ? 'puerta' : 'objeto';
         pos = { c: Math.floor((left + wd / 2) / w), f: Math.floor((top + ht / 2) / w) };
@@ -266,7 +268,8 @@
   const rutaA = (t, esMeta) => camino(t, esMeta, true) || camino(t, esMeta, false);
 
   // Oscuridad que merece la pena descubrir: la que no se recuerda (lo recordado ya se sabe qué es y qué hay)
-  const nieblaUtil = (t, n) => { if (!n || n.tipo !== 'niebla') return false; const m = memPlanta(); return !m || !(n.c + ',' + n.f in m.c); };
+  // (en la 40, bajando para terminarla, toda la oscuridad cuenta: el altar no se guarda en la memoria de la planta)
+  const nieblaUtil = (t, n) => { if (!n || n.tipo !== 'niebla') return false; if (hasta >= 40 && (numPlanta() || 0) >= 40) return true; const m = memPlanta(); return !m || !(n.c + ',' + n.f in m.c); };
   const esFrontera = t => cel => cel.pisable && !(t.ocupadas && t.ocupadas.has(cel.c + ',' + cel.f)) && VECINOS.some(([dc, df]) => nieblaUtil(t, t.celdas.get((cel.c + dc) + ',' + (cel.f + df))));
 
   // Camino más corto contando también la niebla que se recuerda como suelo (para ir a la escalera a oscuras)
@@ -674,16 +677,34 @@
       pintar();
       return true;                                           // se para: el bucle acaba en esta vuelta
     }
+    // «Dejarlo marchar»: solo sin Poké Ball o si no hay manera (las Poké Ball son gratis: se captura a todos, también
+    // bajando derecho a una planta)
+    const soltar = async motivo => {
+      const d = botonesVisibles().find(x => !x.disabled && /dejarlo (marchar|ir)/i.test(norm(x.textContent)));
+      if (!d) return false;
+      msg = `${r.nombre}: lo dejo marchar (${motivo}).`; pintar();
+      await pausa(400, 700); d.click(); await pausa(900, 1300);
+      return true;
+    };
     const b = v.bolas.find(x => tipoBola(norm(x.textContent)) === 'poke' && !x.disabled);
-    if (!b) { msg = `No tengo Poké Ball disponible para ${r.nombre}.`; pintar(); return false; }
+    if (!b) { if (await soltar('no tengo Poké Ball')) return true; msg = `No tengo Poké Ball disponible para ${r.nombre}.`; pintar(); return false; }
     const clave = r.nombre + '|n';
     if (ultimaCaptura.clave === clave) ultimaCaptura.n++; else ultimaCaptura = { clave, n: 1 };
-    if (ultimaCaptura.n > 12) { explorando = false; msg = `No consigo capturar a ${r.nombre}. Parado.`; return false; }
+    if (ultimaCaptura.n > 12) { if (await soltar('no hay manera de capturarlo')) return true; explorando = false; msg = `No consigo capturar a ${r.nombre}. Parado.`; return false; }
     msg = `${r.nombre}: Poké Ball`;
     pintar();
     await pausa(350, 650);
     b.click();
-    await pausa(900, 1400);
+    // se espera a que el lanzamiento se resuelva (se cierra la ventana o vuelve a dejar tirar): antes, con la bola aún
+    // en el aire, cada vuelta contaba como un intento y a los 12 lo daba por imposible (y paraba la exploración)
+    await sleep(900);
+    for (let i = 0; i < 40; i++) {
+      const v2 = ventanaCaptura();
+      if (!v2 || v2.bolas.some(x => tipoBola(norm(x.textContent)) === 'poke' && !x.disabled && x !== b && x.isConnected)) break;
+      if (v2 && b.isConnected && !b.disabled && i > 6) break;
+      await sleep(250);
+    }
+    await pausa(300, 500);
     return true;
   }
 
@@ -1146,8 +1167,26 @@
     { const pl = plantaActual(); delete puertaFin[pl]; delete puertaIntentos[pl]; delete escFallo[pl]; delete memFallo[pl]; for (const k of Object.keys(puertaVisitas)) if (k.startsWith(pl + '|')) delete puertaVisitas[k]; if (contadoresPlanta.planta === pl) contadoresPlanta.puerta = 0; }
     let sinCambio = 0, sinPantalla = 0;
     while (explorando) {
+      if (hasta >= 40 && (numPlanta() || 0) >= 40) {
+        const salir = botonesVisibles().find(b => /salir con todo el bot/i.test(b.textContent || '') && !b.disabled);
+        if (salir) {
+          await pausa(600, 900); salir.click(); await sleep(2500);
+          msg = '🏁 Planta 40 terminada: fuera con todo el botín.';
+          console.log('[axg] ' + msg);
+          try { localStorage.setItem('axg-hasta-ok', JSON.stringify({ t: Date.now(), planta: 40, msg })); localStorage.setItem('axg-fondo-semana', lunesDeEstaSemana()); } catch { /* nada */ }
+          hasta = 0; break;
+        }
+      }
       if (await atenderPantallas()) { sinPantalla = 0; continue; }
       const t = leerTablero();
+      if (t && hasta) plantaVista = Math.max(plantaVista, numPlanta() || 0);
+      // bajando para terminar la 40: de vuelta en la entrada después de estar en la 40 = terminada (salió por el altar)
+      if (!t && hasta >= 40 && plantaVista >= 40 && botonesVisibles().some(b => /^\s*bajar a la planta/i.test(b.textContent || ''))) {
+        msg = '🏁 Planta 40 terminada: fuera con todo el botín.';
+        console.log('[axg] ' + msg);
+        try { localStorage.setItem('axg-hasta-ok', JSON.stringify({ t: Date.now(), planta: 40, msg })); localStorage.setItem('axg-fondo-semana', lunesDeEstaSemana()); } catch { /* nada */ }
+        hasta = 0; break;
+      }
       if (!t) {                                               // ni tablero ni pantalla conocida: se espera un poco
         // un combate largo tarda en animarse y hasta el final no sale «Seguir»: mientras se vea uno, se espera más (90 s)
         const enCombate = /sale al paso|se queda sin fuerzas|no puede continuar|Relevas con|El rival saca/i.test((document.querySelector('main') || document.body).textContent || '');
@@ -1157,8 +1196,18 @@
       }
       sinPantalla = 0;
       recordar(t);
-      // objetivo de planta (p. ej. la 40 los lunes): al llegar, se para ahí
-      if (hasta && (numPlanta() || 0) >= hasta) {
+      // objetivo de planta (p. ej. la 40 los lunes): al llegar, se para ahí. La 40 hay que terminarla: llegar al altar
+      // de Volcarona (pasando por sus guardianes) y salir por la escalera de detrás con todo el botín
+      if (hasta >= 40 && (numPlanta() || 0) >= 40) {
+        const alt = t.entidades.find(e => e.tipo === 'altar');
+        if (alt && t.jugador) {
+          const d = Math.abs(alt.c - t.jugador.c) + Math.abs(alt.f - t.jugador.f);
+          if (d === 1) { msg = '☀️ Al altar de Volcarona…'; pintar(); await andar(alt.c - t.jugador.c, alt.f - t.jugador.f); await pausa(1200, 1600); continue; }
+          const r = rutaA(t, c => c.pisable && Math.abs(c.c - alt.c) + Math.abs(c.f - alt.f) === 1);   // sin guardianes delante si se puede; si no, a través (combate)
+          if (r && r.length > 1) { msg = `☀️ Altar a ${pasos(r)} pasos: voy (los guardianes, a combate).`; pintar(); if (!(await irPor(r, t))) sinCambio++; else sinCambio = 0; if (sinCambio > 6) { msg = '⚠ No llego al altar. Parado.'; break; } continue; }
+        }
+        // si aún no se ve el altar, se explora la planta (sigue abajo, como una planta más)
+      } else if (hasta && (numPlanta() || 0) >= hasta) {
         msg = `🏁 Planta ${numPlanta()}: objetivo alcanzado.`;
         console.log('[axg] ' + msg);
         try { localStorage.setItem('axg-hasta-ok', JSON.stringify({ t: Date.now(), planta: numPlanta() })); } catch { /* nada */ }
@@ -1242,7 +1291,7 @@
       }
 
       // En las plantas con puerta de canción no se baja hasta abrirla: se sigue explorando (sin escalera) hasta encontrarla
-      const esperaPuerta = camaraPendiente();
+      const esperaPuerta = !hasta && camaraPendiente();   // bajando derecho a una planta, sin cámaras
       // «Explorar todo»: mientras quede niebla por descubrir (que no se sepa que es pared) no se va a la escalera
       const frontera = rutaA(t, esFrontera(t));
       const quedaOscuro = modoExplorar === 'todo' && frontera && frontera.length >= 2;
@@ -1259,7 +1308,8 @@
           if (sinCambio > 2) { escFallo[plantaActual()] = true; sinCambio = 0; msg = 'No llego a la escalera: busco otra ruta.'; }
           continue;
         }
-        msg = '🪜 Ya estás en la escalera o sin camino. Parado.'; break;
+        // sin camino hasta la escalera que se ve (algo tapa el paso): antes se paraba; ahora se explora por otro lado
+        escFallo[plantaActual()] = true; msg = '🪜 No hay camino a la escalera que se ve: busco otra ruta.'; pintar(); continue;
       }
       // Escalera a oscuras pero recordada de otra vez: se va derecho con las flechas
       if (!esperaPuerta && !quedaOscuro && !escFallo[plantaActual()] && !memFallo[plantaActual()]) {
@@ -1285,6 +1335,8 @@
       const llegada = /^🪜/.test(msg), nada = /No queda nada/.test(msg);
       kAviso({ tipo: llegada ? 'fin' : nada ? 'aviso' : 'error', app: 'Galerías', icono: llegada ? '🪜' : '⛏️', titulo: llegada ? 'Has llegado a la escalera' : nada ? 'No queda nada por explorar' : 'La exploración se ha parado', texto: llegada || nada ? null : msg, lineas: [plantaActual() || null] });
     }
+    // bajando a una planta sin llegar (cuerda, equipo KO, parada…): que el bot no se quede esperando
+    if (hasta) { try { localStorage.setItem('axg-hasta-ok', JSON.stringify({ t: Date.now(), planta: numPlanta() || 0, msg: `⚠ No he terminado la planta ${hasta}: ${msg || 'parado'}` })); } catch { /* nada */ } hasta = 0; }
     explorando = false;
     mostrarPildora(false);
     pintar();
@@ -1395,13 +1447,15 @@
   /* ── Bajar hasta una planta: /castillo?hasta=40 (lo usa el bot los lunes a las 00:00). Elige el sello más hondo por
    * debajo de esa planta, baja (⚡ 10) y va derecho a cada escalera, sin combates, jarrones ni cámaras, hasta llegar.
    * Si esta semana ya llegaste, no hace nada. ── */
-  let hasta = 0;
+  let hasta = 0, plantaVista = 0;
+  const lunesDeEstaSemana = () => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toLocaleDateString('sv'); };
   async function bajarHasta(n, forzar = false) {
     const avisar = t => { msg = t; console.log('[axg] ' + t); try { localStorage.setItem('axg-hasta-ok', JSON.stringify({ t: Date.now(), planta: 0, msg: t })); } catch { /* nada */ } };
     for (let i = 0; i < 60 && !leerTablero(); i++) {
       const main = (document.querySelector('main') || {}).textContent || '';
       const sem = main.match(/semana\s*(\d+)/i);
-      if (sem && +sem[1] >= n && !forzar) { avisar(`🏁 Esta semana ya llegaste a la planta ${sem[1]}.`); return; }
+      let hecha = false; try { hecha = localStorage.getItem('axg-fondo-semana') === lunesDeEstaSemana(); } catch { /* nada */ }
+      if (!forzar && (n >= 40 ? hecha : sem && +sem[1] >= n)) { avisar(n >= 40 ? '🏁 Esta semana ya terminaste la planta 40.' : `🏁 Esta semana ya llegaste a la planta ${sem[1]}.`); return; }
       const bajar = botonesVisibles().find(b => /^\s*bajar a la planta/i.test(b.textContent || '') && !b.disabled);
       if (bajar) {
         const sellos = botonesVisibles().map(b => { const m = (b.textContent || '').match(/sello\s*·\s*planta\s*(\d+)/i); return m ? { b, n: +m[1] } : null; }).filter(x => x && x.n < n).sort((a, b) => b.n - a.n);
@@ -1412,7 +1466,7 @@
       await sleep(500);
     }
     if (!leerTablero()) { avisar('⚠ No he podido entrar en las Galerías (¿sin energía?).'); return; }
-    hasta = n; combatir = false; recoger = false;
+    hasta = n; plantaVista = 0; combatir = false; recoger = false;
     if (panel) { const bc = panel.querySelector('[data-a="combatir"]'), br = panel.querySelector('[data-a="recoger"]'); if (bc) bc.textContent = '⚔️ Combatir: no'; if (br) br.textContent = '🏺 Jarrones y tumbas: no'; }
     console.log('[axg] Bajo derecho hasta la planta ' + n);
     if (!explorando) explorar('escalera');

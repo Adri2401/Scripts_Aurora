@@ -118,8 +118,8 @@ const TAREAS = {
     const t0 = Date.now();
     await p.goto('https://auroradex.es/castillo?hasta=40', { waitUntil: 'domcontentloaded' });
     const r = await esperarFin(p, desde => { try { const o = JSON.parse(localStorage.getItem('axg-hasta-ok') || 'null'); return o && o.t >= desde ? (o.msg || `🏁 Planta ${o.planta}: objetivo alcanzado.`) : ((document.querySelector('#axg-panel .axg-msg') || {}).textContent || ''); } catch { return ''; } },
-      /🏁|No he podido entrar/, 90, t0);
-    return '🪜 Galerías (planta 40)\n' + (r.texto || '⚠ Sin respuesta del script.') + (r.ok ? '' : '\n⚠ Se ha pasado el tiempo.');
+      /🏁|No he podido entrar|⚠ No he terminado/, 90, t0);
+    return '🪜 Galerías (terminar la planta 40)\n' + (r.texto || '⚠ Sin respuesta del script.') + (r.ok ? '' : '\n⚠ Se ha pasado el tiempo.');
   },
   async subsuelo(p) {
     await p.goto('https://auroradex.es/huerto?botas=1&volver=' + encodeURIComponent('/subsuelo?explorar=1'), { waitUntil: 'domcontentloaded' });
