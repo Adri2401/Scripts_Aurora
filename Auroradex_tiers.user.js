@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.30.0
+// @version      1.31.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier o por estadística (botón «📊 Stat»: cada toque pasa a PS, Ataque, Defensa, Especial, Velocidad y Total; pone el valor en cada uno, corona al mejor 👑 y dice quién la tiene más alta en el equipo y en la Caja), tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -2579,7 +2579,7 @@
    * más fácil y reta. Así, si te lo quitan, lo recupera (o coge otro) en cuanto se pueda. */
   const SS_TRONOS = 'axt-tronos-auto';
   const autoTronos = () => { try { return sessionStorage.getItem(SS_TRONOS) === '1'; } catch { return false; } };
-  let tronoPaso = false, tronoMsg = '', tronoPlan = null;          // tronoPlan: { fase, cola, notas: {t: gA}, objetivo }
+  let tronoPaso = false, tronoMsg = '';
   const hoyT = () => new Date().toLocaleDateString('sv');
   const cerrarFicha = () => { const x = $$('button').find(b => (b.textContent || '').trim() === '✕' && b.closest('div.fixed')); if (x) x.click(); };
   function cajaTronos() {
@@ -2589,7 +2589,7 @@
     if (!c) {
       c = document.createElement('div'); c.id = 'axt-tronos-auto'; c.setAttribute('data-ax-ignore', '1'); c.style.cssText = 'margin:8px 0';
       c.innerHTML = '<button type="button" class="boton-principal w-full !py-2 text-xs"></button><p class="text-[11px] font-bold text-tinta-500" style="margin-top:4px"></p>';
-      c.querySelector('button').addEventListener('click', e => { e.preventDefault(); try { sessionStorage.setItem(SS_TRONOS, autoTronos() ? '0' : '1'); } catch { /* nada */ } tronoPlan = null; tronoMsg = autoTronos() ? 'Empiezo…' : 'Parado.'; pintarTronos(); programar(); });
+      c.querySelector('button').addEventListener('click', e => { e.preventDefault(); try { sessionStorage.setItem(SS_TRONOS, autoTronos() ? '0' : '1'); } catch { /* nada */ } tronoMsg = autoTronos() ? 'Empiezo…' : 'Parado.'; pintarTronos(); programar(); });
       ancla.insertAdjacentElement('beforebegin', c);
     }
     pintarTronos();
@@ -2601,16 +2601,22 @@
     const m = c.querySelector('p'); if (m.textContent !== tronoMsg) m.textContent = tronoMsg;
   }
   const esperaT = ms => new Promise(r => setTimeout(r, ms));
-  // abre la ficha de un trono y espera a que el cálculo esté hecho; devuelve el resultado (memoTronos.res[t])
+  // abre la ficha de un trono y espera a que el cálculo esté hecho; devuelve el resultado (memoTronos.res[t]).
+  // Solo en el primer trono lee tus combates guardados (como mucho 45 s); en los demás lo salta, que ya están leídos.
+  // No deja que el cálculo ponga y guarde el equipo de cada trono que mira: eso solo se hace con el que se va a retar.
+  let histLeido = false;
   async function calcularEnFicha(t) {
     const card = tarjetasTronos().find(x => x.t === t);
     if (!card) return null;
     if (!leerFichaTrono()) { card.b.click(); await esperaT(1500); }
-    for (let i = 0; i < 240 && autoTronos(); i++) {
+    const t0 = Date.now();
+    for (let i = 0; i < 360 && autoTronos(); i++) {
       const r = memoTronos && memoTronos.res[t];
-      if (r) return r;
+      if (r) { histLeido = true; return r; }
+      const bs = document.querySelector('#axt-trono-ficha .axt-saltar-hist');
+      if (bs && (histLeido || Date.now() - t0 > 45000) && !bs.dataset.axtClic) { bs.dataset.axtClic = '1'; bs.click(); }
       const bc = document.querySelector('#axt-trono-ficha .axt-calc-trono');
-      if (bc && !bc.dataset.axtClic) { bc.dataset.axtClic = '1'; autoPonerTrono = null; bc.click(); }
+      if (bc && !bc.dataset.axtClic && !bc.disabled) { bc.dataset.axtClic = '1'; bc.click(); autoPonerTrono = null; }
       await esperaT(500);
     }
     return null;
@@ -2623,6 +2629,11 @@
     for (let i = 0; i < 120 && automatizando; i++) await esperaT(500);
     return true;
   }
+  // El plan del día (sobrevive a las recargas de la pestaña): lo calculado de cada trono, a cuál se ha retado y con cuáles no se pudo
+  const SS_PLAN_T = 'axt-tronos-plan';
+  const leerPlanT = () => { try { const p = JSON.parse(sessionStorage.getItem(SS_PLAN_T) || 'null'); return p && p.dia === hoyT() ? p : null; } catch { return null; } };
+  const guardarPlanT = p => { try { sessionStorage.setItem(SS_PLAN_T, JSON.stringify(p)); } catch { /* nada */ } };
+  const botonFicha = re => $$('div.fixed button').find(b => re.test((b.textContent || '').trim()) && !b.disabled);
   async function pasoTronos() {
     if (tronoPaso || !autoTronos() || automatizando) return;
     tronoPaso = true;
@@ -2644,28 +2655,44 @@
         cerrarFicha();
         return;
       }
-      // sin trono: ¿se puede retar hoy?
-      const libres = cards.filter(x => !/hoy ya|🔒/i.test(x.b.textContent || ''));
-      if (!libres.length) { tronoMsg = 'Hoy ya no se puede retar a ningún trono.'; return; }
-      if (!tronoPlan) tronoPlan = { cola: libres.map(x => x.t), notas: {} };
-      if (tronoPlan.cola.length) {
-        const t = tronoPlan.cola.shift();
-        tronoMsg = `🔮 Calculando el trono de ${bonito(t)} (${Object.keys(tronoPlan.notas).length + 1}/${libres.length})…`; pintarTronos();
+      const plan = leerPlanT() || { dia: hoyT(), notas: {}, perdidos: [], fallidos: [], retado: null, retadoEn: 0 };
+      const hoyYa = x => /hoy ya|🔒/i.test(x.b.textContent || '');
+      // ¿cómo acabó el último reto? (si se ganó, arriba ya sale como TUYO)
+      if (plan.retado) {
+        const c = cards.find(x => x.t === plan.retado);
+        if (c && hoyYa(c)) { plan.perdidos.push(plan.retado); tronoMsg = `❌ He perdido contra el de ${bonito(plan.retado)}: voy a por el siguiente.`; plan.retado = null; guardarPlanT(plan); return; }
+        if (Date.now() - plan.retadoEn < 90000) { tronoMsg = `⚔️ Retando al de ${bonito(plan.retado)}…`; return; }
+        plan.fallidos.push(plan.retado); tronoMsg = `⚠ No consta el reto al de ${bonito(plan.retado)}: lo dejo y sigo con otro.`; plan.retado = null; guardarPlanT(plan); return;
+      }
+      // sin trono: los que se pueden retar hoy
+      const libres = cards.filter(x => !hoyYa(x) && !plan.fallidos.includes(x.t));
+      if (!libres.length) { tronoMsg = `🏁 Hoy ya no queda ningún trono por retar${plan.perdidos.length ? ` (perdidos: ${plan.perdidos.map(bonito).join(', ')})` : ''}.`; return; }
+      const pendientes = libres.filter(x => !(x.t in plan.notas));
+      if (pendientes.length) {
+        const t = pendientes[0].t, hechos = libres.length - pendientes.length;
+        tronoMsg = `🔮 Calculando el trono de ${bonito(t)} (${hechos + 1}/${libres.length})…`; pintarTronos();
         const r = await calcularEnFicha(t);
-        if (r && r.n) tronoPlan.notas[t] = r.gA;
+        plan.notas[t] = r && r.n ? r.gA : -1;
+        guardarPlanT(plan);
         cerrarFicha(); await esperaT(800);
         return;
       }
-      const orden = Object.entries(tronoPlan.notas).sort((a, b) => b[1] - a[1]);
-      if (!orden.length) { tronoMsg = 'No tengo equipo para ningún trono libre.'; return; }
+      const orden = libres.map(x => [x.t, plan.notas[x.t]]).filter(([, g]) => g > 0).sort((a, b) => b[1] - a[1]);
+      if (!orden.length) { tronoMsg = '🏁 No tengo equipo para ningún trono libre.'; return; }
       const [t, g] = orden[0];
       tronoMsg = `⚔️ Voy a por el de ${bonito(t)} (gano ≈ ${pctT(g)}): pongo el mejor equipo y reto.`; pintarTronos();
       await calcularEnFicha(t);
       await ponerYGuardar();
       await esperaT(1000);
-      const retar = $$('button').find(b => /^retar$/i.test((b.textContent || '').trim()) && !b.disabled);
-      if (retar) { retar.click(); await esperaT(2500); const conf = $$('button').find(b => /^(retar|confirmar|s[ií]|¡?adelante!?)$/i.test((b.textContent || '').trim()) && !b.disabled && b !== retar); if (conf) conf.click(); }
-      tronoPlan = null;
+      // la pestaña «Retar» de la ficha y, dentro, el botón de verdad («Retar con mi equipo de …»)
+      if (!botonFicha(/^retar con mi equipo/i)) { const tab = botonFicha(/^retar$/i); if (tab) { tab.click(); await esperaT(1500); } }
+      let reto = null;
+      for (let i = 0; i < 16 && !reto; i++) { reto = botonFicha(/^retar con mi equipo/i); if (!reto) await esperaT(500); }
+      if (!reto) { plan.fallidos.push(t); guardarPlanT(plan); tronoMsg = `⚠ No encuentro el botón para retar al de ${bonito(t)}: sigo con otro.`; cerrarFicha(); return; }
+      plan.retado = t; plan.retadoEn = Date.now(); guardarPlanT(plan);
+      reto.click();
+      tronoMsg = `⚔️ Reto al de ${bonito(t)} (gano ≈ ${pctT(g)}).`;
+      await esperaT(2500);
     } catch (e) { console.warn('[axt tronos auto]', e); tronoMsg = '⚠ ' + (e && e.message); }
     finally { tronoPaso = false; pintarTronos(); }
   }

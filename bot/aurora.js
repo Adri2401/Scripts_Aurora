@@ -126,7 +126,7 @@ const TAREAS = {
     await p.addInitScript(() => { try { sessionStorage.setItem('axt-tronos-auto', '1'); } catch { /* nada */ } });
     await p.goto('https://auroradex.es/tronos', { waitUntil: 'domcontentloaded' });
     const r = await esperarFin(p, () => (document.querySelector('#axt-tronos-auto p') || {}).textContent,
-      /con el mejor equipo|Hoy ya no se puede|No tengo equipo|No he podido/, 25);
+      /con el mejor equipo|🏁|No he podido calcular/, 40);
     return '👑 Tronos\n' + (r.texto || '⚠ Sin respuesta del script.');
   },
   async torre(p) {
