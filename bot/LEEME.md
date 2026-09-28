@@ -20,8 +20,8 @@ Nunca entra en el Suelo Helado, Voltorb Flip ni las Ruinas Alfa.
 Cada tarea espera a que acabe la anterior (`flock`), porque dos navegadores no pueden usar la misma sesión a la vez.
 Antes de cada tarea hace `git pull`, así que siempre usa la última versión de los scripts.
 
-Opcional, aviso al móvil por Telegram al acabar cada tarea: crea un bot con @BotFather y exporta en el cron
-`TELEGRAM_TOKEN=xxx TELEGRAM_CHAT=tu_id` (al principio de cada línea).
+Opcional, aviso al móvil por Telegram al acabar cada tarea: crea un bot con @BotFather y pon en `bot/aviso.env`
+dos líneas: `TELEGRAM_TOKEN=xxx` y `TELEGRAM_CHAT=tu_id` (no se sube a ningún sitio).
 
 La sesión vive en `bot/perfil` (no se sube a ningún sitio) y el juego la renueva mientras se use. Si caduca, el bot avisa
 y sale: repite el paso 3. Otras variables: `AURORA_LIGAS` (ligas de la Torre, por defecto `clasico`), `AURORA_SCRIPTS`.

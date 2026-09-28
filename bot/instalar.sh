@@ -10,13 +10,20 @@ fi
 npm install
 npx playwright install --with-deps chromium
 sudo timedatectl set-timezone Europe/Madrid || true
+sudo systemctl restart cron 2>/dev/null || true          # para que el cron coja la hora de España
+# máquinas pequeñas (la AMD micro de 1 GB): 2 GB de swap para que Chromium no se quede sin memoria
+if [ "$(free -m | awk '/^Mem:/{print $2}')" -lt 2000 ] && [ "$(swapon --show | wc -l)" -eq 0 ]; then
+  sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+  grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+fi
 # Horario (hora de España). Cada tarea espera su turno (flock) para no abrir dos navegadores con la misma sesión:
 #   10:05 cada día  → diarias (con Huerto, Valle y Salón), Manadas gratis, bajada gratis de las Entrañas, Tronos y Torre a ciegas
 #   23:00 y 01:00   → Subsuelo: Botas de Andar del Huerto y todas las vetas
 #   lunes 00:00     → Entrañas con los Pases del monte (nunca gasta energía)
 #   cada 3 h (:40)  → Isla Espejismo: gasta la marea (sube +15 cada 2 h, tope 45) capturando especies nuevas
 BOT="$(pwd)"
-tarea() { echo "$1 cd $BOT/.. && git pull -q; cd $BOT && flock -w 21600 aurora.lock /usr/bin/env node aurora.js $2 >> aurora.log 2>&1"; }
+# aviso.env (opcional): TELEGRAM_TOKEN=... y TELEGRAM_CHAT=... para que avise al móvil al acabar cada tarea
+tarea() { echo "$1 cd $BOT/.. && git pull -q; cd $BOT && set -a && { [ -f aviso.env ] && . ./aviso.env; set +a; } && flock -w 21600 aurora.lock /usr/bin/env node aurora.js $2 >> aurora.log 2>&1"; }
 ( crontab -l 2>/dev/null | grep -v -e 'diarias.js' -e 'aurora.js' ;
   tarea "5 10 * * *" diario ; tarea "0 23 * * *" subsuelo ; tarea "0 1 * * *" subsuelo ; tarea "0 0 * * 1" entranas-pases ; tarea "40 */3 * * *" isla ) | crontab -
 echo
