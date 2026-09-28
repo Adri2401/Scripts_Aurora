@@ -125,9 +125,11 @@ const TAREAS = {
     await p.goto('https://auroradex.es/huerto?botas=1&volver=' + encodeURIComponent('/subsuelo?explorar=1'), { waitUntil: 'domcontentloaded' });
     await espera(25000);
     // por si la vuelta del Huerto no ha arrancado sola
-    if (await p.evaluate(() => location.pathname !== '/subsuelo' || !/🧭|🥾/.test((document.querySelector('#axsub-panel .k-log') || {}).textContent || '')).catch(() => true)) {
+    // (sin tocarlo si ya está picando: el mismo botón lo pararía)
+    if (await p.evaluate(() => location.pathname !== '/subsuelo' || (!/🧭|🥾/.test((document.querySelector('#axsub-panel .k-log') || {}).textContent || '') && (document.querySelector('#axsub-panel .k-badge') || {}).dataset?.s !== 'on')).catch(() => true)) {
       if (!/\/subsuelo/.test(p.url())) await p.goto('https://auroradex.es/subsuelo', { waitUntil: 'domcontentloaded' });
-      await pulsarCuandoSalga(p, '#axsub-panel .axsub-exp', null, 40);
+      await espera(3000);
+      if (await p.evaluate(() => (document.querySelector('#axsub-panel .k-badge') || {}).dataset?.s !== 'on').catch(() => true)) await pulsarCuandoSalga(p, '#axsub-panel .axsub-exp', null, 40);
     }
     const r = await esperarFin(p, () => (document.querySelector('#axsub-panel .k-log') || {}).textContent,
       /Ya he visto todo|Sin energía|sin energía|Has salido|Parado|ventana abierta/, 90);
