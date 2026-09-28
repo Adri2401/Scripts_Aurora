@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Grutas del Subsuelo (todas las vetas)
 // @namespace    auroradex-grutas
-// @version      0.6.3
+// @version      0.6.4
 // @description  Solo en /subsuelo. «🧭 Explorar y picar»: recorre el mapa deprisa y pica cada veta (y Poké Ball) que ve de los tipos elegidos. «⛏️ Picarlas todas»: el camino más corto por todas las que conoce (el mínimo de pasos, que es lo que cuesta energía al andar; con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa del servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar y el ritmo (humano por defecto). Dibuja el camino y se para si no llega la energía; sigue donde lo dejó.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -299,7 +299,7 @@
    *  AJUSTES Y MEMORIA
    * ------------------------------------------------------------------ */
   const PANEL_ID = 'axsub-panel', U = '#' + PANEL_ID, DIBUJO_ID = 'axsub-dibujo';
-  const VERSION = '0.6.3';
+  const VERSION = '0.6.4';
   const LS_CFG = 'axsub-cfg', LS_MEM = 'axsub-mem-v1';
   const H12 = 12 * 3600e3, H24 = 24 * 3600e3;
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -795,7 +795,10 @@
   // Códigos de casilla vistos en el juego: 1 suelo, 3 agua, 0 roca, 7 veta, 9 puerta de base, 11 cámara
   // 0 roca (se dibuja como la roca de la leyenda), 1 suelo, 3 agua, 7 veta, 8 escalera (no se pisa), 9 puerta, 11 losa.
   // El resto (2, 4, 5, 6, 10, 12…) se sabe por cómo lo dibuja el juego o al pisarlo
-  const CODIGOS = { 0: 'pared', 1: 'suelo', 3: 'agua', 7: 'nodo', 8: 'salida', 9: 'puerta', 11: 'losa' };
+  // Códigos de casilla del juego. Comprobados en partida: 4, 5, 6 y 12 se pisan (suelos de otro dibujo) y 10 es lava
+  // (antes se aprendía mirando el dibujo y, con la memoria vacía, intentaba pisarla). El 2 se queda sin fijar: se
+  // dibuja como agua pero hay sitios donde se pisa; lo decide lo aprendido.
+  const CODIGOS = { 0: 'pared', 1: 'suelo', 3: 'agua', 4: 'suelo', 5: 'suelo', 6: 'suelo', 7: 'nodo', 8: 'salida', 9: 'puerta', 10: 'lava', 11: 'losa', 12: 'suelo' };
   const lista = v => Array.isArray(v) ? v : (v && typeof v === 'object' ? [v] : []);
   function hashCanvas(t) {
     try { const d = t.cv.getContext('2d').getImageData(0, 0, t.cv.width, t.cv.height).data; let h = 0; for (let i = 0; i < d.length; i += 97) h = (h * 31 + d[i]) | 0; return h; }
@@ -1768,7 +1771,9 @@
         if (!corriendo) break;
         const movido = x => x && x.ok && (x.pos.x !== o.pos.x || x.pos.y !== o.pos.y);
         // las flechas aún no han funcionado nunca: se prueba con un clic en la casilla de al lado
+        let probadoClic = false;
         if (!movido(o2) && !conClic && modoClic !== 'no') {
+          probadoClic = true;
           clicCasilla(o.t, meta.x - o.cam.x, meta.y - o.cam.y);
           o2 = await esperarMovimiento(o.pos);
           if (movido(o2)) { pasoConClic = true; log('ℹ️ Las flechas no me funcionan aquí: ando con clics.'); }
@@ -1785,12 +1790,13 @@
           fallosClic++;
           if (fallosClic >= 2) { modoClic = modoClic === 'clic' ? 'puntero' : modoClic === 'puntero' ? 'recto' : 'no'; fallosClic = 0; log(`ℹ️ El clic en el mapa no mueve así: pruebo ${modoClic === 'no' ? 'solo con flechas' : modoClic === 'recto' ? 'clics en línea recta' : 'otro tipo de clic'}.`); }
         } else {
-          // quizá el servidor va lento: se espera a que llegue el paso antes de mandar nada más
-          const o3 = await esperarMovimiento(o.pos, 4000);
+          // quizá el servidor va lento: se espera a que llegue el paso antes de mandar nada más (si ya se ha probado
+          // también con clic, esa espera ya ha pasado)
+          const o3 = probadoClic ? o2 : await esperarMovimiento(o.pos, 4000);
           if (movido(o3)) { movOk++; fallosSeguidos = 0; continue; }
           const kk = K(meta.x, meta.y);
           intentosPaso[kk] = (intentosPaso[kk] || 0) + 1;
-          if (intentosPaso[kk] < 2) { fallosSeguidos++; continue; }
+          if (intentosPaso[kk] < (probadoClic ? 1 : 2)) { fallosSeguidos++; continue; }
           mem().sinPaso[kk] = Date.now();
           const cm = plan && plan.mapa && plan.mapa.codEn ? plan.mapa.codEn(meta.x, meta.y) : null;
           if (cm != null && !CODIGOS[cm]) {
