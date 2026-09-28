@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Salón Malvalona Auto
 // @namespace    auroradex-salon-auto
-// @version      1.5.1
+// @version      1.6.0
 // @description  Juega solo a «Sube o Baja» del Salón de Malvalona con cuenta exacta de cartas. Modo Respiros: juega con las mínimas partidas hasta reunir los vales de TODOS los respiros que quedan (15 × respiros) y entonces los compra seguidos. Modo Vales: maximiza el valor esperado.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -367,14 +367,22 @@
     return m ? parseInt(m[1], 10) : null;
   }
 
-  // «Te quedan 6 de 20 de energía por comprar hoy»
+  // «Te quedan 6 de 20 de energía por comprar hoy». Durante la partida el Mostrador no se ve: se usa lo último leído
+  // (del mismo día), para no jugar a ciegas sin objetivo
+  let cupoVisto = null;
   function readCupo() {
     const m = mainText().match(/Te quedan\s+(\d+)\s+de\s+(\d+)\s+de energ/i);
-    return m ? { left: parseInt(m[1], 10), total: parseInt(m[2], 10) } : null;
+    if (m) { cupoVisto = { left: parseInt(m[1], 10), total: parseInt(m[2], 10), dia: new Date().toDateString() }; return { left: cupoVisto.left, total: cupoVisto.total }; }
+    return cupoVisto && cupoVisto.dia === new Date().toDateString() ? { left: cupoVisto.left, total: cupoVisto.total } : null;
   }
 
-  // Botón «Un respiro» del Mostrador y su precio (el último número del botón)
-  const respiroBtn = (includeDisabled) => findBtn(/Un respiro/i, includeDisabled);
+  // Botón de «Un respiro» del Mostrador: el botón de su fila (el botón solo dice «🎟️ 15») y su precio (el último número)
+  const respiroBtn = (includeDisabled) => {
+    const fila = $$('main p').find(p => !enPanel(p) && /^\s*Un respiro\s*$/i.test(p.textContent || ''));
+    const b = fila && fila.closest('div.flex') && fila.closest('div.flex').querySelector('button');
+    if (b && (includeDisabled || !b.disabled)) return b;
+    return findBtn(/Un respiro/i, includeDisabled);
+  };
   function respiroPrice() {
     const b = respiroBtn(true);
     const m = b && btnText(b).match(/(\d+)\s*$/);

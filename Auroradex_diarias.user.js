@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.9.0
-// @description  Juega solo las diarias. «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
+// @version      1.10.0
+// @description  Juega solo las diarias. «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_diarias.user.js
@@ -752,7 +752,56 @@
     } catch { return true; }
   }
 
-  const DIARIAS = [QUIEN, POKEATHLON, MUELLE, CARRERAS, BUCEO, TREN, SAFARI, VIAJE, CANTERA, ALBUM, TRETA];
+  /* ══════════ Paradas que juega otro script (Huerto, Valle, Salón) ══════════
+   * Aquí solo se pulsa el botón de su panel y se espera a que termine. Solo en la ruta; si el script no está
+   * instalado se dice y se salta. */
+  function parada({ id, nombre, dir, boton, enMarcha, antes, alAcabar, maxMs }) {
+    return {
+      id, nombre, soloRuta: true, sinPanel: true, maxMs,
+      detecta: () => ruta() === dir && document.querySelector('main'),
+      desde: 0, pulsado: 0, falta: false,
+      listo() {
+        const fin = this.pulsado > 0 && Date.now() - this.pulsado > 2500 && !enMarcha();
+        if (fin && alAcabar && !this.acabado) { this.acabado = true; alAcabar(); }
+        return fin || this.falta;
+      },
+      async paso() {
+        if (this.pulsado) return enMarcha();
+        const b = boton();
+        if (!b) {
+          if (!this.desde) this.desde = Date.now();
+          else if (Date.now() - this.desde > 12000 && !this.falta) { this.falta = true; log(`⚠ ${nombre}: no veo su script, instálalo para que lo haga solo.`); }
+          return false;
+        }
+        if (b.disabled) return true;                          // ocupado (o aún cargando)
+        if (antes) antes();
+        this.pulsado = Date.now();
+        await pulsar(b, `${nombre}: ¡a ello!`, [2500, 3500]);
+        return true;
+      },
+    };
+  }
+  const HUERTO = parada({
+    id: 'huerto', nombre: '🌱 Huerto', dir: '/huerto',
+    boton: () => document.querySelector('#axh-panel .axh-todo'),
+    enMarcha: () => { const b = document.querySelector('#axh-panel .axh-todo'); return !!b && (b.disabled || /⏳/.test(texto(b))); },
+    // solo Meloc y Latano (para las Botas de Andar), salvo que hayas elegido una de las dos a mano
+    antes: () => { if (!['baya-meloc', 'baya-latano', 'botas'].includes(lsGet('axh-baya', null))) lsPut('axh-baya', 'botas'); },
+  });
+  const VALLE = parada({
+    id: 'valle', nombre: '🌄 Valle Aurora', dir: '/valle',
+    boton: () => document.querySelector('#axv-panel .axv-todo'),
+    enMarcha: () => { const b = document.querySelector('#axv-panel .axv-todo'); return !!b && b.disabled; },
+  });
+  const SALON = parada({
+    id: 'salon', nombre: '🎴 Salón Malvalona (respiros)', dir: '/salon', maxMs: 15 * 60 * 1000,
+    boton: () => document.querySelector('#ax-salon-auto [data-ax="go"]'),
+    enMarcha: () => { const b = document.querySelector('#ax-salon-auto [data-ax="stop"]'); return !!b && !b.hidden; },
+    alAcabar: () => { if (/cupo de energ[ií]a de hoy completo/i.test(texto(document.querySelector('#ax-salon-auto .ax-goal')))) lsPut('axd-salon-hecho', hoy()); },
+    antes: () => { try { localStorage.setItem('ax_salon_mode', 'respiros'); } catch { /* nada */ } const m = document.querySelector('#ax-salon-auto [data-mode="respiros"]'); if (m) m.click(); },
+  });
+
+  const DIARIAS = [QUIEN, POKEATHLON, MUELLE, CARRERAS, BUCEO, TREN, SAFARI, VIAJE, CANTERA, ALBUM, TRETA, HUERTO, VALLE, SALON];
 
   /* ══════════ Ruta: jugar todas las diarias seguidas ══════════
    * Desde el menú se apuntan las diarias de «Para hoy» que aún no están hechas y que el script sabe jugar; se va a
@@ -765,7 +814,10 @@
   // dirección → diaria que la juega
   const RUTAS = { '/siluetas': QUIEN, '/pokeathlon': POKEATHLON, '/pesca': MUELLE, '/carreras': CARRERAS, '/buceo': BUCEO, '/safari': SAFARI, '/cantera': CANTERA, '/album': ALBUM };
   // las que no salen en el menú (o no con su estado): Tren (Teselia) y Casa Treta (Hoenn)
-  const EXTRA = { '/tren': TREN, '/casa': TRETA };
+  const EXTRA = { '/tren': TREN, '/casa': TRETA, '/huerto': HUERTO, '/valle': VALLE, '/salon': SALON };
+  // las que se hacen en casa en cada ruta (las juegan sus scripts): Huerto (Meloc/Latano), Valle («Hacerlo todo») y los
+  // respiros del Salón (una vez al día; si el cupo ya está, su script para solo)
+  const DE_CASA = () => [{ href: '/huerto' }, { href: '/valle' }, ...(lsGet('axd-salon-hecho', '') === hoy() ? [] : [{ href: '/salon' }])];
   // las que no sé jugar (se dicen y se saltan); Jessie y James, Solar y MissingNo no hacen falta
   const NO_SE = {};
   const ruta = () => location.pathname.replace(/\/+$/, '') || '/';
@@ -806,6 +858,7 @@
     const ev = enlaceViaje(), casa = apuntarSafariCasa(menu);
     const s = safarisHoy();
     if (casa) cola.push(...extras(casa));
+    cola.push(...DE_CASA());
     if (casa) {
       const sr0 = lsGet('axd-sin-reserva', {}), sinReserva = Object.keys(sr0).filter(g => Date.now() - sr0[g] < 7 * 864e5);
       const destinos = REGIONES.filter(g => norm(texto(ev)).includes(norm(g)));
@@ -873,7 +926,7 @@
       r.log.push(msg); log(msg); quietoDesde = 0; ssPut(r); siguiente(r); return;
     }
     const cerrada = listo || CERRADA.test(textoMain());
-    const agotada = Date.now() - r.actual.desde > POR_DIARIA_MS;
+    const agotada = Date.now() - r.actual.desde > (d.maxMs || POR_DIARIA_MS);
     if (!r.actual.viaje && ((cerrada && quieto > 1500) || quieto > 12000 || agotada) || (r.actual.viaje && listo && quieto > 800)) {
       const nom = r.actual.viaje ? `🧭 Viaje a ${r.actual.viaje}` : `${d.nombre}${r.actual.region ? ' ' + r.actual.region : ''}`;
       const msg = agotada ? `⚠ ${nom}: se me ha atascado, la dejo.` : cerrada ? `✅ ${nom}${r.actual.viaje ? '' : ': hecha'}.` : `⚠ ${nom}: no veo nada más que hacer (si no está hecha, pásame su HTML).`;

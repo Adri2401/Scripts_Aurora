@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Huerto de Bayas (automático)
 // @namespace    auroradex-huerto
-// @version      1.3.2
+// @version      1.4.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
-// @description  En el Huerto de Bayas: eliges una baya (solo su icono) y con un botón cosecha lo que esté listo, planta esa baya en todo lo vacío y riega todo, con los botones de la propia página.
+// @description  En el Huerto de Bayas: eliges una baya (solo su icono) o 🥾 (solo Meloc y Latano, en la proporción de las Botas de Andar) y con un botón cosecha lo que esté listo, planta en todo lo vacío y riega todo, con los botones de la propia página. «🥾 Ponerme las Botas de Andar» las usa (o las prepara) para el Subsuelo; /huerto?botas=1&volver=… lo hace solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -344,6 +344,72 @@
     const x = $$('button', l).find(b => /cerrar|cancelar|volver|listo|^✕$|^×$/i.test((b.textContent || '').trim() || b.getAttribute('aria-label') || ''));
     if (x) { x.click(); await esperarA(() => !lista(), 3000); await sleep(200); }
   }
+  /* ── 🥾 Modo Botas: solo Meloc y Latano, en la proporción de las Botas de Andar (5 Latano + 3 Meloc) ──
+   * Se planta la que menos pares de botas da contando la bolsa y lo que ya está creciendo. */
+  const BOTAS = 'botas';
+  const RECETA_BOTAS = { 'baya-latano': 5, 'baya-meloc': 3 };
+  function cuentaBotas(e) {
+    const n = { ...RECETA_BOTAS };
+    for (const id of Object.keys(n)) {
+      const cat = e.catalogo.find(c => c.id === id);
+      const creciendo = e.parcelas.filter(p => p.bayaId === id).reduce((x, p) => x + (p.cosecha || (cat && cat.cosecha) || 0), 0);
+      n[id] = (((e.bolsa || {})[id] || 0) + creciendo) / RECETA_BOTAS[id];
+    }
+    return n;
+  }
+  function bayaAPlantar(e) {
+    const sel = lsGet(LS_BAYA, null);
+    if (sel !== BOTAS) return sel ? e.catalogo.find(c => c.id === sel) : null;
+    const n = cuentaBotas(e);
+    const id = n['baya-meloc'] <= n['baya-latano'] ? 'baya-meloc' : 'baya-latano';
+    return e.catalogo.find(c => c.id === id) || e.catalogo.find(c => c.id === (id === 'baya-meloc' ? 'baya-latano' : 'baya-meloc'));
+  }
+
+  /* ── 🥾 Ponerse las Botas de Andar («El puesto»): si no las llevas puestas, usa unas de la bolsa y, si no
+   * tienes, las prepara con las bayas. Guarda hasta cuándo duran (axh-botas-hasta) para el script del Subsuelo. */
+  const LS_BOTAS_HASTA = 'axh-botas-hasta';
+  const pestana = re => $$('main nav button, main nav a').find(b => !b.closest('#axh-panel') && re.test(b.textContent || ''));
+  const cartaBotas = () => $$('main .rounded-card').find(c => { const p = c.querySelector('p'); return p && /botas de andar/i.test(p.textContent || ''); });
+  const quedanMs = t => { const m = String(t || '').match(/quedan\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*min)?/i); return m && (m[1] || m[2]) ? ((+m[1] || 0) * 60 + (+m[2] || 0)) * 6e4 : 0; };
+  const botasQuedan = c => quedanMs(c && c.textContent);
+  async function ponerBotas() {
+    if (!cartaBotas()) { const t = pestana(/puesto/i); if (t) t.click(); await esperarA(cartaBotas, 6000); }
+    const c = cartaBotas();
+    if (!c) { log('⚠ No encuentro las Botas de Andar en «El puesto».'); return false; }
+    const guardar = ms => lsPut(LS_BOTAS_HASTA, Date.now() + ms);
+    let q = botasQuedan(c);
+    if (q > 0) { guardar(q); log(`🥾 Ya llevas las Botas de Andar (quedan ${falta(q)}).`); return true; }
+    const bot = re => { const b = $$('button', cartaBotas() || c).find(x => re.test(x.textContent || '')); return b && !b.disabled ? b : null; };
+    if (!bot(/usar el que tenga/i)) {
+      const prep = bot(/preparar/i);
+      if (!prep) { log('⚠ No tienes Botas de Andar ni bayas para prepararlas (5 Latano + 3 Meloc).'); return false; }
+      prep.click();
+      log('🥾 Preparando unas Botas de Andar…');
+      if (!await esperarA(() => bot(/usar el que tenga/i), 8000)) { log('⚠ No he podido preparar las Botas.'); return false; }
+      await sleep(400);
+    }
+    bot(/usar el que tenga/i).click();
+    q = await esperarA(() => botasQuedan(cartaBotas()), 8000);
+    if (!q) { log('⚠ He usado las Botas pero no veo cuánto duran.'); return false; }
+    guardar(q);
+    log(`🥾 Botas de Andar puestas: ${falta(q)}. El Subsuelo cobra cada 9 pasos.`);
+    kAviso({ tipo: 'exito', app: 'Huerto de Bayas', titulo: 'Botas de Andar puestas', texto: `Durante ${falta(q)} el Subsuelo cobra la energía cada 9 pasos.` });
+    return true;
+  }
+  // /huerto?botas=1[&volver=/subsuelo?explorar=1]: se pone las botas y vuelve (lo usan el Subsuelo y el bot)
+  async function botasDesdeEnlace() {
+    const q = new URLSearchParams(location.search);
+    if (!enHuerto() || !q.has('botas')) return;
+    const volver = q.get('volver');
+    history.replaceState(history.state, '', location.pathname);
+    if (!await esperarA(() => estadoHuerto(), 15000)) return;
+    const ok = await ponerBotas();
+    try { sessionStorage.setItem('axh-botas-resultado', ok ? 'ok' : 'no'); } catch { /* nada */ }
+    console.log('[axh] botas', ok ? 'puestas' : 'no');
+    if (volver && /^\/[\w\-/?=&]*$/.test(volver)) { await sleep(1200); location.assign(volver); }
+    else { const t = pestana(/terreno/i); if (t) t.click(); }
+  }
+
   let desdeMarcha = 0;
   async function hacerTodo() {
     if (enMarcha && Date.now() - desdeMarcha < 90000) return;      // por si alguna vez se quedara colgado
@@ -369,8 +435,8 @@
           log(`🧺 Cosechado (${n}).`);
           e = estadoHuerto() || e; algo = true;
         }
-        // 2) plantar la baya elegida en todo lo vacío
-        const baya = lsGet(LS_BAYA, null), cat = baya && e.catalogo.find(c => c.id === baya);
+        // 2) plantar la baya elegida en todo lo vacío (en modo 🥾, la que más falta para las Botas)
+        const cat = bayaAPlantar(e);
         if (vacias(e).length) {
           if (!cat) log('⚠ Elige arriba qué baya plantar.');
           else if (e.dinero < cat.semilla * vacias(e).length) log(`⚠ No llega el dinero para plantar ${vacias(e).length} ${cat.nombre} (${cat.semilla * vacias(e).length} $).`);
@@ -448,20 +514,24 @@
     const firma = e.catalogo.map(c => c.id).join();
     if (fila.dataset.firma !== firma) {
       fila.dataset.firma = firma;
-      fila.innerHTML = e.catalogo.map(c => `<button type="button" class="axh-baya" data-id="${kEsc(c.id)}" style="--c:${kEsc(c.color)}" title="${kEsc(c.nombre)} · ${c.horas} h · da ${c.cosecha} · semilla ${c.semilla} $" aria-label="${kEsc(c.nombre)}"><img src="/items/${kEsc(c.id)}.png?v=5" alt=""></button>`).join('');
+      fila.innerHTML = `<button type="button" class="axh-baya" data-id="${BOTAS}" style="--c:#B9855A" title="Solo Meloc y Latano: planta la que más falta para las Botas de Andar (5 Latano + 3 Meloc)" aria-label="Meloc y Latano para Botas"><span style="font-size:24px">🥾</span></button>` + e.catalogo.map(c => `<button type="button" class="axh-baya" data-id="${kEsc(c.id)}" style="--c:${kEsc(c.color)}" title="${kEsc(c.nombre)} · ${c.horas} h · da ${c.cosecha} · semilla ${c.semilla} $" aria-label="${kEsc(c.nombre)}"><img src="/items/${kEsc(c.id)}.png?v=5" alt=""></button>`).join('');
       for (const b of $$('.axh-baya', fila)) b.addEventListener('click', () => { lsPut(LS_BAYA, b.dataset.id); pintar(); });
     }
     for (const b of $$('.axh-baya', fila)) b.setAttribute('aria-pressed', String(b.dataset.id === baya));
-    const cat = baya && e.catalogo.find(c => c.id === baya);
+    const cat = bayaAPlantar(e);
     const t = proxima(e), r = proxRiego(e);
     kSet(p.querySelector('.axh-t-listas'), String(listas(e).length));
     kSet(p.querySelector('.axh-t-prox'), listas(e).length ? '¡Ya!' : t ? falta(t - Date.now()) : '–');
     kSet(p.querySelector('.axh-t-riego'), regables(e).length ? `${regables(e).length} ya` : r ? falta(r - Date.now()) : 'hecho');
-    kSet(p.querySelector('.k-sub'), cat ? `Planta ${cat.nombre} · ${cat.horas} h · ${cat.semilla} $ la semilla` : 'Elige qué baya plantar');
+    const nb = baya === BOTAS && cuentaBotas(e);
+    kSet(p.querySelector('.k-sub'), nb ? `🥾 Meloc + Latano · ahora ${cat ? cat.nombre.replace(/^Baya /, '') : '–'} (para ${Math.floor(Math.min(nb['baya-meloc'], nb['baya-latano']))} botas)` : cat ? `Planta ${cat.nombre} · ${cat.horas} h · ${cat.semilla} $ la semilla` : 'Elige qué baya plantar');
     kBadge(p.querySelector('.k-badge'), enMarcha ? 'on' : 'off', enMarcha ? 'HACIENDO' : 'LISTO');
     const b = p.querySelector('.axh-todo');
     b.disabled = enMarcha;
     kSet(b, enMarcha ? '⏳ Haciéndolo…' : '🤖 Cosechar, plantar y regar');
+    const hasta = lsGet(LS_BOTAS_HASTA, 0), bb = p.querySelector('.axh-botas');
+    bb.disabled = enMarcha;
+    kSet(bb, hasta > Date.now() ? `🥾 Botas puestas · ${falta(hasta - Date.now())}` : '🥾 Ponerme las Botas de Andar');
   }
   function montar() {
     let p = document.getElementById('axh-panel');
@@ -484,10 +554,17 @@
           <div class="${K_TILE}"><b class="axh-t-riego tabular-nums">–</b><small>💧 Riego</small></div>
         </div>
         <button type="button" class="axh-todo boton-principal w-full !py-2.5 text-sm">🤖 Cosechar, plantar y regar</button>
+        <button type="button" class="axh-botas boton-suave w-full !py-2 text-xs">🥾 Ponerme las Botas de Andar</button>
         <div class="axh-log ${K_LOG}"></div>`;
       const caja = p.querySelector('.axh-log');
       for (const [ts, t] of registro) { const d = new Date(ts), q = document.createElement('p'); q.textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}  ${t}`; caja.appendChild(q); }
       p.querySelector('.axh-todo').addEventListener('click', e => { e.preventDefault(); hacerTodo(); });
+      p.querySelector('.axh-botas').addEventListener('click', async e => {
+        e.preventDefault();
+        if (enMarcha) return;
+        enMarcha = true; pintar();
+        try { await ponerBotas(); } finally { enMarcha = false; const t = pestana(/terreno/i); if (t) t.click(); }
+      });
     }
     if (p.previousElementSibling !== nav) nav.insertAdjacentElement('afterend', p);
     pintar();
@@ -501,4 +578,5 @@
   }).observe(document.documentElement, { childList: true, subtree: true });
   setInterval(() => { if (enHuerto()) pintar(); }, 30000);
   setTimeout(montar, 1500);
+  setTimeout(botasDesdeEnlace, 1200);
 })();
