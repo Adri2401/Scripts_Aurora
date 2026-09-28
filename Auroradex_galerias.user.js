@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.23.1
+// @version      0.24.0
 // @description  Solo en /castillo. Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y se para con aviso ante un variocolor o legendario para que tires tú la Master Ball.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -210,6 +210,16 @@
     if (cj && cj.tipo === 'escalera' && llegando) entradas.add(pk + '|' + cj.c + ',' + cj.f);
     const memE = memPlanta();
     for (const cel of celdas.values()) if (cel.tipo === 'escalera' && (entradas.has(pk + '|' + cel.c + ',' + cel.f) || (memE && memE.c[cel.c + ',' + cel.f] === 'u'))) { cel.tipo = 'suelo'; cel.entrada = true; }
+    // Lo que diga el propio juego manda (exp.vista.celdas: 'E' es la escalera de bajada, '#' pared): lo recordado o
+    // adivinado por el dibujo puede estar mal (una bajada apuntada como «de subida» hacía que no la viera nunca)
+    const ex = leerExp(), vista = ex && ex.vista;
+    if (vista && Array.isArray(vista.celdas) && vista.celdas.length === maxF + 1 && jugador && vista.yo && vista.yo.x === jugador.c && vista.yo.y === jugador.f) {
+      for (const cel of celdas.values()) {
+        const ch = (vista.celdas[cel.f] || '')[cel.c];
+        if (ch === 'E') { cel.tipo = 'escalera'; cel.entrada = false; cel.pisable = true; }
+        else if (ch === '#' && cel.tipo !== 'niebla') { cel.tipo = 'pared'; cel.pisable = false; }
+      }
+    }
     // Las arenas movedizas se pisan como suelo normal (el botón puede no marcarse como pisable)
     for (const e of entidades) if (e.tipo === 'movediza') { const c = celdas.get(e.c + ',' + e.f); if (c) { c.pisable = true; c.tipo = 'escalera'; c.movediza = true; } }   // lleva a otro piso: cuenta como escalera
     const ocupadas = new Set(entidades.filter(e => e.tipo !== 'objeto' && e.tipo !== 'movediza').map(e => e.c + ',' + e.f));
@@ -220,9 +230,13 @@
 
   // Camino más corto (en pasos) a la casilla que cumpla `esMeta`, por casillas pisables ya visibles
   // `evitar`: casillas con entrenador o remolino; se rodean si hay otra ruta (si no, se pasa por ellas)
+  // Pisar una escalera (o la arena movediza, que también baja) te lleva a la planta siguiente: solo vale como destino,
+  // nunca de paso (el juego tampoco te lleva por encima, y se quedaba pulsando una y otra vez)
+  const bajadasDe = t => new Set([...[...t.celdas.values()].filter(c => c.tipo === 'escalera').map(c => c.c + ',' + c.f), ...t.entidades.filter(e => e.tipo === 'movediza').map(e => e.c + ',' + e.f)]);
   function camino(t, esMeta, evitar = true) {
     if (!t.jugador) return null;
     const ini = t.jugador.c + ',' + t.jugador.f;
+    const bajadas = bajadasDe(t);
     const prev = new Map([[ini, null]]);
     const cola = [ini];
     while (cola.length) {
@@ -239,6 +253,7 @@
         if (prev.has(nk)) continue;
         const n = t.celdas.get(nk);
         if (!n || !(n.pisable || n.tipo === 'escalera')) continue;
+        if (bajadas.has(nk) && !esMeta(n)) continue;
         if (evitar && t.ocupadas && t.ocupadas.has(nk) && n.tipo !== 'escalera' && !esMeta(n)) continue;
         prev.set(nk, k);
         cola.push(nk);
@@ -260,14 +275,20 @@
     if (!t.jugador || !m) return null;
     const ini = t.jugador.c + ',' + t.jugador.f;
     const prev = new Map([[ini, null]]), cola = [ini];
-    const pasa = k => { const cel = t.celdas.get(k); if (cel && cel.tipo !== 'niebla') return cel.pisable || cel.tipo === 'escalera'; return PISABLE_MEM.has(m.c[k]); };
+    const bajadas = bajadasDe(t);
+    const pasa = (k, meta) => {
+      const cel = t.celdas.get(k);
+      if (bajadas.has(k) || (!(cel && cel.tipo !== 'niebla') && (m.c[k] === 'e' || m.c[k] === 'm'))) return meta;
+      if (cel && cel.tipo !== 'niebla') return cel.pisable || cel.tipo === 'escalera';
+      return PISABLE_MEM.has(m.c[k]);
+    };
     while (cola.length) {
       const k = cola.shift();
       const [c, f] = k.split(',').map(Number);
       if (k !== ini && esMeta(c, f)) { const ruta = []; for (let x = k; x; x = prev.get(x)) { const [xc, xf] = x.split(',').map(Number); ruta.push({ c: xc, f: xf }); } return ruta.reverse(); }
       for (const [dc, df] of VECINOS) {
         const nk = (c + dc) + ',' + (f + df);
-        if (prev.has(nk) || !pasa(nk)) continue;
+        if (prev.has(nk) || !pasa(nk, esMeta(c + dc, f + df))) continue;
         if (evitar && t.ocupadas && t.ocupadas.has(nk) && !esMeta(c + dc, f + df)) continue;
         prev.set(nk, k); cola.push(nk);
       }
@@ -911,6 +932,18 @@
   const botonObjeto = re => botonesVisibles().find(b => re.test(norm(b.textContent)) && b.closest('main'));
 
   let usoLuz = { antes: null, n: 0 }, cuerdaUsada = '';
+  // La Cuerda pide dos toques: el primero la arma («¿Salir ya? Toca otra vez») y el segundo te saca
+  async function usarCuerda() {
+    const b1 = botonObjeto(/cuerda/);
+    if (!b1 || b1.disabled) return false;
+    b1.click();
+    await sleep(500);
+    const b2 = botonesVisibles().find(x => !x.disabled && /salir ya\?.*toca otra vez/i.test(x.textContent || ''));
+    if (!b2) return false;
+    b2.click();
+    await sleep(1500);
+    return true;
+  }
   async function gestionarLuz() {
     const luz = leerLuz();
     if (luz == null || luz > umbralLuz()) { usoLuz = { antes: null, n: 0 }; return false; }
@@ -931,12 +964,72 @@
     if (sinAceite && cuerda && !cuerda.disabled && cuerdaUsada !== clave) {
       cuerdaUsada = clave;
       toast(`Sin aceite y ${luz} pasos: uso la cuerda`);
-      msg = `🪢 Sin aceite y quedan ${luz} pasos: uso la Cuerda.`; pintar();
-      cuerda.click();
-      await sleep(800);
+      msg = `🪢 Sin aceite y quedan ${luz} pasos: salgo con la Cuerda.`; pintar();
+      await usarCuerda();
       return true;
     }
     return false;
+  }
+
+  // Ir por una ruta: el juego no lleva andando por encima de nadie (remolino, entrenador…). Si la ruta pasa por uno, se
+  // va hasta la casilla de antes y, al lado ya, se le pisa con la flecha (encuentro o combate, y el paso queda libre).
+  async function irPor(r, t) {
+    for (let i = 1; i < r.length - 1; i++) {
+      if (!t.ocupadas.has(r[i].c + ',' + r[i].f)) continue;
+      if (i === 1) { const ok = await andar(r[1].c - t.jugador.c, r[1].f - t.jugador.f); await pausa(900, 1300); return ok; }
+      return clicCelda(r[i - 1], t);
+    }
+    if (await clicCelda(r[r.length - 1], t)) return true;
+    // el clic no ha movido (pasa, p. ej., justo después de una puerta de runas): un paso con las flechas
+    const n = r[1];
+    if (!n || !t.jugador) return false;
+    await andar(n.c - t.jugador.c, n.f - t.jugador.f);
+    await pausa(500, 800);
+    const t2 = leerTablero();
+    return !t2 || !t2.jugador || t2.jugador.c !== t.jugador.c || t2.jugador.f !== t.jugador.f || plantaActual() !== plantaLeida;
+  }
+
+  /* ── Vida del equipo: dentro no se cura, y si cae entero te sacan a rastras y pierdes la mitad del botín ──
+   * Se lee del estado del juego (exp.equipo: hp/hpMax de cada uno). Con poca vida se deja de buscar pelea (entrenadores
+   * y remolinos que no tapan el paso) y, si queda muy poca, se usa la Cuerda Huida: sales con todo lo que llevas. */
+  function leerExp() {
+    const el = raizTablero() || document.querySelector('main');
+    const k = el && Object.keys(el).find(x => x.startsWith('__reactFiber$'));
+    if (!k) return null;
+    for (const f0 of [el[k], el[k].alternate]) {
+      for (let f = f0, n = 0; f && n < 60; f = f.return, n++) {
+        const e = f.memoizedProps && f.memoizedProps.exp;
+        if (e && Array.isArray(e.equipo)) return e;
+      }
+    }
+    return null;
+  }
+  function vidaEquipo() {
+    const e = leerExp();
+    if (!e || !e.equipo.length) return null;
+    const hp = e.equipo.reduce((a, x) => a + Math.max(0, +x.hp || 0), 0), max = e.equipo.reduce((a, x) => a + (+x.hpMax || 0), 0);
+    const vivos = e.equipo.filter(x => x.hp > 0);
+    return { frac: max ? hp / max : 1, vivos: vivos.length, total: e.equipo.length, mejor: vivos.length ? Math.max(...vivos.map(x => x.hp / (x.hpMax || 1))) : 0 };
+  }
+  // (en la partida de prueba, con un 18% y dos en pie, un salvaje por el camino se los llevó a los dos: mejor salir antes)
+  const VIDA_PRUDENTE = 0.55, VIDA_SALIR = 0.35;
+  // true = ir con cuidado (no buscar pelea)
+  const conCuidado = () => { const v = vidaEquipo(); return !!v && (v.frac < VIDA_PRUDENTE || v.vivos <= 1); };
+  let salidaPedida = '';
+  async function gestionarVida() {
+    const v = vidaEquipo();
+    if (!v || !v.vivos) return false;
+    const peligro = v.frac < VIDA_SALIR || (v.vivos === 1 && v.total > 1);
+    if (!peligro) return false;
+    const cuerda = botonObjeto(/cuerda/), clave = plantaActual();
+    if (!cuerda || cuerda.disabled || salidaPedida === clave) return false;
+    salidaPedida = clave;
+    const t = `Al equipo le queda un ${Math.round(v.frac * 100)}% de vida (${v.vivos} en pie): salgo con la Cuerda Huida para no perder la mitad del botín`;
+    toast(t, 4000, 'aviso'); msg = '🪢 ' + t + '.'; pintar();
+    console.log('[axg]', t);
+    if (!(await usarCuerda())) { console.log('[axg] la cuerda no ha salido'); return false; }
+    explorando = false; msg = '🪢 ' + t + '.';
+    return true;
   }
 
   /* ------------------------------------------------------------------ *
@@ -965,6 +1058,8 @@
   const puertaVisitas = {};                      // planta|puerta → nº de tumbas leídas la última vez que se probó
   const MAX_LAPIDAS = 4;                         // por planta
 
+  // objetivos a los que no hay manera de llegar (el clic no mueve): se dejan en paz en esa planta
+  const inalcanzables = new Set(), intentosIr = {};
   const tumbasVistas = new Set();                // cada tumba se chequea una sola vez (planta|columna,fila)
   let tumbasLeidas = 0;                         // el propio juego apunta las líneas leídas («Lo que has leído esta semana»)
   let contadoresPlanta = { planta: '', remolino: 0, jarron: 0, lapida: 0, puerta: 0, arqueologo: 0 };
@@ -1020,7 +1115,7 @@
     const { e, r, dist } = mejor;
     msg = `Algo tapa el paso (${e.tipo}): pruebo a chocar con ello…`; pintar();
     if (dist === 1) { bloqueadores[clave(e)] = (bloqueadores[clave(e)] || 0) + 1; await andar(e.c - t.jugador.c, e.f - t.jugador.f); await pausa(900, 1300); return true; }
-    if (r.length > 1) { await clicCelda(r[r.length - 1], t); await pausa(700, 1100); return true; }
+    if (r.length > 1) { await irPor(r, t); await pausa(700, 1100); return true; }
     return false;
   }
 
@@ -1038,12 +1133,15 @@
       if (await atenderPantallas()) { sinPantalla = 0; continue; }
       const t = leerTablero();
       if (!t) {                                               // ni tablero ni pantalla conocida: se espera un poco
-        if (++sinPantalla > 60) { msg = 'No reconozco la pantalla. Parado.'; break; }
+        // un combate largo tarda en animarse y hasta el final no sale «Seguir»: mientras se vea uno, se espera más (90 s)
+        const enCombate = /sale al paso|se queda sin fuerzas|no puede continuar|Relevas con|El rival saca/i.test((document.querySelector('main') || document.body).textContent || '');
+        if (++sinPantalla > (enCombate ? 450 : 60)) { msg = 'No reconozco la pantalla. Parado.'; break; }
         await sleep(200);
         continue;
       }
       sinPantalla = 0;
       recordar(t);
+      if (await gestionarVida()) continue;
       if (await gestionarLuz()) continue;
 
       // Objetivos con los que chocar: entrenadores (combate), remolinos (encuentro salvaje) y jarrones (reliquias)
@@ -1055,9 +1153,11 @@
         for (const fase of [0, 1]) {                            // primero todo lo demás (tumbas, arqueólogo…); la puerta, la última
         for (const e of candidatas) {
           if ((fase === 0) === (e.tipo === 'puerta')) continue;
+          if (inalcanzables.has(planta + '|' + e.tipo + '|' + e.c + ',' + e.f)) continue;
+          const cuidado = conCuidado();
           const ok =
-            (combatir && e.tipo === 'entrenador' && !combatidos.has(planta + '|' + e.nombre + '|' + e.c + ',' + e.f)) ||
-            (combatir && e.tipo === 'remolino' && contadoresPlanta.remolino < MAX_REMOLINOS) ||
+            (combatir && e.tipo === 'entrenador' && !cuidado && !combatidos.has(planta + '|' + e.nombre + '|' + e.c + ',' + e.f)) ||
+            (combatir && e.tipo === 'remolino' && !cuidado && contadoresPlanta.remolino < MAX_REMOLINOS) ||
             (recoger && e.tipo === 'jarron' && contadoresPlanta.jarron < MAX_JARRONES) ||
             (recoger && e.tipo === 'lapida' && contadoresPlanta.lapida < MAX_LAPIDAS && !tumbasVistas.has(planta + '|' + e.c + ',' + e.f)) ||
             (recoger && e.tipo === 'arqueologo' && contadoresPlanta.arqueologo < 2) ||
@@ -1104,8 +1204,14 @@
             continue;
           } else if (r.length > 1) {
             msg = TXT[1]; pintar();
-            await clicCelda(r[r.length - 1], t);
+            const antes = t.jugador ? t.jugador.c + ',' + t.jugador.f : '';
+            await irPor(r, t);
             await pausa(700, 1100);
+            const n = leerTablero(), kk = plantaActual() + '|' + e.tipo + '|' + e.c + ',' + e.f;
+            if (n && n.jugador && n.jugador.c + ',' + n.jugador.f === antes) {
+              intentosIr[kk] = (intentosIr[kk] || 0) + 1;
+              if (intentosIr[kk] >= 3) { inalcanzables.add(kk); console.log('[axg] no llego a', kk); }
+            } else intentosIr[kk] = 0;
             continue;
           }
         }
@@ -1125,7 +1231,7 @@
           msg = `Escalera a ${pasos(r)} pasos: voy.`; pintar();
           const dc = esc.c - t.jugador.c, df = esc.f - t.jugador.f;
           if (esc.movediza && Math.abs(dc) + Math.abs(df) === 1) { await andar(dc, df); await pausa(900, 1300); continue; }   // al lado: se pisa con la flecha
-          if (!(await clicCelda(esc, t))) sinCambio++; else sinCambio = 0;
+          if (!(await irPor(r, t))) sinCambio++; else sinCambio = 0;
           if (sinCambio > 2) { escFallo[plantaActual()] = true; sinCambio = 0; msg = 'No llego a la escalera: busco otra ruta.'; }
           continue;
         }
@@ -1146,8 +1252,7 @@
       if ((!meta || meta.length < 2) && (await empujarBloqueador(t))) continue;   // algo tapa el paso hacia la niebla: se prueba a chocar con ello
       if (!meta || meta.length < 2) { msg = 'No queda nada por explorar desde aquí (sin ruta a zonas nuevas). Parado.'; console.log('[axg] parado: sin frontera', t.jugador, t.entidades); break; }
       msg = esperaPuerta ? `🚪 Planta con puerta: busco la puerta… (${pasos(meta)} pasos)` : quedaOscuro ? `🗺️ Explorando todo lo oscuro… (${pasos(meta)} pasos al siguiente hueco)` : `Explorando… (${pasos(meta)} pasos al siguiente hueco)`; pintar();
-      const destino = meta[meta.length - 1];
-      if (!(await clicCelda(destino, t))) { if (++sinCambio > 3) { msg = 'El juego no responde a los clics. Parado.'; break; } } else sinCambio = 0;
+      if (!(await irPor(meta, t))) { if (++sinCambio > 3) { msg = 'El juego no responde a los clics. Parado.'; break; } } else sinCambio = 0;
       await pausa(600, 1000);
     }
     if (msg && msg !== 'Exploración parada.') ultimaParada = msg;
