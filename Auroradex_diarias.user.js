@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.5.1
+// @version      1.6.0
 // @description  Juega solo las diarias. «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -15,7 +15,7 @@
   'use strict';
   // Pokédex nacional (1-1025): nombre en español y, si cambia, el inglés detrás de «/»
   const NOMBRES_DATOS = 'Bulbasaur|Ivysaur|Venusaur|Charmander|Charmeleon|Charizard|Squirtle|Wartortle|Blastoise|Caterpie|Metapod|Butterfree|Weedle|Kakuna|Beedrill|Pidgey|Pidgeotto|Pidgeot|Rattata|Raticate|Spearow|Fearow|Ekans|Arbok|Pikachu|Raichu|Sandshrew|Sandslash|Nidoran♀|Nidorina|Nidoqueen|Nidoran♂|Nidorino|Nidoking|Clefairy|Clefable|Vulpix|Ninetales|Jigglypuff|Wigglytuff|Zubat|Golbat|Oddish|Gloom|Vileplume|Paras|Parasect|Venonat|Venomoth|Diglett|Dugtrio|Meowth|Persian|Psyduck|Golduck|Mankey|Primeape|Growlithe|Arcanine|Poliwag|Poliwhirl|Poliwrath|Abra|Kadabra|Alakazam|Machop|Machoke|Machamp|Bellsprout|Weepinbell|Victreebel|Tentacool|Tentacruel|Geodude|Graveler|Golem|Ponyta|Rapidash|Slowpoke|Slowbro|Magnemite|Magneton|Farfetch’d|Doduo|Dodrio|Seel|Dewgong|Grimer|Muk|Shellder|Cloyster|Gastly|Haunter|Gengar|Onix|Drowzee|Hypno|Krabby|Kingler|Voltorb|Electrode|Exeggcute|Exeggutor|Cubone|Marowak|Hitmonlee|Hitmonchan|Lickitung|Koffing|Weezing|Rhyhorn|Rhydon|Chansey|Tangela|Kangaskhan|Horsea|Seadra|Goldeen|Seaking|Staryu|Starmie|Mr. Mime|Scyther|Jynx|Electabuzz|Magmar|Pinsir|Tauros|Magikarp|Gyarados|Lapras|Ditto|Eevee|Vaporeon|Jolteon|Flareon|Porygon|Omanyte|Omastar|Kabuto|Kabutops|Aerodactyl|Snorlax|Articuno|Zapdos|Moltres|Dratini|Dragonair|Dragonite|Mewtwo|Mew|Chikorita|Bayleef|Meganium|Cyndaquil|Quilava|Typhlosion|Totodile|Croconaw|Feraligatr|Sentret|Furret|Hoothoot|Noctowl|Ledyba|Ledian|Spinarak|Ariados|Crobat|Chinchou|Lanturn|Pichu|Cleffa|Igglybuff|Togepi|Togetic|Natu|Xatu|Mareep|Flaaffy|Ampharos|Bellossom|Marill|Azumarill|Sudowoodo|Politoed|Hoppip|Skiploom|Jumpluff|Aipom|Sunkern|Sunflora|Yanma|Wooper|Quagsire|Espeon|Umbreon|Murkrow|Slowking|Misdreavus|Unown|Wobbuffet|Girafarig|Pineco|Forretress|Dunsparce|Gligar|Steelix|Snubbull|Granbull|Qwilfish|Scizor|Shuckle|Heracross|Sneasel|Teddiursa|Ursaring|Slugma|Magcargo|Swinub|Piloswine|Corsola|Remoraid|Octillery|Delibird|Mantine|Skarmory|Houndour|Houndoom|Kingdra|Phanpy|Donphan|Porygon2|Stantler|Smeargle|Tyrogue|Hitmontop|Smoochum|Elekid|Magby|Miltank|Blissey|Raikou|Entei|Suicune|Larvitar|Pupitar|Tyranitar|Lugia|Ho-Oh|Celebi|Treecko|Grovyle|Sceptile|Torchic|Combusken|Blaziken|Mudkip|Marshtomp|Swampert|Poochyena|Mightyena|Zigzagoon|Linoone|Wurmple|Silcoon|Beautifly|Cascoon|Dustox|Lotad|Lombre|Ludicolo|Seedot|Nuzleaf|Shiftry|Taillow|Swellow|Wingull|Pelipper|Ralts|Kirlia|Gardevoir|Surskit|Masquerain|Shroomish|Breloom|Slakoth|Vigoroth|Slaking|Nincada|Ninjask|Shedinja|Whismur|Loudred|Exploud|Makuhita|Hariyama|Azurill|Nosepass|Skitty|Delcatty|Sableye|Mawile|Aron|Lairon|Aggron|Meditite|Medicham|Electrike|Manectric|Plusle|Minun|Volbeat|Illumise|Roselia|Gulpin|Swalot|Carvanha|Sharpedo|Wailmer|Wailord|Numel|Camerupt|Torkoal|Spoink|Grumpig|Spinda|Trapinch|Vibrava|Flygon|Cacnea|Cacturne|Swablu|Altaria|Zangoose|Seviper|Lunatone|Solrock|Barboach|Whiscash|Corphish|Crawdaunt|Baltoy|Claydol|Lileep|Cradily|Anorith|Armaldo|Feebas|Milotic|Castform|Kecleon|Shuppet|Banette|Duskull|Dusclops|Tropius|Chimecho|Absol|Wynaut|Snorunt|Glalie|Spheal|Sealeo|Walrein|Clamperl|Huntail|Gorebyss|Relicanth|Luvdisc|Bagon|Shelgon|Salamence|Beldum|Metang|Metagross|Regirock|Regice|Registeel|Latias|Latios|Kyogre|Groudon|Rayquaza|Jirachi|Deoxys|Turtwig|Grotle|Torterra|Chimchar|Monferno|Infernape|Piplup|Prinplup|Empoleon|Starly|Staravia|Staraptor|Bidoof|Bibarel|Kricketot|Kricketune|Shinx|Luxio|Luxray|Budew|Roserade|Cranidos|Rampardos|Shieldon|Bastiodon|Burmy|Wormadam|Mothim|Combee|Vespiquen|Pachirisu|Buizel|Floatzel|Cherubi|Cherrim|Shellos|Gastrodon|Ambipom|Drifloon|Drifblim|Buneary|Lopunny|Mismagius|Honchkrow|Glameow|Purugly|Chingling|Stunky|Skuntank|Bronzor|Bronzong|Bonsly|Mime Jr.|Happiny|Chatot|Spiritomb|Gible|Gabite|Garchomp|Munchlax|Riolu|Lucario|Hippopotas|Hippowdon|Skorupi|Drapion|Croagunk|Toxicroak|Carnivine|Finneon|Lumineon|Mantyke|Snover|Abomasnow|Weavile|Magnezone|Lickilicky|Rhyperior|Tangrowth|Electivire|Magmortar|Togekiss|Yanmega|Leafeon|Glaceon|Gliscor|Mamoswine|Porygon-Z|Gallade|Probopass|Dusknoir|Froslass|Rotom|Uxie|Mesprit|Azelf|Dialga|Palkia|Heatran|Regigigas|Giratina|Cresselia|Phione|Manaphy|Darkrai|Shaymin|Arceus|Victini|Snivy|Servine|Serperior|Tepig|Pignite|Emboar|Oshawott|Dewott|Samurott|Patrat|Watchog|Lillipup|Herdier|Stoutland|Purrloin|Liepard|Pansage|Simisage|Pansear|Simisear|Panpour|Simipour|Munna|Musharna|Pidove|Tranquill|Unfezant|Blitzle|Zebstrika|Roggenrola|Boldore|Gigalith|Woobat|Swoobat|Drilbur|Excadrill|Audino|Timburr|Gurdurr|Conkeldurr|Tympole|Palpitoad|Seismitoad|Throh|Sawk|Sewaddle|Swadloon|Leavanny|Venipede|Whirlipede|Scolipede|Cottonee|Whimsicott|Petilil|Lilligant|Basculin|Sandile|Krokorok|Krookodile|Darumaka|Darmanitan|Maractus|Dwebble|Crustle|Scraggy|Scrafty|Sigilyph|Yamask|Cofagrigus|Tirtouga|Carracosta|Archen|Archeops|Trubbish|Garbodor|Zorua|Zoroark|Minccino|Cinccino|Gothita|Gothorita|Gothitelle|Solosis|Duosion|Reuniclus|Ducklett|Swanna|Vanillite|Vanillish|Vanilluxe|Deerling|Sawsbuck|Emolga|Karrablast|Escavalier|Foongus|Amoonguss|Frillish|Jellicent|Alomomola|Joltik|Galvantula|Ferroseed|Ferrothorn|Klink|Klang|Klinklang|Tynamo|Eelektrik|Eelektross|Elgyem|Beheeyem|Litwick|Lampent|Chandelure|Axew|Fraxure|Haxorus|Cubchoo|Beartic|Cryogonal|Shelmet|Accelgor|Stunfisk|Mienfoo|Mienshao|Druddigon|Golett|Golurk|Pawniard|Bisharp|Bouffalant|Rufflet|Braviary|Vullaby|Mandibuzz|Heatmor|Durant|Deino|Zweilous|Hydreigon|Larvesta|Volcarona|Cobalion|Terrakion|Virizion|Tornadus|Thundurus|Reshiram|Zekrom|Landorus|Kyurem|Keldeo|Meloetta|Genesect|Chespin|Quilladin|Chesnaught|Fennekin|Braixen|Delphox|Froakie|Frogadier|Greninja|Bunnelby|Diggersby|Fletchling|Fletchinder|Talonflame|Scatterbug|Spewpa|Vivillon|Litleo|Pyroar|Flabébé|Floette|Florges|Skiddo|Gogoat|Pancham|Pangoro|Furfrou|Espurr|Meowstic|Honedge|Doublade|Aegislash|Spritzee|Aromatisse|Swirlix|Slurpuff|Inkay|Malamar|Binacle|Barbaracle|Skrelp|Dragalge|Clauncher|Clawitzer|Helioptile|Heliolisk|Tyrunt|Tyrantrum|Amaura|Aurorus|Sylveon|Hawlucha|Dedenne|Carbink|Goomy|Sliggoo|Goodra|Klefki|Phantump|Trevenant|Pumpkaboo|Gourgeist|Bergmite|Avalugg|Noibat|Noivern|Xerneas|Yveltal|Zygarde|Diancie|Hoopa|Volcanion|Rowlet|Dartrix|Decidueye|Litten|Torracat|Incineroar|Popplio|Brionne|Primarina|Pikipek|Trumbeak|Toucannon|Yungoos|Gumshoos|Grubbin|Charjabug|Vikavolt|Crabrawler|Crabominable|Oricorio|Cutiefly|Ribombee|Rockruff|Lycanroc|Wishiwashi|Mareanie|Toxapex|Mudbray|Mudsdale|Dewpider|Araquanid|Fomantis|Lurantis|Morelull|Shiinotic|Salandit|Salazzle|Stufful|Bewear|Bounsweet|Steenee|Tsareena|Comfey|Oranguru|Passimian|Wimpod|Golisopod|Sandygast|Palossand|Pyukumuku|Código Cero/Type: Null|Silvally|Minior|Komala|Turtonator|Togedemaru|Mimikyu|Bruxish|Drampa|Dhelmise|Jangmo-o|Hakamo-o|Kommo-o|Tapu Koko|Tapu Lele|Tapu Bulu|Tapu Fini|Cosmog|Cosmoem|Solgaleo|Lunala|Nihilego|Buzzwole|Pheromosa|Xurkitree|Celesteela|Kartana|Guzzlord|Necrozma|Magearna|Marshadow|Poipole|Naganadel|Stakataka|Blacephalon|Zeraora|Meltan|Melmetal|Grookey|Thwackey|Rillaboom|Scorbunny|Raboot|Cinderace|Sobble|Drizzile|Inteleon|Skwovet|Greedent|Rookidee|Corvisquire|Corviknight|Blipbug|Dottler|Orbeetle|Nickit|Thievul|Gossifleur|Eldegoss|Wooloo|Dubwool|Chewtle|Drednaw|Yamper|Boltund|Rolycoly|Carkol|Coalossal|Applin|Flapple|Appletun|Silicobra|Sandaconda|Cramorant|Arrokuda|Barraskewda|Toxel|Toxtricity|Sizzlipede|Centiskorch|Clobbopus|Grapploct|Sinistea|Polteageist|Hatenna|Hattrem|Hatterene|Impidimp|Morgrem|Grimmsnarl|Obstagoon|Perrserker|Cursola|Sirfetch’d|Mr. Rime|Runerigus|Milcery|Alcremie|Falinks|Pincurchin|Snom|Frosmoth|Stonjourner|Eiscue|Indeedee|Morpeko|Cufant|Copperajah|Dracozolt|Arctozolt|Dracovish|Arctovish|Duraludon|Dreepy|Drakloak|Dragapult|Zacian|Zamazenta|Eternatus|Kubfu|Urshifu|Zarude|Regieleki|Regidrago|Glastrier|Spectrier|Calyrex|Wyrdeer|Kleavor|Ursaluna|Basculegion|Sneasler|Overqwil|Enamorus|Sprigatito|Floragato|Meowscarada|Fuecoco|Crocalor|Skeledirge|Quaxly|Quaxwell|Quaquaval|Lechonk|Oinkologne|Tarountula|Spidops|Nymble|Lokix|Pawmi|Pawmo|Pawmot|Tandemaus|Maushold|Fidough|Dachsbun|Smoliv|Dolliv|Arboliva|Squawkabilly|Nacli|Naclstack|Garganacl|Charcadet|Armarouge|Ceruledge|Tadbulb|Bellibolt|Wattrel|Kilowattrel|Maschiff|Mabosstiff|Shroodle|Grafaiai|Bramblin|Brambleghast|Toedscool|Toedscruel|Klawf|Capsakid|Scovillain|Rellor|Rabsca|Flittle|Espathra|Tinkatink|Tinkatuff|Tinkaton|Wiglett|Wugtrio|Bombirdier|Finizen|Palafin|Varoom|Revavroom|Cyclizar|Orthworm|Glimmet|Glimmora|Greavard|Houndstone|Flamigo|Cetoddle|Cetitan|Veluza|Dondozo|Tatsugiri|Annihilape|Clodsire|Farigiraf|Dudunsparce|Kingambit|Colmilargo/Great Tusk|Colagrito/Scream Tail|Furioseta/Brute Bonnet|Melenaleteo/Flutter Mane|Reptalada/Slither Wing|Pelarena/Sandy Shocks|Ferrodada/Iron Treads|Ferrosaco/Iron Bundle|Ferropalmas/Iron Hands|Ferrocuello/Iron Jugulis|Ferropolilla/Iron Moth|Ferropúas/Iron Thorns|Frigibax|Arctibax|Baxcalibur|Gimmighoul|Gholdengo|Wo-Chien|Chien-Pao|Ting-Lu|Chi-Yu|Bramaluna/Roaring Moon|Ferropaladín/Iron Valiant|Koraidon|Miraidon|Ondulagua/Walking Wake|Ferroverdor/Iron Leaves|Dipplin|Poltchageist|Sinistcha|Okidogi|Munkidori|Fezandipiti|Ogerpon|Archaludon|Hydrapple|Flamariete/Gouging Fire|Electrofuria/Raging Bolt|Ferromole/Iron Boulder|Ferrotesta/Iron Crown|Terapagos|Pecharunt';
-  const VERSION = '1.5.1';
+  const VERSION = '1.6.0';
   const PANEL_ID = 'axd-panel';
   const LS_AUTO = 'axd-auto';
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -200,6 +200,7 @@
     id: 'pokeathlon',
     nombre: '🏟️ Cúpula Pokéathlon',
     detecta: () => $$('main h1').find(h => /pok[eé]athlon/i.test(texto(h))),
+    listo: () => lsGet('axd-pokeathlon', '') === hoy() && !$$('main button').some(b => !ajeno(b) && !b.disabled && /competir/i.test(texto(b))),
     // Cada prueba: su nombre, la cifra del rival y los botones de tus Pokémon con su cifra
     leer() {
       return $$('main section').filter(s => !ajeno(s) && s.querySelector('h2') && s.querySelector('ul button')).map(s => {
@@ -214,6 +215,10 @@
     },
     // El elegido en una prueba es el botón con un aspecto distinto del resto (el juego lo marca)
     marcado(p) {
+      // el juego lo pinta de verde (border-hoja / bg-hoja); los usados en otra prueba salen apagados (opacity-40)
+      const verde = p.mios.find(m => /(border|bg)-hoja-/.test(m.boton.className));
+      if (verde) return verde.nombre;
+      if (p.mios.some(m => /opacity-/.test(m.boton.className))) return null;
       const cl = p.mios.map(m => m.boton.className), cuenta = {};
       cl.forEach(c => { cuenta[c] = (cuenta[c] || 0) + 1; });
       const raros = p.mios.filter(m => cuenta[m.boton.className] === 1 && p.mios.length > 2);
@@ -235,6 +240,10 @@
           if (this.marcado(p) === quiero) continue;
           const m = p.mios.find(x => x.nombre === quiero);
           if (!m || m.boton.disabled) continue;
+          // no pulsar dos veces seguidas el mismo: un segundo clic lo quita
+          const k = p.nombre + '|' + quiero;
+          if (this.ultimo && this.ultimo.k === k && Date.now() - this.ultimo.t < 4000) return true;
+          this.ultimo = { k, t: Date.now() };
           await pausa(500, 1000);
           m.boton.click(); otraAccion();
           await pausa(500, 900);
@@ -258,42 +267,20 @@
   };
 
   /* ══════════ DIARIA 3 · El Muelle (pesca) ══════════
-   * Se echa el flotador; un flotador cruza la barra y hay que tirar cuando pasa por la zona verde (mejor, por el centro
-   * blanco). Se localiza solo: el elemento pequeño que se MUEVE (las olas decorativas son anchísimas y no cuentan), y a
-   * su lado la zona verde y, dentro, la blanca. Se sigue fotograma a fotograma y se tira justo al pasar por el centro,
-   * contando con su velocidad (se adelanta medio fotograma). */
-  const centro = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
-  const rgb = el => { const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g); return m ? { r: +m[0], g: +m[1], b: +m[2], a: m[3] == null ? 1 : +m[3] } : null; };
-  const esVerde = el => { const c = rgb(el); return (c && c.a > 0.3 && c.g > c.r + 25 && c.g > c.b - 10) || /(^|\s|-)(hoja|verde|green|emerald|lime|lima)/.test(el.className || ''); };
-  const esBlanco = el => { const c = rgb(el); return !!c && c.a > 0.5 && c.r > 215 && c.g > 215 && c.b > 215; };
+   * Al echar el flotador sale una barra con tres marcas puestas en porcentaje: la zona verde (left/width), el centro
+   * (left/width) y el flotador, que va del 0% al 100% a velocidad fija (su «left» cambia en cada fotograma). Al tirar,
+   * cuenta dónde está el flotador en ese momento: se sigue fotograma a fotograma y se tira cuando cae en el centro del
+   * centro (adelantándose medio fotograma para no pasarse). */
   const frame = () => new Promise(r => requestAnimationFrame(() => r()));
-  function pequenos(raiz) {
-    return $$('*', raiz).filter(el => !ajeno(el)).map(el => ({ el, r: el.getBoundingClientRect() })).filter(x => x.r.width > 2 && x.r.width < 70 && x.r.height > 2 && x.r.height < 70);
-  }
-  // el flotador: lo que se mueve (dos muestras separadas unos fotogramas)
-  async function buscarFlotador(raiz) {
-    const a = pequenos(raiz); for (let i = 0; i < 4; i++) await frame();
-    let mejor = null;
-    for (const x of a) {
-      if (!document.contains(x.el)) continue;
-      const r2 = x.el.getBoundingClientRect(), dx = Math.abs(centro(r2).x - centro(x.r).x), dy = Math.abs(centro(r2).y - centro(x.r).y);
-      const d = Math.max(dx, dy);
-      if (d > 0.8 && (!mejor || d > mejor.d)) mejor = { el: x.el, d, eje: dx >= dy ? 'x' : 'y' };
-    }
-    return mejor;
-  }
-  // la diana: dentro del contenedor del flotador, la zona verde y, si hay, la blanca de dentro
-  function buscarDiana(flot) {
-    let cont = flot.el.parentElement;
-    for (let n = 0; n < 4 && cont; n++, cont = cont.parentElement) {
-      const hijos = $$('*', cont).filter(el => el !== flot.el && !el.contains(flot.el) && !flot.el.contains(el));
-      const verdes = hijos.filter(esVerde).map(el => ({ el, r: el.getBoundingClientRect() })).filter(x => x.r.width > 3 && x.r.height > 3);
-      if (!verdes.length) continue;
-      const v = verdes.sort((a, b) => (a.r.width * a.r.height) - (b.r.width * b.r.height))[verdes.length - 1];
-      const blancos = hijos.filter(esBlanco).map(el => ({ el, r: el.getBoundingClientRect() }))
-        .filter(x => x.r.width < v.r.width && x.r.left >= v.r.left - 1 && x.r.right <= v.r.right + 1 && x.r.width > 1);
-      const w = blancos.sort((a, b) => a.r.width - b.r.width)[0];
-      return { verde: v.el, blanco: w && w.el };
+  const pct = (el, prop) => { const v = el && el.style[prop]; return v && /%$/.test(v) ? parseFloat(v) : null; };
+  function barraMuelle(tira) {
+    // las tres marcas: spans con «left» en % dentro de la barra que va justo antes del botón ¡TIRA!
+    let raiz = tira.parentElement;
+    for (let n = 0; n < 3 && raiz; n++, raiz = raiz.parentElement) {
+      const marcas = $$('span', raiz).filter(x => pct(x, 'left') != null);
+      const zonas = marcas.filter(x => pct(x, 'width') != null).sort((a, b) => pct(b, 'width') - pct(a, 'width'));
+      const flot = marcas.find(x => pct(x, 'width') == null);
+      if (zonas.length && flot) return { verde: zonas[0], centro: zonas[1] || zonas[0], flot };
     }
     return null;
   }
@@ -301,49 +288,39 @@
     id: 'muelle',
     nombre: '🎣 El Muelle',
     detecta: () => $$('main h1').find(h => /el muelle/i.test(texto(h))),
-    botonAccion: () => $$('main section button').find(b => !ajeno(b) && !b.disabled && visible(b) && !/^(siguiente|continuar|seguir|vale|recoger|cerrar)$/i.test(texto(b))),
-    fallos: 0,
     async paso() {
-      const bt = this.botonAccion();
-      if (!bt) return pulsarSeguir();
-      const raiz = bt.closest('section') || document.querySelector('main');
-      const flot = await buscarFlotador(raiz);
-      if (!flot) {
-        // sin nada moviéndose: toca echar el flotador (o seguir)
-        if (/echar|lanzar|flotador|pescar/i.test(texto(bt))) {
-          await pausa(700, 1300);
-          if (!document.contains(bt) || bt.disabled) return true;
-          log(`🎣 ${texto(bt)}`); bt.click(); otraAccion(); this.esperando = Date.now();
-          await pausa(400, 700);
-          return true;
+      // el cartel del resultado (Clavado / Ha picado / Se escapó): tocar para seguir
+      const cartel = $$('button').find(b => !ajeno(b) && visible(b) && /toca para seguir$/i.test(texto(b)));
+      if (cartel) return pulsar(cartel, `🐟 ${texto(cartel).replace(/toca para seguir$/i, '').trim().slice(0, 90)}`, [800, 1300]);
+      const tira = $$('main button').find(b => !ajeno(b) && !b.disabled && visible(b) && /^¡?tira!?$/i.test(texto(b)));
+      if (tira) {
+        const m = barraMuelle(tira);
+        if (!m) { log('⚠ Veo «¡TIRA!» pero no la barra. Pulsa «📋 Copiar HTML» y pásamelo.'); return false; }
+        const meta = pct(m.centro, 'left') + pct(m.centro, 'width') / 2;
+        let antes = pct(m.flot, 'left'), v = 0;
+        const t0 = performance.now();
+        while (performance.now() - t0 < 20000) {
+          await frame();
+          if (!document.contains(m.flot) || tira.disabled) return true;
+          const x = pct(m.flot, 'left');
+          if (x == null) continue;
+          if (x > antes) v = x - antes;
+          antes = x;
+          if (v > 0 && x + v / 2 >= meta) {
+            tira.click(); otraAccion();
+            log(`🎯 ¡Tira! en el ${x.toFixed(1)}% (centro en el ${meta.toFixed(1)}%, verde ${pct(m.verde, 'left')}–${(pct(m.verde, 'left') + pct(m.verde, 'width')).toFixed(0)})`);
+            await pausa(1500, 2200);
+            return true;
+          }
         }
-        if (this.esperando && Date.now() - this.esperando > 6000) { this.esperando = 0; log('⚠ No encuentro el flotador moviéndose. Pulsa «📋 Copiar HTML» con la barra en pantalla y pásamelo.'); }
-        return pulsarSeguir();
+        return false;
       }
-      const diana = buscarDiana(flot);
-      if (!diana) { if (++this.fallos % 20 === 1) log('⚠ Veo el flotador pero no la zona verde. Pulsa «📋 Copiar HTML» y pásamelo.'); return false; }
-      this.esperando = 0;
-      // seguirlo fotograma a fotograma y tirar al pasar por el centro
-      const eje = flot.eje, pos = () => centro(flot.el.getBoundingClientRect())[eje];
-      const meta = () => centro((diana.blanco || diana.verde).getBoundingClientRect())[eje];
-      let antes = pos(), dAntes = meta() - antes; const t0 = performance.now();
-      while (performance.now() - t0 < 6000) {
-        await frame();
-        if (!document.contains(flot.el)) return true;
-        const ahora = pos(), v = ahora - antes, d = meta() - ahora; antes = ahora;
-        // tira si el centro cae dentro del próximo medio paso (así se clava en vez de pasarse), o si se lo acaba de saltar
-        const cruza = Math.sign(d) !== Math.sign(dAntes) && d !== 0; dAntes = d;
-        if (v !== 0 && (Math.abs(d) <= Math.abs(v) * 0.5 || cruza)) {
-          const boton = $$('button', raiz).find(b => !ajeno(b) && !b.disabled && visible(b)) || bt;
-          boton.click(); otraAccion();
-          log(`🎯 ¡Tiro! a ${Math.abs(d).toFixed(1)} px del centro ${diana.blanco ? 'blanco' : 'verde'}`);
-          await pausa(1500, 2200);
-          return true;
-        }
-      }
-      return false;
+      const echar = $$('main button').find(b => !ajeno(b) && !b.disabled && visible(b) && /echar el flotador/i.test(texto(b)));
+      if (echar) return pulsar(echar, '🎣 Echar el flotador', [150, 300]);
+      return pulsarSeguir();
     },
   };
+
 
   const principal = () => $$('main button.boton-principal').find(b => !ajeno(b) && !b.disabled && visible(b));
   // innerText (no textContent): separa los bloques, que si no se pegan («Hoy0Hoy se corre en…»)
@@ -457,7 +434,7 @@
       if (zonas.length >= 2) {
         const pref = lsGet('axd-buceo-zona', 'grieta');
         const b = zonas.find(x => ZONAS[pref].test(texto(x))) || zonas[0];
-        return pulsar(b, `🤿 Bajo a ${texto(b).split(/[·(\d]/)[0].trim()}`, [1800, 2600]);
+        return pulsar(b, `🤿 Bajo a ${(texto(b).match(/(el bosque de algas|la arena del fondo|la grieta|algas|arena|grieta)/i) || [texto(b).slice(0, 20)])[0]}`, [1800, 2600]);
       }
       const bt = principal();
       if (bt && /baj|bucea|sumerg|inmers|bombona|empez|entrar|800/i.test(texto(bt)) && lsGet('axd-buceo', '') !== hoy()) {
@@ -503,7 +480,8 @@
       const h = $$('main h1')[0], antes = h && h.previousElementSibling;
       return regionDe(texto(antes) || texto(h && h.parentElement).slice(0, 40));
     },
-    cerrada: () => /visita de hoy|abre otra vez mañana/i.test(textoMain()),
+    // «Ya has hecho tu visita de hoy…» (ojo: dentro pone «Al salir se acaba la visita de hoy», que no es lo mismo)
+    cerrada: () => /has hecho tu visita de hoy|abre otra vez mañana/i.test(textoMain()),
     otraRegion(g) { const r = this.region(); return !!r && r !== g; },
     apuntar() {
       const reg = this.region();
@@ -515,7 +493,7 @@
       if (!g || g === this.region()) this.apuntar();
       return true;
     },
-    desde: 0, arrancado: false,
+    desde: 0, arrancado: false, arranques: 0,
     async paso() {
       if (this.cerrada()) return false;
       const p = document.getElementById('ax-safari-auto');
@@ -530,13 +508,18 @@
       const parar = p.querySelector('[data-ax="stop"]');
       if (parar && !parar.hidden) return true;               // Safari Auto está jugando
       if (this.arrancado) this.apuntar();                    // ha terminado
-      const fin = $$('main button').find(b => !ajeno(b) && !b.closest('#ax-safari-auto') && !b.disabled && visible(b) && /se acab/i.test(texto(b)));
+      const juego = re => $$('main button').find(b => !ajeno(b) && !b.closest('#ax-safari-auto') && !b.disabled && visible(b) && re.test(texto(b)));
+      const fin = juego(/se acab/i);
       if (fin) return pulsar(fin, `🌾 ${texto(fin)}`);
+      const andar = juego(/^andar/i), salir = juego(/^salir de/i);
       const smart = p.querySelector('[data-ax="smart"]');
-      if (smart && !smart.disabled && !this.arrancado) {
-        this.arrancado = true;
-        return pulsar(smart, `🌾 ${this.region() || 'Safari'}: Safari Auto en modo estrategia.`, [2000, 3000]);
+      // arrancar Safari Auto (y volver a arrancarlo si se para con pasos por andar, hasta 3 veces)
+      if (smart && !smart.disabled && (!this.arrancado || (andar && this.arranques < 3))) {
+        this.arrancado = true; this.arranques = (this.arranques || 0) + 1;
+        return pulsar(smart, `🌾 ${this.region() || 'Safari'}: Safari Auto en modo estrategia${this.arranques > 1 ? ' (otra vez)' : ''}.`, [2000, 3000]);
       }
+      // sin pasos (o Safari Auto no sigue): salir, que es lo que cierra la visita de hoy
+      if (salir && this.arrancado && (!andar || this.arranques >= 3)) return pulsar(salir, `🌾 ${texto(salir)}`, [2000, 3000]);
       return pulsarSeguir();
     },
   };
@@ -786,7 +769,7 @@
   // las que no sé jugar (se dicen y se saltan); Jessie y James, Solar y MissingNo no hacen falta
   const NO_SE = {};
   const ruta = () => location.pathname.replace(/\/+$/, '') || '/';
-  const CERRADA = /🔒|vag[oó]n est[aá] vac[ií]o|vuelve mañana|por hoy (ya|se)|mañana (hay|pican|más|pican)|se acab[oó] el programa|cierra el puesto|visita de hoy|te espera mañana|se vino abajo/i;
+  const CERRADA = /🔒|vag[oó]n est[aá] vac[ií]o|vuelve mañana|por hoy (ya|se)|mañana (hay|pican|más|pican)|se acab[oó] el programa|cierra el puesto|has hecho tu visita de hoy|te espera mañana|se vino abajo/i;
   const POR_DIARIA_MS = 8 * 60 * 1000;          // por si una se atasca (el Safari es lo más largo)
   function leerMenu() {
     // Las diarias son enlaces del menú; las hechas van dentro del desplegable «hechos hoy» (y su pastilla lo dice)
