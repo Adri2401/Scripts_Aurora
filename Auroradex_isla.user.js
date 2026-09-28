@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.0.0
+// @version      2.1.0
 // @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura las que no tienes (y los variocolor), deja ir los repetidos, ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -588,6 +588,19 @@
     const x = botonesZona(est).find(o => o.b === b);
     if (x) ssPut(SS_ZONA, x.z.id);
   }, true);
+  // la zona de donde viene: la última que se exploró en esta pestaña; si no se sabe y solo hay una abierta, esa
+  function zonaDelEncuentro(est) {
+    const z = ssGet(SS_ZONA);
+    if (z && est.zonas.some(x => x.id === z)) return z;
+    const abiertas = est.zonas.filter(x => x.abierta);
+    return abiertas.length === 1 ? abiertas[0].id : (z || '?');
+  }
+  // al pulsar «Capturar» o «Dejarlo ir» (tú o el modo automático) se apunta antes de que desaparezca
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('button');
+    if (!b || !enIsla() || !/^\s*(Capturar|Dejarlo ir)\s*$/.test(b.textContent || '')) return;
+    const est = estadoIsla(); if (est && est.encuentro) apuntarEncuentro(est);
+  }, true);
   let ultimoEnc = '';
   function apuntarEncuentro(est) {
     const en = est.encuentro;
@@ -595,8 +608,8 @@
     const firma = [en.nombre, en.nivel, en.esShiny, est.exploraciones].join('|');
     if (firma === ultimoEnc) return;
     ultimoEnc = firma;
-    const zona = ssGet(SS_ZONA) || '?';
     const fz = fauna(est);
+    const zona = zonaDelEncuentro(est);
     const zz = fz.zonas[zona] || (fz.zonas[zona] = {});
     const e = zz[en.nombre] || (zz[en.nombre] = { sprite: en.sprite, n: 0, min: en.nivel, max: en.nivel, tipos: [en.tipo1, en.tipo2].filter(Boolean), prob: en.probabilidad });
     e.n++; e.min = Math.min(e.min, en.nivel); e.max = Math.max(e.max, en.nivel); e.prob = en.probabilidad; e.sprite = e.sprite || en.sprite;
@@ -607,7 +620,7 @@
     guardarFauna(est, fz);
   }
   function apuntarResultado(est, gano) {
-    const zona = ssGet(SS_ZONA) || '?';
+    const zona = zonaDelEncuentro(est);
     const fz = fauna(est);
     const st = fz.stats[zona] || (fz.stats[zona] = { g: 0, p: 0 });
     if (gano) st.g++; else st.p++;
@@ -754,8 +767,12 @@
       const chips = vistos.map(([n, e]) => `<span title="${esc(n)} · Nv.${e.min}${e.max !== e.min ? '–' + e.max : ''} · salió ${e.n} ${e.n === 1 ? 'vez' : 'veces'} · ${e.prob}%" style="display:inline-flex;align-items:center;gap:2px;padding:1px 6px 1px 1px;margin:1px;border-radius:999px;font-size:10px;font-weight:800;background:${tengoNombre(est, n) ? 'rgb(var(--hoja-50))' : 'rgb(var(--lienzo))'};border:2px solid ${tengoNombre(est, n) ? 'rgb(var(--hoja-200))' : 'rgb(var(--crema-200))'}"><img src="${esc(e.sprite)}" alt="" style="width:22px;height:22px;image-rendering:pixelated">${esc(n)}${e.shiny ? ' ✨' : ''}${tengoNombre(est, n) ? ' ✔' : ''}</span>`).join('');
       return cab + (z.abierta ? `<div>${chips || '<span class="text-[10px] text-tinta-400">Aún no has explorado aquí.</span>'}</div>` : '');
     }).join('');
+    // las que ya tienes en la isla y no están apuntadas en ninguna zona (de antes de que el script las viera)
+    const apuntadas = new Set(Object.values(fz.zonas).flatMap(z => Object.keys(z)));
+    const sinZona = [...new Map([...est.equipo, ...est.caja].map(p => [p.nombre, p])).values()].filter(p => !apuntadas.has(p.nombre));
+    const htmlSin = sinZona.length ? `<p class="text-[11px] font-extrabold text-tinta-600">✔ Ya las tienes (sin zona apuntada) · ${sinZona.length}</p><div>${sinZona.map(p => `<span style="display:inline-flex;align-items:center;gap:2px;padding:1px 6px 1px 1px;margin:1px;border-radius:999px;font-size:10px;font-weight:800;background:rgb(var(--hoja-50));border:2px solid rgb(var(--hoja-200))"><img src="${esc(p.sprite)}" alt="" style="width:22px;height:22px;image-rendering:pixelated">${esc(p.nombre)}${p.esShiny ? ' ✨' : ''}</span>`).join('')}</div>` : '';
     const fa = c.querySelector('.axi-fauna');
-    if (fa.dataset.h !== html) { fa.dataset.h = html; fa.innerHTML = html; }
+    if (fa.dataset.h !== html + htmlSin) { fa.dataset.h = html + htmlSin; fa.innerHTML = html + htmlSin; }
   }
   // /isla?auto=1: empieza solo (lo usa el bot)
   function autoDesdeEnlace() {
@@ -769,7 +786,11 @@
   window.__axIsla = { estadoIsla, fauna, zonaElegida, analizar };
 
   let prog = null;
-  function programar() { clearTimeout(prog); prog = setTimeout(() => { try { pintar(); } catch (e) { console.warn('[axi]', e); } }, 300); }
+  function programar() {
+    // lo que sale se apunta en cuanto aparece (sin esperar al repaso de cada 1,5 s: si capturabas rápido, se perdía)
+    try { const est = enIsla() && estadoIsla(); if (est && est.encuentro) apuntarEncuentro(est); } catch { /* nada */ }
+    clearTimeout(prog); prog = setTimeout(() => { try { pintar(); } catch (e) { console.warn('[axi]', e); } }, 300);
+  }
   new MutationObserver(muts => {
     if (!enIsla() && !document.getElementById('axi-panel')) return;
     if (muts.every(m => (m.target.nodeType === 1 && m.target.closest && m.target.closest('#axi-auto')) || [...m.addedNodes].every(n => n.nodeType === 1 && (n.id === 'axi-panel' || n.id === 'axi-auto' || (n.classList && n.classList.contains('axi-marca')))))) return;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Valle Aurora (todo en un botón)
 // @namespace    auroradex-valle
-// @version      1.1.1
+// @version      1.2.0
 // @description  Solo en /valle. Un botón que lo hace todo de la forma más rentable: recoge (con Tónico cuando compensa y con el almacén a la mitad o más, que es lo que cuenta en la Feria), cobra los encargos, coloca a los mejores (y reorganiza cuando cambia el tipo en racha) y gasta el Brillo en lo que más producción da por cada Brillo (edificios, con sus hitos ×2 y huecos nuevos, Monumento y residentes). Opcional: Horas extra y repetirlo solo cada 30 min.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -392,7 +392,7 @@
    *  HACER TODO
    * ------------------------------------------------------------------ */
   const LS_OPC = 'axv-opciones', LS_RACHA = 'axv-racha';
-  const opc = Object.assign({ tonico: true, mitad: true, reorganizar: true, horasExtra: false, repetir: false }, lsGet(LS_OPC, {}));
+  const opc = Object.assign({ tonico: true, mitad: true, reorganizar: true, horasExtra: false, repetir: false, expedicion: true }, lsGet(LS_OPC, {}));
   let enMarcha = false, repetirT = null;
   const log = t => kLog(document.querySelector('#axv-panel .axv-log'), t);
   let hecho = false;
@@ -459,7 +459,9 @@
         compras++;
         log(`⬆️ ${op.nombre} · ✦ ${fmt(op.coste)} → +${fmt(op.d)}/h (se paga en ${Math.max(1, Math.round(op.coste / Math.max(op.d, 1)))} h)`);
       }
-      // encargos que se hayan cumplido comprando
+      // 6) La expedición gratis del día (con los tres más fuertes de la caja)
+      if (opc.expedicion) { try { await expedicionGratis(); } catch (e) { console.warn('[axv expedición]', e); log('⚠️ Expedición: ' + (e && e.message)); } }
+      // encargos que se hayan cumplido comprando (o con la expedición)
       for (let i = 0; i < 5; i++) { const b = bEncargos()[0]; if (!b) break; await pulsar(b); log('📜 Encargo cobrado.'); }
       x = estadoValle() || x;
       const sig = opciones(x)[0];
@@ -473,6 +475,62 @@
     } finally {
       enMarcha = false; pintarBoton();
     }
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  EXPEDICIÓN GRATIS: solo si hoy queda alguna gratis (nunca gasta energía). Elige a los tres primeros de la lista
+   *  del juego (legendarios, variocolor y más nivel primero: cuanto más fuerte, mejor botín y más suerte), sale y en
+   *  cada tramo coge camino: con un equipo fuerte, el arriesgado; si no, el seguro. Luego vuelve a la pestaña del Valle.
+   * ------------------------------------------------------------------ */
+  const pestana = re => $$('main button').find(b => !b.closest('#axv-panel') && re.test(texto(b)) && texto(b).length < 30);
+  const seccionExp = () => $$('main section').find(sc => /Tramo \d+ de \d+|Más allá del valle/i.test(texto(sc)));
+  async function expedicionGratis() {
+    const tab = pestana(/Expedici[oó]n/);
+    if (!tab) return;
+    tab.click();
+    for (let i = 0; i < 20 && !seccionExp(); i++) await espera(250);
+    let sc = seccionExp();
+    if (!sc) { log('⚠️ No veo las expediciones.'); return volverValle(); }
+    // sin expedición en marcha: ¿queda alguna gratis hoy?
+    if (!/Tramo \d+ de \d+/.test(texto(sc))) {
+      const m = texto(sc).match(/Gratis \((\d+) hoy\)/i);
+      if (!m || +m[1] < 1) { log('🧭 Hoy ya no quedan expediciones gratis.'); return volverValle(); }
+      // (la lista de la caja va en otra tarjeta, debajo: se busca en toda la página)
+      const caja = () => $$('main button').filter(b => !b.closest('#axv-panel') && /Nv\s*\d+/.test(texto(b)) && !b.disabled);
+      for (let i = 0; i < 20 && caja().length < 3; i++) await espera(250);      // la lista tarda un poco más en salir
+      const cands = caja().slice(0, 3);
+      if (cands.length < 3) { log('⚠️ Expedición: no encuentro a tres de la caja.'); return volverValle(); }
+      for (const b of cands) { b.click(); await espera(250); }
+      const salir = $$('main button').find(b => /Salir de expedici/i.test(texto(b)));
+      if (!salir || salir.disabled || /⚡/.test(texto(salir))) { log('⚠️ Expedición: el botón de salir no es gratis; no salgo.'); return volverValle(); }
+      await pulsar(salir);
+      log(`🧭 De expedición con ${cands.map(b => texto(b).replace(/\s*Nv.*$/, '').replace(/^✨/, '')).join(', ')}.`);
+      for (let i = 0; i < 20 && !/Tramo \d+ de \d+/.test(texto(seccionExp() || document.body)); i++) await espera(250);
+    }
+    // tramos: el camino arriesgado si el equipo es fuerte (poder ≥ 3); si no, el seguro
+    for (let paso = 0; paso < 8; paso++) {
+      sc = seccionExp();
+      if (!sc || !/Tramo \d+ de \d+/.test(texto(sc))) break;
+      const poder = parseFloat(((texto(sc).match(/Poder\s*([\d,.]+)/) || [])[1] || '0').replace(',', '.'));
+      const opciones = $$('main ol li button').filter(b => !b.disabled && !b.closest('#axv-panel'));
+      if (!opciones.length) break;
+      const riesgo = b => /arriesg|peligr|riesgo|a lo loco|jug[aá]rsela/i.test(texto(b)) ? 1 : /segur|tranquil|sin riesgo|calma/i.test(texto(b)) ? -1 : 0;
+      const orden = [...opciones].sort((a, b) => (poder >= 3 ? riesgo(b) - riesgo(a) : riesgo(a) - riesgo(b)));
+      const elegido = orden[0];
+      console.log('[axv] tramo', { poder, opciones: opciones.map(texto), elegido: texto(elegido) });
+      await pulsar(elegido);
+      log(`🧭 Tramo: ${texto(elegido.querySelector('span:nth-child(2)') || elegido).slice(0, 40)} (poder ${poder.toFixed(1)}).`);
+      await espera(600);
+    }
+    // la vuelta (con el cofre): se cierra el aviso
+    const vuelta = $$('[aria-label="Vuelta de la expedición"]')[0];
+    if (vuelta) { const x = $$('button', vuelta).find(b => /seguir|cerrar|vale|genial|^✕$/i.test(texto(b))) || $$('button', vuelta)[0]; if (x) x.click(); log(`🎁 ${texto(vuelta).slice(0, 80)}`); }
+    return volverValle();
+  }
+  async function volverValle() {
+    await espera(400);
+    const t = pestana(/^🏡\s*Valle$|^Valle$/);
+    if (t) { t.click(); await espera(800); }
   }
 
   /* ------------------------------------------------------------------ *
@@ -525,6 +583,7 @@
         ${casilla('mitad', 'Recoger solo con el almacén a la mitad o más (cuenta para la Feria)')}
         ${casilla('tonico', 'Usar Tónico al recoger si hay')}
         ${casilla('reorganizar', 'Reorganizar trabajadores cuando cambia el tipo en racha')}
+        ${casilla('expedicion', 'La expedición gratis del día (nunca gasta energía)')}
         ${casilla('horasExtra', 'Una tanda de Horas extra al día (gasta energía)')}
         ${casilla('repetir', 'Repetirlo solo cada 30 min mientras tengas el valle abierto')}
       </div>

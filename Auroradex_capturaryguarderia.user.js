@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.14.0
-// @description  Auto-explora y captura; ante shiny/legendario lanza la Master Ball solo y avisa (vibra y notifica). Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
+// @version      2.15.0
+// @description  Auto-explora y captura; ante shiny/legendario lo captura solo con la bola que elijas (Master o Ultra) sin parar la macro y avisa, o para y te avisa. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -53,6 +53,7 @@
     PARENT1_KEY: 'adx_macro_parent1',      // Pokémon 1 de la crianza (por defecto Ditto)
     MODE_KEY: 'adx_macro_nursery_mode',    // off | pair | mystery
     X2_KEY: 'adx_macro_egg_x2',
+    RAROS_KEY: 'adx_macro_raros',          // legendarios y variocolor: 'master' | 'ultra' (sin parar la macro) | 'parar' (que lo captures tú)
     FAST_KEY: 'adx_macro_rapido',          // '1': modo rápido (esperas mínimas entre acciones)            // '1': alguien del equipo lleva la Piedra Cálida (los huevos progresan el doble)
     ENERGY_KEY: 'adx_macro_energy_limit',  // energía máxima a gastar por sesión (vacío = sin límite; 0 = solo lo gratis de la manada)
     DEFAULT_PARENT1: 'Ditto',
@@ -551,6 +552,8 @@
   const LENTO = { EXPLORE_DELAY: CONFIG.EXPLORE_DELAY, ACTION_DELAY: CONFIG.ACTION_DELAY, POLL: CONFIG.POLL, LONG_PAUSE_CHANCE: CONFIG.LONG_PAUSE_CHANCE, ANIM_MAX_MS: CONFIG.ANIM_MAX_MS, NURSERY_GRACE_MS: CONFIG.NURSERY_GRACE_MS, MIN_RETHROW_MS: CONFIG.MIN_RETHROW_MS, THROW_CHECK_MS: CONFIG.THROW_CHECK_MS };
   const RAPIDO = { EXPLORE_DELAY: [30, 90], ACTION_DELAY: [20, 70], POLL: [60, 130], LONG_PAUSE_CHANCE: 0, ANIM_MAX_MS: 1500, NURSERY_GRACE_MS: 1200, MIN_RETHROW_MS: 350, THROW_CHECK_MS: 1200 };
   const rapido = () => lsGet(CONFIG.FAST_KEY, '0') === '1';
+  // Legendarios y variocolor: con qué bola se capturan solos (la macro nunca se para), o parar y avisar
+  const modoRaros = () => { const v = lsGet(CONFIG.RAROS_KEY, CONFIG.AUTO_MASTER ? 'master' : 'parar'); return ['master', 'ultra', 'parar'].includes(v) ? v : 'master'; };
   const aplicarVelocidad = () => Object.assign(CONFIG, rapido() ? RAPIDO : LENTO);
   aplicarVelocidad();
   // En modo rápido, la animación de la Ball (vuela 0,45 s, tres sacudidas de 0,62 s y 0,9 s de final) va 6 veces más
@@ -607,6 +610,15 @@
             <button type="button" class="boton-suave" data-q="7">7</button>
             <button type="button" class="boton-suave" data-q="20">20</button>
             <button type="button" class="boton-suave" data-q="">Toda</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="adx-lbl"><span class="titulo-seccion">✨👑 Legendarios y variocolor</span></div>
+          <div class="adx-seg" role="radiogroup" aria-label="Legendarios y variocolor">
+            <button type="button" data-raro="master" role="radio"><span>🟣</span><span>Master Ball</span></button>
+            <button type="button" data-raro="ultra" role="radio"><span>🟡</span><span>Ultra Ball</span></button>
+            <button type="button" data-raro="parar" role="radio"><span>✋</span><span>Parar y avisar</span></button>
           </div>
         </div>
 
@@ -695,6 +707,7 @@
     for (const b of $$('[data-e]', card)) b.addEventListener('click', () => setEnergy(Math.max(0, (getEnergyLimit() ?? 0) + +b.dataset.e)));
     for (const b of $$('[data-q]', card)) b.addEventListener('click', () => setEnergy(b.dataset.q));
     for (const b of $$('[data-mode]', card)) b.addEventListener('click', () => { lsSet(CONFIG.MODE_KEY, b.dataset.mode); renderUI(); });
+    for (const b of $$('[data-raro]', card)) b.addEventListener('click', () => { lsSet(CONFIG.RAROS_KEY, b.dataset.raro); renderUI(); });
     const rap = $('.adx-fast', card);
     if (rap) rap.addEventListener('click', () => { lsSet(CONFIG.FAST_KEY, rapido() ? '0' : '1'); aplicarVelocidad(); renderUI(); });
     const x2 = $('.adx-x2:not(.adx-fast)', card);
@@ -821,6 +834,12 @@
     for (const b of $$('[data-q]', card)) {
       const on = b.dataset.q === '' ? lim === null : lim === +b.dataset.q;
       b.style.boxShadow = on ? 'inset 0 0 0 2px currentColor' : '';
+    }
+    for (const b of $$('[data-raro]', card)) {
+      const on = b.dataset.raro === modoRaros();
+      const cls = on ? SEG_ON : SEG_OFF;
+      if (b.className !== cls) b.className = cls;
+      b.setAttribute('aria-checked', String(on));
     }
     for (const b of $$('[data-mode]', card)) {
       const on = b.dataset.mode === mode;
@@ -1570,7 +1589,8 @@
   //   resto                        → Poké
   function ballPlan(info) {
     const master = CONFIG.USE_MASTER_BALL ? ['master'] : [];
-    if (info.masterReason) return { prefs: [...master, 'ultra', 'super', 'poke'], why: info.masterReason };
+    // con Ultra elegida: Ultra y, si no quedan, Master (para no perderlo); con Master: Master y, si no quedan, Ultra
+    if (info.masterReason) return { prefs: modoRaros() === 'ultra' ? ['ultra', ...master, 'super', 'poke'] : [...master, 'ultra', 'super', 'poke'], why: info.masterReason };
     if (info.unregistered) {
       const sup = info.pct !== null && info.pct >= CONFIG.SUPER_MIN_PCT;
       return { prefs: [sup ? 'super' : 'ultra', 'poke'], why: `sin registrar (${info.pct !== null ? info.pct + '%' : 'prob. desconocida'})` };
@@ -1660,7 +1680,7 @@
         return true;
       }
       // confirmado: con la Master Ball (y aviso); solo se para si se ha pedido captura a mano
-      if (!CONFIG.AUTO_MASTER) return handleRareEncounter(again);
+      if (modoRaros() === 'parar') return handleRareEncounter(again);
       info2 = again;
     }
     info = info2;
@@ -1688,7 +1708,8 @@
     await pause(run, ...CONFIG.ACTION_DELAY);
     if (!pick.el.isConnected || isDisabled(pick.el)) return true;
 
-    if (++S.encThrows > CONFIG.MAX_THROWS_PER_ENCOUNTER) {
+    // a un legendario o variocolor se le insiste mucho más (con Ultra puede hacer falta más de una) antes de rendirse
+    if (++S.encThrows > CONFIG.MAX_THROWS_PER_ENCOUNTER * (info.masterReason ? 3 : 1)) {
       throw new Fail(`${CONFIG.MAX_THROWS_PER_ENCOUNTER} lanzamientos seguidos sin que cambie la pantalla. Revisa el encuentro a mano.`);
     }
 

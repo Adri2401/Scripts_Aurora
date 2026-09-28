@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.10.0
+// @version      1.11.0
 // @description  Juega solo las diarias. «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -801,7 +801,22 @@
     antes: () => { try { localStorage.setItem('ax_salon_mode', 'respiros'); } catch { /* nada */ } const m = document.querySelector('#ax-salon-auto [data-mode="respiros"]'); if (m) m.click(); },
   });
 
-  const DIARIAS = [QUIEN, POKEATHLON, MUELLE, CARRERAS, BUCEO, TREN, SAFARI, VIAJE, CANTERA, ALBUM, TRETA, HUERTO, VALLE, SALON];
+  /* ══════════ Jessie y James (un plan por semana, 3 capítulos; sin gastar energía) ══════════
+   * Solo cuando hay capítulo: va a la zona que dice la pista (viajar por el mapa es gratis) y les para los pies. Si
+   * ese día no toca, o ya está el plan parado, no hace nada. */
+  const JESSIE = {
+    id: 'jessie', nombre: '🎈 Jessie y James',
+    detecta: () => ruta() === '/jessie-y-james' && document.querySelector('main'),
+    boton() { return $$('main button, div.fixed button').find(b => !ajeno(b) && !b.disabled && visible(b) && /pararles los pies|^ir a |saltar al resultado|^seguir$/i.test(texto(b))); },
+    listo() { return !this.boton() && !/pararles los pies/i.test(textoMain()); },
+    async paso() {
+      const b = this.boton();
+      if (!b) return false;
+      return pulsar(b, /pararles/i.test(texto(b)) ? '🎈 ¡A pararles los pies!' : /^ir a /i.test(texto(b)) ? `🎈 ${texto(b)} (donde dice la pista)` : '', [2000, 3000]);
+    },
+  };
+
+  const DIARIAS = [QUIEN, POKEATHLON, MUELLE, CARRERAS, BUCEO, TREN, SAFARI, VIAJE, CANTERA, ALBUM, TRETA, HUERTO, VALLE, SALON, JESSIE];
 
   /* ══════════ Ruta: jugar todas las diarias seguidas ══════════
    * Desde el menú se apuntan las diarias de «Para hoy» que aún no están hechas y que el script sabe jugar; se va a
@@ -812,7 +827,7 @@
   const ssGet = () => { try { return JSON.parse(sessionStorage.getItem(SS_RUTA) || 'null'); } catch { return null; } };
   const ssPut = r => { try { if (r) sessionStorage.setItem(SS_RUTA, JSON.stringify(r)); else sessionStorage.removeItem(SS_RUTA); } catch { /* nada */ } };
   // dirección → diaria que la juega
-  const RUTAS = { '/siluetas': QUIEN, '/pokeathlon': POKEATHLON, '/pesca': MUELLE, '/carreras': CARRERAS, '/buceo': BUCEO, '/safari': SAFARI, '/cantera': CANTERA, '/album': ALBUM };
+  const RUTAS = { '/jessie-y-james': JESSIE, '/siluetas': QUIEN, '/pokeathlon': POKEATHLON, '/pesca': MUELLE, '/carreras': CARRERAS, '/buceo': BUCEO, '/safari': SAFARI, '/cantera': CANTERA, '/album': ALBUM };
   // las que no salen en el menú (o no con su estado): Tren (Teselia) y Casa Treta (Hoenn)
   const EXTRA = { '/tren': TREN, '/casa': TRETA, '/huerto': HUERTO, '/valle': VALLE, '/salon': SALON };
   // las que se hacen en casa en cada ruta (las juegan sus scripts): Huerto (Meloc/Latano), Valle («Hacerlo todo») y los
@@ -830,7 +845,8 @@
       const href = (a.getAttribute('href') || '').replace(/[?#].*$/, '').replace(/\/+$/, '');
       if (!(RUTAS[href] || NO_SE[href]) || out.some(x => x.href === href)) continue;
       const estado = texto(a.querySelector('.pastilla'));
-      const hecha = !!a.closest('details') || /hecho|parad|cerrad|mañana|tumbad/i.test(estado);
+      const jj = href === '/jessie-y-james' && estado.match(/(\d+)\s*de\s*(\d+)/);   // «3 de 3 esta semana»: plan parado
+      const hecha = !!a.closest('details') || /hecho|parad|cerrad|mañana|tumbad/i.test(estado) || !!(jj && +jj[1] >= +jj[2]);
       const nombre = texto(a.querySelector('.font-extrabold')) || texto(a).replace(estado, '');
       out.push({ href, nombre, estado, hecha, sabe: !!RUTAS[href] });
     }
