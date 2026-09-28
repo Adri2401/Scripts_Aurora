@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.1.0
-// @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura las que no tienes (y los variocolor), deja ir los repetidos, ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
+// @version      2.2.0
+// @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura a todos (también los repetidos), ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_isla.user.js
@@ -629,7 +629,7 @@
 
   /* ------------------------------------------------------------------ *
    *  🤖 ISLA SOLA: elige compañero si hace falta, explora la zona que más especies nuevas promete, captura lo que no
-   *  tienes (y los variocolor), deja ir los repetidos, ordena el equipo para evolucionar a especies nuevas, lucha
+   *  tienes, los variocolor y los repetidos (a todos), ordena el equipo para evolucionar a especies nuevas, lucha
    *  contra el jefe cuando el equipo llega y para cuando se acaba la marea.
    * ------------------------------------------------------------------ */
   const COMPANERO_PREFERIDO = ['Corphish', 'Surskit', 'Swinub'];   // Corphish: Agua (aguanta a Suicune y su escolta) y Crawdaunt pega fuerte
@@ -679,16 +679,18 @@
       // ¿lo capturo?
       if (est.encuentro) {
         apuntarEncuentro(est);
-        const en = est.encuentro, quiero = !en.yaLaTienes || en.esShiny;
+        // se captura siempre (la captura es gratis): también los repetidos
+        const en = est.encuentro, quiero = true;
         const b = botonTexto(quiero ? /^Capturar$/ : /^Dejarlo ir$/);
         if (!b) return;
         await espera(700 + Math.random() * 600);
         b.click();
-        alog(quiero ? `🎯 ${en.nombre}${en.esShiny ? ' ✨' : ''} Nv.${en.nivel}: lo intento (${en.probabilidad}%).` : `👋 ${en.nombre} Nv.${en.nivel}: ya lo tienes, lo dejo ir.`);
+        alog(`🎯 ${en.nombre}${en.esShiny ? ' ✨' : ''} Nv.${en.nivel}${en.yaLaTienes ? ' (repetido)' : ''}: lo intento (${en.probabilidad}%).`);
         if (quiero) reordenar = true;
         await espera(1500);
         const tras = estadoIsla();
-        if (quiero && tras && !tras.encuentro) alog(tengoNombre(tras, en.nombre) ? `✅ ¡${en.nombre} capturado!` : `💨 ${en.nombre} se ha escapado.`);
+        const cuantos = e2 => [...e2.equipo, ...e2.caja].filter(p => p.nombre === en.nombre).length;
+        if (quiero && tras && !tras.encuentro) alog(cuantos(tras) > cuantos(est) ? `✅ ¡${en.nombre} capturado!` : `💨 ${en.nombre} se ha escapado.`);
         return;
       }
       // compañero de la semana
