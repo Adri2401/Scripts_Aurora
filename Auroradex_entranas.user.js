@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.10.1
+// @version      1.11.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Bendiciones: nunca Veterano ni Reclutador, y las Afinidades de un tipo solo si ese tipo es mayoría en el equipo. Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.10.1';
+  const VERSION = '1.11.1';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -1768,6 +1768,16 @@
         else if (P.tipo === 'combate') hecho = await pulsar(P.boton, 'Combate: sigo');
         else if (P.tipo === 'lobby') {
           if (enBajada) { parar('🏁 Bajada terminada.', 'fin'); break; }
+          // siempre desde el piso 1: el juego deja marcado el atajo más hondo, así que se elige «Desde la boca» antes
+          const boca = $$('main button').find(x => !ajeno(x) && visible(x) && /^desde la boca$/i.test(texto(x)));
+          if (boca && !/background:\s*(rgb\(201|#C9D3E3)/i.test(boca.getAttribute('style') || '') && boca.style.background !== 'rgb(201, 211, 227)') {
+            log('⛰️ Elijo empezar desde la boca (piso 1).');
+            hecho = await pulsar(boca, 'Desde la boca');
+            await sleep(400);
+            continue;
+          }
+          // nunca se paga con energía: solo la bajada gratis del día o un Pase del monte
+          if (/⚡|energ/i.test(texto(P.boton)) && !P.gratis && !(P.pases > 0)) { parar('No bajo: costaría energía.'); break; }
           if ((conf.empezarGratis && P.gratis) || (conf.usarPases && P.pases > 0)) { log(`⛰️ Empiezo (${P.gratis ? 'gratis' : 'con un pase'}).`); hecho = await pulsar(P.boton, 'Bajo'); }
           else { parar(P.gratis ? 'Para empezar, dale tú a «Bajar» (o activa «empezar solo»).' : 'Hoy bajar ya no es gratis: no gasto pases si no me lo dices.'); break; }
         } else if (['prestado', 'bendicion', 'puerta', 'reclutar', 'sustituir'].includes(P.tipo)) {
@@ -2050,6 +2060,7 @@
   }
   function htmlDatos() {
     return `<div class="caja"><p><b>⚙️ Cómo juega</b></p><p class="s">Siempre lo más óptimo según el laboratorio (miles de bajadas simuladas con lo aprendido de las tuyas): esquirlas mientras Sangre de la veta no esté al máximo, y mientras quede algo útil que comprar (${modoPrioridad() === 'pisos' ? 'ya lo tienes todo: ahora solo bajar' : modoPrioridad() === 'esquirlas' ? 'ahora, a por esquirlas' : 'ahora, bajar y algo de esquirlas'}), Élite hasta que tu principal (el prestado) esté al Nv.100 y luego tesoros, misterios y descansos, solo reclutas buenos para los biomas, y cada decisión pensada a fondo.</p></div>
+      <div class="caja"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-c="usarPases"${conf.usarPases ? ' checked' : ''}> <b>🎟️ Usar los Pases del monte</b></label><p class="s">Al acabar una bajada, si te quedan pases, empieza otra hasta gastarlos. Nunca paga con energía.</p></div>
       <div class="caja"><p><b>💾 Datos</b></p><p class="s">Diario: <span class="n-diario">…</span> pasos. Todo se queda en este navegador; exporta para pasármelo o para llevarlo a otro.</p>
       <div class="fila" style="margin-top:6px"><button type="button" class="exp" style="flex:1">📤 Exportar</button><button type="button" class="imp" style="flex:1">📥 Importar</button><button type="button" class="cop" style="flex:1">📋 HTML</button></div>
       <div class="fila" style="margin-top:6px"><button type="button" class="reset" style="flex:1">🗑️ Borrar lo aprendido</button></div>
