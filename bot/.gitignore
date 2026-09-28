@@ -1,0 +1,5 @@
+node_modules/
+perfil/
+sesion.txt
+*.log
+ultimo.png

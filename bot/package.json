@@ -1,0 +1,7 @@
+{
+  "name": "aurora-diarias-bot",
+  "private": true,
+  "description": "Juega las diarias de Aurora Dex cada día en un servidor (p. ej. Oracle Cloud Free) con los mismos scripts de Tampermonkey.",
+  "scripts": { "diarias": "node diarias.js" },
+  "dependencies": { "playwright": "^1.47.0" }
+}
