@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.12.0
+// @version      1.13.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Bendiciones: nunca Veterano ni Reclutador, y las Afinidades de un tipo solo si ese tipo es mayoría en el equipo. Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.12.0';
+  const VERSION = '1.13.0';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -1002,9 +1002,9 @@
   const clonar = S => ({ ...S, eq: S.eq.map(x => ({ ...x, raw: x.raw && { ...x.raw }, m: x.m && { ...x.m } })), ef: JSON.parse(JSON.stringify(S.ef)), bend: S.bend.slice() });
   function rngDe(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; s = (s * 16807) % 2147483647; s = (s * 16807) % 2147483647; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
   const vidaMedia = S => S.eq.length ? media(S.eq.map(x => x.vida)) : 0;
-  // Lo que aguanta (PS × defensas) por lo que pega. La velocidad solo decide quién pega primero: cuenta como un
-  // desempate (como mucho +10%), no como antes (hasta ×2, y salían rápidos de cristal que caían en cada guardián)
-  const potencia = x => (x.hp * (x.def + x.esp) / 2) * Math.max(x.atk, x.esp) * (1 + Math.min(x.spe, 600) / 6000) * (x.vida > 0 ? 0.5 + x.vida / 2 : 0.3);
+  // Lo que aguanta (PS × defensas) por lo que pega. La velocidad NO cuenta (prohibida: antes multiplicaba hasta ×2 y
+  // salían rápidos de cristal que caían en cada guardián)
+  const potencia = x => (x.hp * (x.def + x.esp) / 2) * Math.max(x.atk, x.esp) * (x.vida > 0 ? 0.5 + x.vida / 2 : 0.3);
   // Niveles que da cada puerta al ganarla (aprendido; al principio Élite 3, Combate 2, Guardián 3,3)
   const SUBE0 = { elite: 3, combate: 2, guardian: 3.3 };
   const subePuerta = c => { const q = kb.subidaPuerta && kb.subidaPuerta[c]; return q && q.n >= 5 ? q.s / q.n : SUBE0[c] ?? (kb.subida.n ? kb.subida.s / kb.subida.n : 2.5); };
@@ -1053,7 +1053,7 @@
   // · Curar al ganar (Sanguijuela) vale mucho hasta que entre todo cura ~100% por victoria; luego ya no suma.
   // · Subir niveles vale poco (al 100 se llega igual y ahí no hace nada). Botín vale más cuanto más queda por bajar.
   // Ajustes de la estrategia (los que se afinan en el laboratorio: miles de bajadas simuladas con los mismos dados)
-  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0.2, recluta: 0.7, nivelesPeso: 0.5, curarPeleando: 0, pelearLleno: 0, antesGuardian: 0, misterioPrimero: 0, cobertura: 0, cobMin: 0.03, reclutaFalta: 0.5, faltaBloquea: 0, cambioMargen: 0.06, buscarRecluta: 0.8, sinAltarAntes: 0 };
+  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0, recluta: 0.7, nivelesPeso: 0.5, curarPeleando: 0, pelearLleno: 0, antesGuardian: 0, misterioPrimero: 0, cobertura: 0, cobMin: 0.03, reclutaFalta: 0.5, faltaBloquea: 0, cambioMargen: 0.06, buscarRecluta: 0.8, sinAltarAntes: 0 };
   function valorRapidoBend(S, e) {
     if (!e) return 0.01;
     const eq = S.eq, n = Math.max(1, eq.length);
@@ -1079,6 +1079,8 @@
   function vetoBendicion(S, nombre, desc) {
     const e = efectoDe(desc || '') || {};
     if (/^(veterano|reclutador)$/i.test(String(nombre || '').trim()) || e.niveles || e.reclutaNiv) return 'nunca';
+    // velocidad: prohibida (solo te hace pegar primero; lo que te mantiene vivo es aguantar y pegar fuerte)
+    if (/viento a favor/i.test(String(nombre || '')) || (e.stats && Object.keys(e.stats).length && Object.keys(e.stats).every(k => k === 'spe'))) return 'nunca';
     if (e.tipo) {
       const n = S.eq.length, con = S.eq.filter(x => (x.tipos || []).includes(e.tipo)).length;
       if (!(n && con * 2 > n)) return 'tipo';
