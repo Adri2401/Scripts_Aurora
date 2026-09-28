@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.26.1
+// @version      1.27.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1960,6 +1960,78 @@
       if (linea.textContent !== txt) linea.textContent = txt;
     }
   }
+  /* ── Retar solo: elige el reto que más puntos da de media (rivales a la vista o a ciegas, que paga un 50% más) y reta;
+   *    la Torre pide 15 min entre retos, así que espera (con la pestaña abierta) y sigue hasta gastar los del día ── */
+  const SS_AUTO_T = 'axt-torre-auto';
+  const ligaActual = () => new URLSearchParams(location.search).get('liga') || 'clasico';
+  const autoTorre = () => { try { return JSON.parse(sessionStorage.getItem(SS_AUTO_T) || '{}')[ligaActual()] === true; } catch { return false; } };
+  const ponerAutoTorre = v => { try { const o = JSON.parse(sessionStorage.getItem(SS_AUTO_T) || '{}'); o[ligaActual()] = v; sessionStorage.setItem(SS_AUTO_T, JSON.stringify(o)); } catch { /* nada */ } };
+  let autoOcupado = false, autoMsg = '', autoT0 = 0;
+  const PTS_GANAR = 28, PTS_PERDER = 14;              // lo que se ve en el historial (+27/+30 al ganar, −11/−15 al perder)
+  function retosHoy() { const m = ((document.querySelector('main') || {}).innerText || '').match(/RETOS HOY\s*(\d+)/i); return m ? +m[1] : null; }
+  function esperaMin() { const m = ((document.querySelector('main') || {}).innerText || '').match(/Espera\s*(\d+)\s*min/i); return m ? +m[1] : 0; }
+  function cajaAuto() {
+    const ciegas = $$('main button').find(b => /Retar a ciegas/.test(b.textContent || ''));
+    const ancla = ciegas || $$('main p').find(x => /Espera\s*\d+\s*min/i.test(x.textContent || '')) || $$('main button').find(b => /^Mi equipo$/.test((b.textContent || '').trim()));
+    if (!ancla) return;
+    let c = document.getElementById('axt-auto');
+    if (!c) {
+      c = document.createElement('div'); c.id = 'axt-auto'; c.setAttribute('data-ax-ignore', '1'); c.style.cssText = 'margin:8px 0';
+      c.innerHTML = '<button type="button" class="boton-principal w-full !py-2 text-xs"></button><p class="text-[11px] font-bold text-tinta-500" style="margin-top:4px"></p>';
+      c.querySelector('button').addEventListener('click', e => { e.preventDefault(); ponerAutoTorre(!autoTorre()); autoMsg = autoTorre() ? 'Empiezo…' : 'Parado.'; if (autoTorre()) calcularRetar(); pintarAuto(); });
+    }
+    const destino = ancla.closest('section') || ancla.parentElement;
+    if (c.parentElement !== destino.parentElement || c.nextElementSibling !== destino) destino.insertAdjacentElement('beforebegin', c);
+    pintarAuto();
+  }
+  function pintarAuto() {
+    const c = document.getElementById('axt-auto'); if (!c) return;
+    const r = retosHoy(), b = c.querySelector('button'), t = autoTorre() ? '■ Parar los retos solos' : `⚔️ Retar solo al más favorable${r != null ? ` (quedan ${r} hoy)` : ''}`;
+    if (b.textContent !== t) b.textContent = t;
+    const m = c.querySelector('p'); if (m.textContent !== autoMsg) m.textContent = autoMsg;
+  }
+  async function pasoAuto(est) {
+    if (autoOcupado || !autoTorre()) return;
+    autoOcupado = true;
+    try {
+      // el combate sale encima: se salta al resultado y se cierra
+      const saltar = $$('button').find(b => /saltar al resultado/i.test(b.textContent || '') && !b.disabled);
+      if (saltar) { saltar.click(); await new Promise(r => setTimeout(r, 1500)); const x = $$('button').find(b => (b.textContent || '').trim() === '✕'); if (x) x.click(); autoMsg = 'Combate hecho.'; return; }
+      const r = retosHoy();
+      if (r === 0) { ponerAutoTorre(false); autoMsg = '🏁 Hechos los retos de hoy en esta liga.'; kAvisoT('🗼 Retos de la Torre hechos'); return; }
+      const esp = esperaMin();
+      if (esp > 0) {
+        if (!autoT0) autoT0 = Date.now();
+        const falta = Math.max(0, esp * 60000 - (Date.now() - autoT0));
+        autoMsg = `⏳ La Torre pide esperar: ~${Math.ceil(falta / 60000)} min. Deja la pestaña abierta.`;
+        if (Date.now() - autoT0 > Math.min(esp, 16) * 60000 + 20000) location.reload();   // al pasar, se recarga para ver los rivales nuevos
+        return;
+      }
+      autoT0 = 0;
+      if (!memoTorre || !retarPedido) { autoMsg = '🔮 Calculando probabilidades…'; calcularRetar(); return; }
+      if (calculandoRetar) return;
+      // el mejor reto por puntos esperados
+      const guardado = equipoGuardado(est), claveEq = guardado.map(l => l.nombre + l.item + l.hp).join(',');
+      const opciones = [];
+      for (const rv of est.rivales || []) {
+        const p = memoRival.get(rv.userId + '|' + claveEq + '|' + memoTorre.firma);
+        const tarjeta = $$('main div.tarjeta').find(d => { const f = fibraDe(d); return f && String(f.key) === String(rv.userId); });
+        const b = tarjeta && $$(':scope > button', tarjeta).pop();
+        if (p != null && b && !b.disabled) opciones.push({ nombre: rv.nombre || 'rival', p, ev: p * PTS_GANAR - (1 - p) * PTS_PERDER, b });
+      }
+      const ciegas = $$('main button').find(b => /Retar a ciegas/.test(b.textContent || '') && !b.disabled);
+      if (ciegas && memoTorre.notaGuardado) { const p = memoTorre.notaGuardado.g; opciones.push({ nombre: 'a ciegas', p, ev: p * PTS_GANAR * 1.5 - (1 - p) * PTS_PERDER, b: ciegas }); }
+      if (!opciones.length) { autoMsg = 'Esperando a que salgan los rivales…'; return; }
+      opciones.sort((a, b) => b.ev - a.ev);
+      const o = opciones[0];
+      autoMsg = `⚔️ Reto ${o.nombre === 'a ciegas' ? 'a ciegas' : 'a ' + o.nombre} (gano ≈ ${pctT(o.p)}, ${o.ev >= 0 ? '+' : ''}${o.ev.toFixed(0)} pts de media).`;
+      pintarAuto();
+      await new Promise(r => setTimeout(r, 900 + Math.random() * 800));
+      if (autoTorre() && o.b.isConnected) { o.b.click(); memoRival.clear(); retarPedido = false; memoTorre = memoTorre && memoTorre.firma === 'retar' ? null : memoTorre; }
+    } catch (e) { console.warn('[axt torre auto]', e); }
+    finally { autoOcupado = false; pintarAuto(); }
+  }
+  function kAvisoT(t) { try { if (typeof kAviso === 'function') kAviso({ tipo: 'exito', app: 'Torre', titulo: t }); } catch { /* nada */ } }
   function torre() {
     const est = estadoTorre();
     if (!est) return;
@@ -1969,7 +2041,7 @@
     // el cálculo del equipo hace falta también en «Retar» (para el banco de rivales); el panel solo sale en «Mi equipo»
     // nada se calcula solo: el panel de «Mi equipo» y las probabilidades de «Retar» van con su botón
     if ($$('main ul.grid').some(u => u.querySelector(':scope > li > button'))) panelTorre(est);
-    else prediccionesRivales(est);
+    else { prediccionesRivales(est); cajaAuto(); pasoAuto(est); }
   }
 
   /* ------------------------------------------------------------------ *
@@ -2679,6 +2751,8 @@
   // se espera a que la web termine de montarse (tocar el DOM antes provoca errores de hidratación de React)
   calcularCal();
   const arrancar = () => setTimeout(() => { listo = true; programar(); }, 1500);
+  // con «Retar solo» puesto, se repasa cada pocos segundos aunque la página no cambie (espera entre retos)
+  setInterval(() => { if (listo && enTorre() && autoTorre()) programar(); }, 5000);
   if (document.readyState === 'complete') arrancar(); else window.addEventListener('load', arrancar);
 
   window.__axTiers = { analizar, stats, datos, mejoras, calibracion: () => ({ ...CAL, ...infoCal }), estadoTorre, luchadorT, notaEquipo, simulaciones, mejorEquipo, poolTorre, candidatosUnicos, tierTorre, calcularTronoPasos, correrPasos, vistosTorre, leerHistorialFondo };
