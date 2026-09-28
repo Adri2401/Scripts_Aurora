@@ -27,3 +27,15 @@ La sesión vive en `bot/perfil` (no se sube a ningún sitio) y el juego la renue
 y sale: repite el paso 3. Otras variables: `AURORA_LIGAS` (ligas de la Torre, por defecto `clasico`), `AURORA_SCRIPTS`.
 
 Ojo: las normas del juego dicen que automatizar te deja fuera de los premios.
+
+## En tu PC con Windows (sin servidor)
+
+Si el PC admite «Modo de espera (S3)» (`powercfg /a`), Windows lo despierta a su hora, juega y lo deja volver a dormirse.
+
+1. Abre **PowerShell** (no hace falta como administrador) y pega:
+   `irm https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/bot/instalar_windows.ps1 | iex`
+2. Instala Git y Node si faltan, descarga los scripts en `%USERPROFILE%\Scripts_Aurora`, programa las tareas (Programador
+   de tareas > AuroraDex) y te pide la cookie una vez (no se ve al pegarla).
+3. Deja el PC **en suspensión, no apagado**, y con tu usuario iniciado. Mientras juega no deja que se duerma; al acabar, sí.
+
+Mismo horario que en el servidor (hora del PC). Log: `bot\aurora.log`. Aviso por Telegram: `bot\aviso.env`.
