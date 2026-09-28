@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.10.0
+// @version      1.10.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Bendiciones: nunca Veterano ni Reclutador, y las Afinidades de un tipo solo si ese tipo es mayoría en el equipo. Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -13,7 +13,7 @@
 
 (() => {
   'use strict';
-  const VERSION = '1.10.0';
+  const VERSION = '1.10.1';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -1362,15 +1362,18 @@
     const quitadas = ops.filter(o => vetoBendicion(S0, o.nombre, o.desc));
     const permitidas = ops.filter(o => !vetoBendicion(S0, o.nombre, o.desc));
     const puedeTirar = P.reroll && rerollEn !== (P.cab && P.cab.piso);
+    let forzada = false;
     if (permitidas.length) ops = permitidas;
     else if (!puedeTirar) {
+      forzada = true;
       // no hay otra: antes una Afinidad (aunque sea de pocos) que Veterano o Reclutador
       const tipo = ops.filter(o => vetoBendicion(S0, o.nombre, o.desc) === 'tipo');
-      if (tipo.length) ops = tipo;
+      if (tipo.length) ops = tipo; else forzada = 'todas';
     } else ops = [];
     if (puedeTirar) ops.push({ nombre: '🎲 Volver a tirar', reroll: true, azar: true });
     const lista = await valorar(S0, ops, (S, o, rng) => { if (o.reroll) darBendicion(S, rng); else aplicarBendicion(S, o.nombre, o.desc); });
-    const nota = quitadas.length ? ` (descarto ${quitadas.map(o => o.nombre + (vetoBendicion(S0, o.nombre, o.desc) === 'nunca' ? '' : ': su tipo no es mayoría en el equipo')).join(', ')})` : '';
+    const nota = forzada === 'todas' ? ' (no había otra y ya no puedo volver a tirar)' : forzada ? ` (no había otra y ya no puedo volver a tirar: antes ${ops.map(o => o.nombre).join(' o ')} que ${quitadas.filter(o => vetoBendicion(S0, o.nombre, o.desc) === 'nunca').map(o => o.nombre).join(' o ') || 'nada'})`
+      : quitadas.length ? ` (descarto ${quitadas.map(o => o.nombre + (vetoBendicion(S0, o.nombre, o.desc) === 'nunca' ? '' : ': su tipo no es mayoría en el equipo')).join(', ')})` : '';
     for (const o of ops) if (!o.reroll) { const b = kb.bendiciones[o.nombre]; if (b && !efectoDe(o.desc)) b.noEntendida = true; }
     // volver a tirar solo si rinde claramente más (se pierde lo que hay y solo se puede una vez por bioma)
     if (lista[0].o.reroll && lista.length > 1 && lista[0].v - lista[1].v < 0.3) [lista[0], lista[1]] = [lista[1], lista[0]];
