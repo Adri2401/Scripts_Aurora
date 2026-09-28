@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Cazador de Manadas
 // @namespace    aurora-dex-manadas
-// @version      1.3.1
-// @description  Lee las pistas del Canal Manadas, cambia de región solo, recorre el mapa buscando el tramo que cuadra y para en cuanto encuentra la manada.
+// @version      1.4.0
+// @description  Lee las pistas del Canal Manadas, cambia de región solo, recorre el mapa buscando el tramo que cuadra y para en cuanto encuentra la manada. «🐾 Manadas gratis»: en cada región busca la manada y hace sus 3 encuentros gratis con la macro de Capturar y Guardería (a ⚡ 0), y sigue con la siguiente; /manadas?gratis=1 lo empieza solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_manadas.user.js
@@ -507,7 +507,7 @@
   // Si ya hay una búsqueda en marcha, la corta y espera a que su bucle termine antes de empezar la nueva
   async function pararLaAnterior() {
     if (!E().running) return true;
-    if (!confirm('Ya hay una búsqueda en marcha. ¿La reinicio?')) return false;
+    if (!G() && !confirm('Ya hay una búsqueda en marcha. ¿La reinicio?')) return false;
     setE({ running: false });
     for (let i = 0; i < 80 && enMarcha; i++) await SLEEP(50);
     return true;
@@ -685,6 +685,16 @@
   }
 
   const fichaLista = () => /fauna de nv|terreno de/.test(norm(textoPagina()));
+  // La ficha del tramo al que se acaba de ir (la anterior sigue en pantalla un momento: antes se miraba esa y se
+  // pasaba de largo la manada): su «Fauna de Nv. X–Y» cuadra y ya está el botón de explorar
+  const fichaDe = c => () => {
+    const m = textoPagina().match(/Fauna de Nv\.?\s*(\d+)\s*[–—-]\s*(\d+)/i);
+    return !!m && (c.min == null || (+m[1] === c.min && +m[2] === c.max)) && all('main button').some(b => /explorar|manada/i.test(txt(b)));
+  };
+  async function esperarFicha(c) {
+    await intentar(fichaDe(c), { timeout: 12000, label: 'la ficha del tramo' });
+    await SLEEP(700);
+  }
 
   // Nombre del tramo donde estás (el título de la ficha), sin recurrir a lo guardado
   const tramoActual = () => {
@@ -710,12 +720,12 @@
     const exactos = filas.filter(r => r.min === e.min && r.max === e.max);
     if (exactos.length) return exactos[0];
 
-    // Ningún tramo cuadra al dedillo: probamos los más cercanos, pero pocos.
-    if ((E().sueltos || 0) >= 3) return null;
+    // Ningún tramo cuadra al dedillo (la pista da el nivel «de por allí», no el del tramo): se prueban los más
+    // cercanos en nivel, los que se solapan primero, hasta 12
+    if ((E().sueltos || 0) >= 12) return null;
     setE({ sueltos: (E().sueltos || 0) + 1 });
-    filas.sort((a, b) =>
-      (Math.abs(a.min - e.min) + Math.abs(a.max - e.max)) -
-      (Math.abs(b.min - e.min) + Math.abs(b.max - e.max)));
+    const lejos = r => Math.abs(r.min - e.min) + Math.abs(r.max - e.max) + (Math.min(r.max, e.max) >= Math.max(r.min, e.min) ? 0 : 20);
+    filas.sort((a, b) => lejos(a) - lejos(b));
     return filas[0];
   }
 
@@ -757,8 +767,7 @@
         try { await esperar(() => !listaViaje(), { timeout: 10000, label: 'que se cierre la lista' }); }
         catch (err) { if (err instanceof Cancelado) throw err; cerrarModal(); }
         await SLEEP(120);
-        try { await esperar(fichaLista, { timeout: 12000, label: 'la ficha del tramo' }); }
-        catch (err) { if (err instanceof Cancelado) throw err; }
+        await esperarFicha(c);
 
         const hay = manadaAqui(E());
         if (hay) return encontrada(hay);
@@ -798,8 +807,7 @@
       try { await esperar(() => !listaViaje(), { timeout: 10000, label: 'que se cierre la lista' }); }
       catch (err) { if (err instanceof Cancelado) throw err; cerrarModal(); }
       await SLEEP(120);
-      try { await esperar(fichaLista, { timeout: 12000, label: 'la ficha del tramo' }); }
-      catch (err) { if (err instanceof Cancelado) throw err; }
+      await esperarFicha(fila);
 
       encontrada('directo');
     } catch (err) {
@@ -822,6 +830,7 @@
   }
 
   function encontrada() {
+    gratisEncontrada();
     const e = E();
     const donde = e.directo ? (e.lugar || nombreDelTramo()) : nombreDelTramo();
     toastDiscreto(e.directo
@@ -830,6 +839,7 @@
   }
 
   function terminar(ok, msg) {
+    if (ok) gratisEncontrada(); else gratisFallo(msg);
     if (ok) toastDiscreto(msg);
     else {
       finalizarAviso({ running: false, ok, err: true, msg, sub: '' }, DURACION_ERROR);
@@ -852,6 +862,127 @@
     }, duracion);
   }
 
+
+  /* ─────────────────────────── 12b · 🐾 manadas gratis ─────────────────────────
+   * En cada región busca la manada y hace sus encuentros gratis (los 3 primeros no gastan energía) con la macro de
+   * «Capturar y Guardería» puesta en «⚡ 0 · solo gratis» (para sola en cuanto el siguiente costaría energía; los
+   * variocolor y legendarios, con Master Ball). Luego vuelve al Canal y sigue con la siguiente región. */
+  const GR_KEY = 'mh-gratis', GR_DIA = 'mh-gratis-dia', LIM_KEY = 'adx_macro_energy_limit';
+  const hoyMh = () => new Date().toLocaleDateString('sv');
+  const G = () => { try { return JSON.parse(sessionStorage.getItem(GR_KEY) || 'null'); } catch { return null; } };
+  const setG = g => { try { if (g) sessionStorage.setItem(GR_KEY, JSON.stringify(g)); else sessionStorage.removeItem(GR_KEY); } catch { /* nada */ } };
+  const hechasHoy = () => { try { const d = JSON.parse(localStorage.getItem(GR_DIA) || '{}'); return d.dia === hoyMh() ? d.regiones || [] : []; } catch { return []; } };
+  const apuntarHecha = r => { const h = hechasHoy(); if (!h.includes(r)) h.push(r); try { localStorage.setItem(GR_DIA, JSON.stringify({ dia: hoyMh(), regiones: h })); } catch { /* nada */ } };
+  const btnMacro = () => document.querySelector('#adx-macro-ui .adx-btn');
+  function gratisLog(t) { const g = G(); if (!g) return; g.log = [...(g.log || []), t].slice(-20); setG(g); console.log('[manadas] ' + t); }
+  // la región en la que estás (el menú lo dice: «Estás en teselia»), para acabar en ella
+  async function regionCasa() {
+    try {
+      const h = await (await fetch('/menu', { credentials: 'include' })).text();
+      const m = h.replace(/<!--.*?-->/g, '').match(/Est[aá]s en\s*([A-Za-zÁÉÍÓÚáéíóúñ]+)/);
+      return m ? REGIONES.find(r => r === norm(m[1])) || null : null;
+    } catch { return null; }
+  }
+  const bonitaR = r => r ? r[0].toUpperCase() + r.slice(1) : r;
+  async function arrancarGratis() {
+    const secs = leerSecciones();
+    if (!secs.length) { kAviso({ tipo: 'aviso', app: 'Cazador de Manadas', titulo: 'No veo las manadas del Canal' }); return; }
+    let lim = null; try { lim = localStorage.getItem(LIM_KEY); } catch { /* nada */ }
+    const casa = await regionCasa();
+    // la de casa, la última (así se acaba donde estabas)
+    const cola = secs.map(x => x.nombre).sort((a, b) => (norm(a) === casa) - (norm(b) === casa));
+    setG({ cola, casa, fase: 'canal', limAntes: lim, log: [], t: Date.now() });
+    gratisLog('🐾 Empiezo: ' + secs.map(x => x.nombre).join(', ') + '.');
+    gratisTick();
+  }
+  function gratisEncontrada() { const g = G(); if (g && g.fase === 'buscar') { g.fase = 'macro'; g.t = Date.now(); g.macro = 0; setG(g); gratisLog(`🎯 ${g.actual}: manada encontrada.`); } }
+  function gratisFallo(msg) { const g = G(); if (g && g.fase === 'buscar') { gratisLog(`⚠ ${g.actual}: ${msg}`); g.fase = 'canal'; g.hechas = [...(g.hechas || []), g.actual]; setG(g); } }
+  async function gratisFin() {
+    const g = G(); if (!g) return;
+    // vuelta a tu región si la última manada no era de ella
+    if (g.casa && !g.vuelta && norm(g.actual || '') !== g.casa) {
+      g.vuelta = true; setG(g);
+      try { setE({ running: true, msg: `Volviendo a ${bonitaR(g.casa)}…`, sub: '' }); await asegurarRegion(bonitaR(g.casa)); gratisLog(`🧭 De vuelta en ${bonitaR(g.casa)}.`); }
+      catch (e) { gratisLog(`⚠ No he podido volver a ${bonitaR(g.casa)}: ${e && e.message}`); }
+      finally { setE({ running: false }); borrarE(); }
+    }
+    try { if (g.limAntes == null) localStorage.removeItem(LIM_KEY); else localStorage.setItem(LIM_KEY, g.limAntes); } catch { /* nada */ }
+    gratisLog('🏁 Manadas gratis hechas.');
+    const lineas = G().log || [];
+    setG(null);
+    try { localStorage.setItem('mh-gratis-ultimo', JSON.stringify({ dia: hoyMh(), log: lineas })); } catch { /* nada */ }
+    kAviso({ tipo: 'fin', app: 'Cazador de Manadas', icono: '🐾', titulo: 'Manadas gratis hechas', lineas: lineas.slice(-8) });
+  }
+  let gratisOcupado = false;
+  async function gratisTick() {
+    const g = G();
+    if (!g || gratisOcupado || !esApp()) return;
+    gratisOcupado = true;
+    try {
+      if (g.fase === 'canal') {
+        if (!/^\/manadas/.test(location.pathname)) { location.assign('/manadas'); return; }
+        const secs = leerSecciones();
+        if (!secs.length) return;
+        const hechas = [...hechasHoy(), ...(g.hechas || [])];
+        const s = secs.find(x => g.cola.includes(x.nombre) && !hechas.includes(x.nombre));
+        if (!s) { await gratisFin(); return; }
+        g.actual = s.nombre; g.fase = 'buscar'; g.t = Date.now(); setG(g);
+        gratisLog(`🔎 ${s.nombre}: busco su manada…`);
+        setE({ running: false });
+        await SLEEP(300);
+        if (s.tipo === 'revelada') arrancarViajeDirecto(s); else arrancarBusqueda(s);
+        return;
+      }
+      if (g.fase === 'buscar') {
+        if (Date.now() - g.t > 8 * 60000) gratisFallo('la búsqueda se ha atascado.');
+        return;
+      }
+      if (g.fase === 'macro') {
+        const b = btnMacro();
+        if (!b) { if (Date.now() - g.t > 60000) { gratisLog(`⚠ ${g.actual}: no veo la macro de Capturar y Guardería (instálala).`); g.fase = 'canal'; g.hechas = [...(g.hechas || []), g.actual]; setG(g); } return; }
+        if (!g.macro) {
+          if (b.dataset.s === 'stop') return;                   // ya iba (no se toca)
+          try { localStorage.setItem(LIM_KEY, '0'); } catch { /* nada */ }
+          await SLEEP(1500);
+          const b2 = btnMacro();
+          if (b2 && b2.dataset.s === 'start') { b2.click(); g.macro = Date.now(); setG(g); gratisLog(`⚔️ ${g.actual}: encuentros gratis…`); }
+          return;
+        }
+        if (b.dataset.s === 'stop' && Date.now() - g.macro < 12 * 60000) return;   // en marcha
+        if (b.dataset.s === 'stop') b.click();                                    // se ha pasado de tiempo
+        const msg = txt(document.querySelector('#adx-macro-ui .adx-msg')) || '';
+        gratisLog(`✅ ${g.actual}: ${msg.replace(/\s*—.*$/, '').replace(/\.+$/, '') || 'hecha'}.`);
+        apuntarHecha(g.actual);
+        g.fase = 'canal'; g.hechas = [...(g.hechas || []), g.actual]; setG(g);
+        await SLEEP(2000);
+        location.assign('/manadas');
+      }
+    } catch (e) { console.warn('[manadas gratis]', e); }
+    finally { gratisOcupado = false; }
+  }
+  // botón en el Canal
+  function botonGratis() {
+    if (!/^\/manadas/.test(location.pathname) || document.getElementById('mh-gratis')) return;
+    const h1 = all('main h1').find(h => /canal manadas/i.test(txt(h)));
+    const cab = h1 && (h1.closest('section') || h1.parentElement);
+    if (!cab) return;
+    const d = document.createElement('div');
+    d.id = 'mh-gratis'; d.className = 'pt-1'; d.setAttribute('data-ax-ignore', '1');
+    const hechas = hechasHoy();
+    d.innerHTML = '<button type="button" class="boton-principal w-full flex-col !gap-0 py-2.5"><span class="text-base">🐾 MANADAS GRATIS</span>' +
+      `<span class="text-[11px] font-bold normal-case opacity-90">Busca la de cada región y hace sus 3 encuentros gratis${hechas.length ? ' · hoy ya: ' + esc(hechas.join(', ')) : ''}</span></button>`;
+    d.querySelector('button').addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); if (G()) { setG(null); setE({ running: false }); kAviso({ tipo: 'info', app: 'Cazador de Manadas', titulo: 'Manadas gratis paradas' }); } else arrancarGratis(); });
+    cab.insertAdjacentElement('afterend', d);
+  }
+  // /manadas?gratis=1 empieza solo (lo usa el bot; una vez al día)
+  function gratisDesdeEnlace() {
+    const q = new URLSearchParams(location.search);
+    if (!/^\/manadas/.test(location.pathname) || !q.has('gratis')) return;
+    history.replaceState(history.state, '', location.pathname);
+    if (!G()) setTimeout(arrancarGratis, 1500);
+  }
+  window.__axManadas = { G, arrancarGratis, hechasHoy };
+
   /* ─────────────────────────── 12 · arranque ────────────────────────────────── */
 
   function arrancar() {
@@ -860,7 +991,9 @@
     pintar();
     inyectar();
 
-    const obs = new MutationObserver(debounce(() => { inyectar(); pintar(); }, 250));
+    const obs = new MutationObserver(debounce(() => { inyectar(); pintar(); botonGratis(); }, 250));
+    botonGratis(); gratisDesdeEnlace();
+    setInterval(gratisTick, 1500);
     obs.observe(document.body, { childList: true, subtree: true });
 
     const e = E();
