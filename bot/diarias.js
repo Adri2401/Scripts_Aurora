@@ -14,7 +14,7 @@ const path = require('path');
 
 const RAIZ = path.resolve(__dirname, '..');
 const PERFIL = path.join(__dirname, 'perfil');
-const SCRIPTS = (process.env.AURORA_SCRIPTS || 'Auroradex_diarias.user.js,Auroradex_safari.user.js,Auroradex_casatreta.user.js,Auroradex_hielo.user.js')
+const SCRIPTS = (process.env.AURORA_SCRIPTS || 'Auroradex_diarias.user.js,Auroradex_safari.user.js,Auroradex_casatreta.user.js')
   .split(',').map(s => s.trim()).filter(Boolean);
 const MAX_MIN = +(process.env.AURORA_MAX_MIN || 75);          // tope de tiempo de la ruta
 const ahora = () => new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
@@ -36,13 +36,15 @@ async function telegram(texto) {
     await ctx.addCookies([{ name: '__Secure-next-auth.session-token', value: valor, domain: 'auroradex.es', path: '/', httpOnly: true, secure: true, sameSite: 'Lax', expires: Math.floor(Date.now() / 1000) + 30 * 86400 }]);
     log('Sesión guardada en el perfil. Ya puedes borrar el fichero con la cookie.');
   }
+  // prohibido entrar: Suelo Helado, Voltorb Flip y Ruinas Alfa
+  await ctx.route(/auroradex\.es\/(hielo|trigal|ruinas)(\/|\?|#|$)/, r => { log('⛔ Bloqueado:', r.request().url()); r.abort(); });
   // los userscripts, como los mete Tampermonkey: al cargar cada página
   const codigo = SCRIPTS.map(f => fs.readFileSync(path.join(RAIZ, f), 'utf8'));
   await ctx.addInitScript({ content: `(() => { const lanzar = () => { ${codigo.map(s => `try { (function(){ ${s} })(); } catch (e) { console.log('[bot] error en un script: ' + e.message); }`).join('\n')} };
     if (document.readyState === 'complete') setTimeout(lanzar, 50); else addEventListener('load', () => setTimeout(lanzar, 50)); })();` });
   const p = ctx.pages()[0] || await ctx.newPage();
   const lineas = [];
-  p.on('console', m => { const t = m.text(); if (/^\[(diarias|hielo)\]/.test(t)) { lineas.push(t.replace(/^\[\w+\]\s*/, '')); log(t); } });
+  p.on('console', m => { const t = m.text(); if (/^\[(diarias)\]/.test(t)) { lineas.push(t.replace(/^\[\w+\]\s*/, '')); log(t); } });
 
   await p.goto('https://auroradex.es/menu', { waitUntil: 'networkidle', timeout: 60000 });
   const dentro = await p.evaluate(() => location.pathname === '/menu' && /para hoy/i.test(document.body.innerText));

@@ -12,4 +12,4 @@ Opcional, aviso al móvil por Telegram al acabar: crea un bot con @BotFather y a
 `TELEGRAM_TOKEN=xxx TELEGRAM_CHAT=tu_id `.
 
 La sesión vive en `bot/perfil` (no se sube a ningún sitio) y el juego la renueva mientras se use. Si caduca, el bot avisa
-y sale: repite el paso 3. Scripts que carga (variable `AURORA_SCRIPTS`): Diarias, Safari Auto, Casa Treta y Suelo Helado.
+y sale: repite el paso 3. Scripts que carga (variable `AURORA_SCRIPTS`): Diarias, Safari Auto, Casa Treta.
