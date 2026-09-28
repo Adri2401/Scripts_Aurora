@@ -2,6 +2,7 @@
 // Pensado para cron en un servidor (Oracle Cloud Free, una Raspberry…). Cada tarea hace una cosa y acaba:
 //
 //   node aurora.js diario          → diarias (con Huerto, Valle y Salón), Manadas gratis, bajada gratis de las Entrañas, Tronos y Torre
+//   node aurora.js isla            → Isla Espejismo: gasta la marea explorando y capturando especies nuevas (cada 3 h)
 //   node aurora.js manadas         → en cada región busca la manada y hace sus 3 encuentros gratis (sin gastar energía)
 //   node aurora.js diarias         → solo la ruta de «Jugar todas las diarias»
 //   node aurora.js entranas        → la bajada gratis del día de las Entrañas (nunca gasta energía ni pases)
@@ -24,7 +25,7 @@ const PERFIL = process.env.AURORA_PERFIL || path.join(__dirname, 'perfil');
 const SCRIPTS = (process.env.AURORA_SCRIPTS || [
   'Auroradex_diarias.user.js', 'Auroradex_safari.user.js', 'Auroradex_casatreta.user.js', 'Auroradex_huerto.user.js',
   'Auroradex_valle.user.js', 'Auroradex_salon.user.js', 'Auroradex_entranas.user.js', 'Auroradex_grutas.user.js', 'Auroradex_tiers.user.js',
-  'Auroradex_manadas.user.js', 'Auroradex_capturaryguarderia.user.js',
+  'Auroradex_manadas.user.js', 'Auroradex_capturaryguarderia.user.js', 'Auroradex_isla.user.js',
 ].join(',')).split(',').map(s => s.trim()).filter(Boolean);
 const LIGAS = (process.env.AURORA_LIGAS || 'clasico').split(',').map(s => s.trim()).filter(Boolean);
 const ahora = () => new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
@@ -42,12 +43,12 @@ async function telegram(texto) {
 // Espera a que `leer()` (en la página) devuelva algo que cuadre con `fin`; aguanta recargas y navegaciones
 async function esperarFin(p, leer, fin, maxMin, arg) {
   const t = Date.now() + maxMin * 60000;
-  let ultimo = '';
+  let ultimo = '', avisado = 0;
   while (Date.now() < t) {
     await espera(5000);
     try {
       const v = String(await p.evaluate(leer, arg) || '');
-      if (v && v !== ultimo) { ultimo = v; }
+      if (v && v !== ultimo) { ultimo = v; if (Date.now() - avisado > 60000) { avisado = Date.now(); log('…', v.replace(/\s+/g, ' ').slice(-160)); } }
       if (fin.test(v)) return { ok: true, texto: v };
     } catch { /* navegando */ }
   }
@@ -97,6 +98,16 @@ const TAREAS = {
       /Manadas gratis hechas/, 40);
     return '🐾 Manadas gratis\n' + (r.ok ? r.texto.split('\n').filter(l => /✅|⚠/.test(l)).join('\n') : '⚠ Se ha pasado el tiempo.\n' + r.texto);
   },
+  async isla(p) {
+    const t0 = Date.now();
+    await p.goto('https://auroradex.es/isla?auto=1', { waitUntil: 'domcontentloaded' });
+    await espera(8000);
+    if (await p.evaluate(() => /no hay ninguna isla a la vista/i.test(document.body.innerText)).catch(() => false)) return '🏝️ Isla Espejismo: ahora no hay isla (emerge los lunes).';
+    const r = await esperarFin(p, desde => { try { const u = JSON.parse(localStorage.getItem('axi-auto-ultimo') || 'null'); return !sessionStorage.getItem('axi-auto') && u && u.t >= desde ? u.log.join('\n') : (document.querySelector('#axi-auto .axi-log') || {}).textContent; } catch { return ''; } },
+      /Marea gastada/, 45, t0);
+    const hecho = r.texto.split('\n').filter(l => /✅|✨|👑|evolucionado|Marea gastada/.test(l));
+    return '🏝️ Isla Espejismo\n' + (hecho.join('\n') || r.texto.slice(-300)) + (r.ok ? '' : '\n⚠ Se ha pasado el tiempo.');
+  },
   async subsuelo(p) {
     await p.goto('https://auroradex.es/huerto?botas=1&volver=' + encodeURIComponent('/subsuelo?explorar=1'), { waitUntil: 'domcontentloaded' });
     await espera(25000);
@@ -133,7 +144,7 @@ const TAREAS = {
 TAREAS['entranas-pases'] = (p, ctx) => TAREAS.entranas(p, ctx, true);
 TAREAS.diario = async (p, ctx) => {
   const out = [];
-  for (const t of ['diarias', 'manadas', 'entranas', 'tronos', 'torre']) {
+  for (const t of ['diarias', 'manadas', 'isla', 'entranas', 'tronos', 'torre']) {
     try { out.push(await nueva(ctx, TAREAS[t])); } catch (e) { out.push(`⚠ ${t}: ${e.message}`); }
     log(out[out.length - 1]);
   }

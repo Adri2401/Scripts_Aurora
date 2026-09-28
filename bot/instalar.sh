@@ -14,13 +14,14 @@ sudo timedatectl set-timezone Europe/Madrid || true
 #   10:05 cada día  → diarias (con Huerto, Valle y Salón), Manadas gratis, bajada gratis de las Entrañas, Tronos y Torre a ciegas
 #   23:00 y 01:00   → Subsuelo: Botas de Andar del Huerto y todas las vetas
 #   lunes 00:00     → Entrañas con los Pases del monte (nunca gasta energía)
+#   cada 3 h (:40)  → Isla Espejismo: gasta la marea (sube +15 cada 2 h, tope 45) capturando especies nuevas
 BOT="$(pwd)"
 tarea() { echo "$1 cd $BOT/.. && git pull -q; cd $BOT && flock -w 21600 aurora.lock /usr/bin/env node aurora.js $2 >> aurora.log 2>&1"; }
 ( crontab -l 2>/dev/null | grep -v -e 'diarias.js' -e 'aurora.js' ;
-  tarea "5 10 * * *" diario ; tarea "0 23 * * *" subsuelo ; tarea "0 1 * * *" subsuelo ; tarea "0 0 * * 1" entranas-pases ) | crontab -
+  tarea "5 10 * * *" diario ; tarea "0 23 * * *" subsuelo ; tarea "0 1 * * *" subsuelo ; tarea "0 0 * * 1" entranas-pases ; tarea "40 */3 * * *" isla ) | crontab -
 echo
 echo "Hecho. Falta meter tu sesión una vez:"
 echo "  1) En el navegador de tu PC, con la sesión iniciada en auroradex.es: F12 → Aplicación/Almacenamiento → Cookies"
 echo "     → copia el valor de  __Secure-next-auth.session-token"
 echo "  2) Aquí:  nano sesion.txt  (pégalo, guarda)  y luego:  node aurora.js --sesion sesion.txt && rm sesion.txt"
-echo "Cron puesto (10:05 diario, 23:00 y 01:00 Subsuelo, lunes 00:00 pases). Log en bot/aurora.log. Para cambiar horas: crontab -e"
+echo "Cron puesto (10:05 diario, 23:00 y 01:00 Subsuelo, lunes 00:00 pases, Isla cada 3 h). Log en bot/aurora.log. Para cambiar horas: crontab -e"

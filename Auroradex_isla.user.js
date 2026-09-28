@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      1.3.1
-// @description  Solo en /isla. Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
+// @version      2.0.0
+// @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura las que no tienes (y los variocolor), deja ir los repetidos, ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_isla.user.js
@@ -552,11 +552,227 @@
     }
   }
 
+
+  /* ------------------------------------------------------------------ *
+   *  🗺️ FAUNA POR ZONA: se apunta cada Pokémon que sale en cada zona (de la exploración que lo trajo), cuántas veces,
+   *  a qué nivel y si ya lo tienes. Se guarda por isla y semana, y se enseña debajo de las zonas.
+   * ------------------------------------------------------------------ */
+  const LS_FAUNA = 'axi-fauna', SS_ZONA = 'axi-ultima-zona', SS_AUTO = 'axi-auto', LS_AUTO_ULT = 'axi-auto-ultimo';
+  const claveSemana = est => `${est.isla && est.isla.id}|${est.temporada && est.temporada.id}`;
+  function fauna(est) { const t = lsGet(LS_FAUNA, {}); return t[claveSemana(est)] || { zonas: {}, stats: {} }; }
+  function guardarFauna(est, fz) {
+    const t = lsGet(LS_FAUNA, {});
+    t[claveSemana(est)] = fz;
+    for (const k of Object.keys(t)) if (k !== claveSemana(est) && Object.keys(t).length > 4) delete t[k];   // solo las últimas semanas
+    lsPut(LS_FAUNA, t);
+  }
+  const ssGet = k => { try { return sessionStorage.getItem(k); } catch { return null; } };
+  const ssPut = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch { /* nada */ } };
+  const tengoNombre = (est, nombre) => [...est.equipo, ...est.caja].some(p => p.nombre === nombre);
+  // botones «Explorar · 1 🌊» de cada zona abierta
+  function botonesZona(est) {
+    const out = [];
+    for (const b of $$('main button').filter(x => /^\s*Explorar\s*·/.test(x.textContent || ''))) {
+      let caja = b.parentElement;
+      for (let i = 0; i < 4 && caja && !est.zonas.some(z => (caja.textContent || '').includes(z.nombre)); i++) caja = caja.parentElement;
+      const z = caja && est.zonas.find(z => (caja.textContent || '').includes(z.nombre));
+      if (z) out.push({ z, b });
+    }
+    return out;
+  }
+  // al explorar (tú o el modo automático) se apunta la zona, para saber de dónde sale lo que salga
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('button');
+    if (!b || !enIsla() || !/^\s*Explorar\s*·/.test(b.textContent || '')) return;
+    const est = estadoIsla(); if (!est) return;
+    const x = botonesZona(est).find(o => o.b === b);
+    if (x) ssPut(SS_ZONA, x.z.id);
+  }, true);
+  let ultimoEnc = '';
+  function apuntarEncuentro(est) {
+    const en = est.encuentro;
+    if (!en) return;
+    const firma = [en.nombre, en.nivel, en.esShiny, est.exploraciones].join('|');
+    if (firma === ultimoEnc) return;
+    ultimoEnc = firma;
+    const zona = ssGet(SS_ZONA) || '?';
+    const fz = fauna(est);
+    const zz = fz.zonas[zona] || (fz.zonas[zona] = {});
+    const e = zz[en.nombre] || (zz[en.nombre] = { sprite: en.sprite, n: 0, min: en.nivel, max: en.nivel, tipos: [en.tipo1, en.tipo2].filter(Boolean), prob: en.probabilidad });
+    e.n++; e.min = Math.min(e.min, en.nivel); e.max = Math.max(e.max, en.nivel); e.prob = en.probabilidad; e.sprite = e.sprite || en.sprite;
+    if (en.esShiny) e.shiny = (e.shiny || 0) + 1;
+    // solo sale para capturar si le has ganado: cuenta como victoria en esa zona
+    const st = fz.stats[zona] || (fz.stats[zona] = { g: 0, p: 0 });
+    st.g++;
+    guardarFauna(est, fz);
+  }
+  function apuntarResultado(est, gano) {
+    const zona = ssGet(SS_ZONA) || '?';
+    const fz = fauna(est);
+    const st = fz.stats[zona] || (fz.stats[zona] = { g: 0, p: 0 });
+    if (gano) st.g++; else st.p++;
+    guardarFauna(est, fz);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  🤖 ISLA SOLA: elige compañero si hace falta, explora la zona que más especies nuevas promete, captura lo que no
+   *  tienes (y los variocolor), deja ir los repetidos, ordena el equipo para evolucionar a especies nuevas, lucha
+   *  contra el jefe cuando el equipo llega y para cuando se acaba la marea.
+   * ------------------------------------------------------------------ */
+  const COMPANERO_PREFERIDO = ['Corphish', 'Surskit', 'Swinub'];   // Corphish: Agua (aguanta a Suicune y su escolta) y Crawdaunt pega fuerte
+  const autoOn = () => ssGet(SS_AUTO) === '1';
+  let autoPaso = false, autoMsg = '', ultimoOrden = 0, reordenar = true;
+  // el registro sobrevive a las recargas de la pestaña
+  const autoLog = (() => { try { return JSON.parse(sessionStorage.getItem('axi-auto-log') || '[]'); } catch { return []; } })();
+  const alog = t => { autoLog.push(t); if (autoLog.length > 30) autoLog.shift(); ssPut('axi-auto-log', JSON.stringify(autoLog)); console.log('[axi] ' + t); pintarAuto(); };
+  const espera = ms => new Promise(r => setTimeout(r, ms));
+  const botonTexto = re => $$('main button, div.fixed button').find(b => !b.closest('#axi-auto, #axi-panel') && !b.disabled && re.test((b.textContent || '').trim()));
+  function zonaElegida(est) {
+    const fz = fauna(est);
+    const ops = botonesZona(est).filter(o => !o.b.disabled);
+    if (!ops.length) return null;
+    const nota = ({ z }) => {
+      const vistos = fz.zonas[z.id] || {}, st = fz.stats[z.id] || { g: 0, p: 0 };
+      const visitas = Object.values(vistos).reduce((a, e) => a + e.n, 0);
+      const faltan = Object.keys(vistos).filter(n => !tengoNombre(est, n)).length;
+      const perder = st.g + st.p ? st.p / (st.g + st.p) : 0;
+      // lo que no se ha visto aún promete; lo visto y no capturado, más; perder mucho allí, resta
+      return faltan * 3 + Math.max(0, 6 - visitas) * 1.5 + (z.desdeDia || 1) * 0.3 - perder * 8;
+    };
+    return ops.sort((a, b) => nota(b) - nota(a))[0];
+  }
+  function fuerzaEquipo(est) { const tres = est.equipo.slice(0, 3); return tres.length ? tres.reduce((a, p) => a + p.nivel, 0) / tres.length : 0; }
+  async function pasoAuto() {
+    if (autoPaso || !autoOn() || !enIsla()) return;
+    const est = estadoIsla();
+    if (!est) return;
+    autoPaso = true;
+    try {
+      // combate en pantalla: al resultado
+      const saltar = $$('button').find(b => /saltar al resultado/i.test(b.textContent || '') && !b.disabled);
+      if (saltar) { saltar.click(); await espera(900); return; }
+      const txtMain = (document.querySelector('main') || {}).innerText || '';
+      // resultado del combate
+      const seguir = botonTexto(/^Seguir$/);
+      if (seguir) {
+        const perdio = /Te han ganado/.test(txtMain);
+        if (perdio) apuntarResultado(est, false);
+        const evo = (txtMain.match(/✨ ¡[^!]+ ha evolucionado en [^!]+!/g) || []);
+        for (const e of evo) alog(e);
+        if (evo.length) reordenar = true;
+        if (perdio) alog(`💥 Derrota en ${(est.zonas.find(z => z.id === ssGet(SS_ZONA)) || {}).nombre || 'la zona'}.`);
+        await espera(700); seguir.click(); await espera(900); return;
+      }
+      // ¿lo capturo?
+      if (est.encuentro) {
+        apuntarEncuentro(est);
+        const en = est.encuentro, quiero = !en.yaLaTienes || en.esShiny;
+        const b = botonTexto(quiero ? /^Capturar$/ : /^Dejarlo ir$/);
+        if (!b) return;
+        await espera(700 + Math.random() * 600);
+        b.click();
+        alog(quiero ? `🎯 ${en.nombre}${en.esShiny ? ' ✨' : ''} Nv.${en.nivel}: lo intento (${en.probabilidad}%).` : `👋 ${en.nombre} Nv.${en.nivel}: ya lo tienes, lo dejo ir.`);
+        if (quiero) reordenar = true;
+        await espera(1500);
+        const tras = estadoIsla();
+        if (quiero && tras && !tras.encuentro) alog(tengoNombre(tras, en.nombre) ? `✅ ¡${en.nombre} capturado!` : `💨 ${en.nombre} se ha escapado.`);
+        return;
+      }
+      // compañero de la semana
+      if (est.necesitaCompanero) {
+        const nombre = COMPANERO_PREFERIDO.find(n => est.companeros.some(c => c.nombre === n)) || (est.companeros[0] || {}).nombre;
+        const b = nombre && $$('main button').find(x => (x.textContent || '').trim().startsWith(nombre));
+        if (b) { alog(`🤝 Elijo a ${nombre} de compañero.`); b.click(); await espera(2500); }
+        return;
+      }
+      // equipo: para evolucionar a especies nuevas (el 1.º se queda)
+      if (reordenar && Date.now() - ultimoOrden > 15000 && est.equipo.length) {
+        ultimoOrden = Date.now(); reordenar = false;
+        const prop = equipoPropuesto(est, analizar(est));
+        if (prop && prop.map(p => p.id).join() !== est.equipo.map(p => p.id).join()) { await ordenarEquipo(); alog('🔀 Equipo ordenado: ' + prop.map(p => p.nombre).join(', ') + '.'); await espera(2000); return; }
+      }
+      // jefe: cuando está y el equipo llega (media de los 3 que pelean a 3 niveles o menos del jefe)
+      const J = est.jefe;
+      if (J && J.abierto && !J.vencido && est.marea >= (J.costeMarea || 3)) {
+        const nivelJefe = Math.max(...(J.equipo || []).map(x => x.nivel || 0));
+        const intentosHoy = lsGet('axi-jefe-hoy', {});
+        const hoyK = new Date().toLocaleDateString('sv');
+        if (fuerzaEquipo(est) >= nivelJefe - 3 && (intentosHoy[hoyK] || 0) < 2) {
+          const b = botonTexto(/^Luchar\s*·/);
+          if (b) { intentosHoy[hoyK] = (intentosHoy[hoyK] || 0) + 1; lsPut('axi-jefe-hoy', { [hoyK]: intentosHoy[hoyK] }); ssPut(SS_ZONA, 'jefe'); alog(`👑 Contra el jefe (${J.nombre.split(',')[0]}).`); b.click(); await espera(2500); return; }
+        }
+      }
+      // explorar
+      if (est.marea < est.costeExplorar) {
+        const sig = est.siguienteMareaEn ? Math.max(0, Math.round((Date.parse(est.siguienteMareaEn) - Date.now()) / 60000)) : null;
+        alog(`🌊 Marea gastada (${est.marea}/${est.mareaTope}). Sube +${est.mareaPorSubida}${sig != null ? ` en ${sig} min` : ''}. Especies: ${est.capturadas}/${est.especiesIsla} · ${est.puntos} pts.`);
+        lsPut(LS_AUTO_ULT, { t: Date.now(), log: autoLog.slice(-15) });
+        ssPut(SS_AUTO, null); pintarAuto();
+        kAviso({ tipo: 'fin', app: 'Isla Espejismo', icono: '🏝️', titulo: 'Marea gastada', lineas: [`${est.capturadas}/${est.especiesIsla} especies · ${est.puntos} pts`] });
+        return;
+      }
+      const z = zonaElegida(est);
+      if (!z) return;
+      ssPut(SS_ZONA, z.z.id);
+      await espera(600 + Math.random() * 700);
+      if (!autoOn()) return;
+      z.b.click();
+      autoMsg = `🧭 Exploro ${z.z.nombre} (marea ${est.marea - est.costeExplorar}/${est.mareaTope}).`;
+      pintarAuto();
+      await espera(1500);
+    } catch (e) { console.warn('[axi auto]', e); alog('⚠️ ' + (e && e.message)); }
+    finally { autoPaso = false; }
+  }
+  function pintarAuto() {
+    const est = enIsla() && estadoIsla();
+    if (!est || !est.abierta) { const c = document.getElementById('axi-auto'); if (c) c.remove(); return; }
+    const ancla = $$('main section').find(sc => $$('button', sc).some(b => /^\s*Explorar\s*·/.test(b.textContent || '')) || /Elige tu compa/i.test(sc.textContent || ''));
+    if (!ancla) return;
+    let c = document.getElementById('axi-auto');
+    kStyle('axi-kit-auto', '#axi-auto', '#14B8A6');
+    if (!c) {
+      c = document.createElement('section'); c.id = 'axi-auto'; c.className = 'tarjeta space-y-2 p-3'; c.setAttribute('data-ax-ignore', '1');
+      c.innerHTML = `${kHead('🏝️', 'Isla sola', '')}
+        <button type="button" class="axi-go boton-principal w-full !py-2.5 text-sm"></button>
+        <div class="axi-log ${K_LOG}"></div>
+        <details class="rounded-card border-2 border-crema-200 bg-crema-50 p-2"><summary class="cursor-pointer text-[11px] font-extrabold text-tinta-600">🗺️ Qué sale en cada zona</summary><div class="axi-fauna space-y-2 pt-2"></div></details>`;
+      c.querySelector('.axi-go').addEventListener('click', e => { e.preventDefault(); if (autoOn()) { ssPut(SS_AUTO, null); alog('⏹ Parado.'); } else { ssPut(SS_AUTO, '1'); reordenar = true; kPedirPermiso(); alog('▶ En marcha.'); } pintarAuto(); });
+    }
+    if (c.nextElementSibling !== ancla) ancla.insertAdjacentElement('beforebegin', c);
+    const b = c.querySelector('.axi-go'), t = autoOn() ? '■ Parar' : `▶ Jugar la isla sola (marea ${est.marea}/${est.mareaTope})`;
+    if (b.textContent !== t) b.textContent = t;
+    kSet(c.querySelector('.k-sub'), `Día ${est.dia}/${est.dias} · tope Nv.${est.topeNivel} · ${est.capturadas}/${est.especiesIsla} especies · ${est.puntos} pts`);
+    kBadge(c.querySelector('.k-badge'), autoOn() ? 'on' : 'off', autoOn() ? 'JUGANDO' : 'LISTO');
+    const lg = c.querySelector('.axi-log'), lineas = [...autoLog.slice(-8), ...(autoMsg && autoOn() ? [autoMsg] : [])];
+    const firmaLog = lineas.join('\n');
+    if (lg.dataset.f !== firmaLog) { lg.dataset.f = firmaLog; lg.innerHTML = lineas.map(l => `<p>${esc(l)}</p>`).join(''); lg.scrollTop = lg.scrollHeight; }
+    // fauna por zona
+    const fz = fauna(est);
+    const html = est.zonas.map(z => {
+      const vistos = Object.entries(fz.zonas[z.id] || {}).sort((a, b) => b[1].n - a[1].n), st = fz.stats[z.id];
+      const cab = `<p class="text-[11px] font-extrabold text-tinta-600">${esc(z.icono)} ${esc(z.nombre)} <span class="text-tinta-400">${z.abierta ? `· ${vistos.length} especies vistas${st ? ` · ${st.g}✔ ${st.p}✖` : ''}` : `· se abre el día ${z.desdeDia}`}</span></p>`;
+      const chips = vistos.map(([n, e]) => `<span title="${esc(n)} · Nv.${e.min}${e.max !== e.min ? '–' + e.max : ''} · salió ${e.n} ${e.n === 1 ? 'vez' : 'veces'} · ${e.prob}%" style="display:inline-flex;align-items:center;gap:2px;padding:1px 6px 1px 1px;margin:1px;border-radius:999px;font-size:10px;font-weight:800;background:${tengoNombre(est, n) ? 'rgb(var(--hoja-50))' : 'rgb(var(--lienzo))'};border:2px solid ${tengoNombre(est, n) ? 'rgb(var(--hoja-200))' : 'rgb(var(--crema-200))'}"><img src="${esc(e.sprite)}" alt="" style="width:22px;height:22px;image-rendering:pixelated">${esc(n)}${e.shiny ? ' ✨' : ''}${tengoNombre(est, n) ? ' ✔' : ''}</span>`).join('');
+      return cab + (z.abierta ? `<div>${chips || '<span class="text-[10px] text-tinta-400">Aún no has explorado aquí.</span>'}</div>` : '');
+    }).join('');
+    const fa = c.querySelector('.axi-fauna');
+    if (fa.dataset.h !== html) { fa.dataset.h = html; fa.innerHTML = html; }
+  }
+  // /isla?auto=1: empieza solo (lo usa el bot)
+  function autoDesdeEnlace() {
+    const q = new URLSearchParams(location.search);
+    if (!enIsla() || !q.has('auto')) return;
+    history.replaceState(history.state, '', location.pathname);
+    ssPut(SS_AUTO, '1'); reordenar = true;
+  }
+  setInterval(() => { if (!enIsla()) return; const est = estadoIsla(); if (est && est.encuentro) apuntarEncuentro(est); pintarAuto(); pasoAuto(); }, 1500);
+  setTimeout(autoDesdeEnlace, 1000);
+  window.__axIsla = { estadoIsla, fauna, zonaElegida, analizar };
+
   let prog = null;
   function programar() { clearTimeout(prog); prog = setTimeout(() => { try { pintar(); } catch (e) { console.warn('[axi]', e); } }, 300); }
   new MutationObserver(muts => {
     if (!enIsla() && !document.getElementById('axi-panel')) return;
-    if (muts.every(m => [...m.addedNodes].every(n => n.nodeType === 1 && (n.id === 'axi-panel' || (n.classList && n.classList.contains('axi-marca')))))) return;
+    if (muts.every(m => (m.target.nodeType === 1 && m.target.closest && m.target.closest('#axi-auto')) || [...m.addedNodes].every(n => n.nodeType === 1 && (n.id === 'axi-panel' || n.id === 'axi-auto' || (n.classList && n.classList.contains('axi-marca')))))) return;
     programar();
   }).observe(document.documentElement, { childList: true, subtree: true });
   setTimeout(programar, 1800);
