@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.29.0
-// @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier, tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
+// @version      1.30.0
+// @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier o por estadística (botón «📊 Stat»: cada toque pasa a PS, Ataque, Defensa, Especial, Velocidad y Total; pone el valor en cada uno, corona al mejor 👑 y dice quién la tiene más alta en el equipo y en la Caja), tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_tiers.user.js
@@ -620,6 +620,32 @@
   const LS_ORDEN = 'axt-orden-tier';
   let ordenTier = lsGet(LS_ORDEN, false);
   const CLASES_ON = ['border-rojo-500', 'bg-rojo-500', 'text-white'], CLASES_OFF = ['border-crema-200', 'bg-lienzo', 'text-tinta-500'];
+  /* ── 📊 Filtro por estadística: cada toque pasa a la siguiente (PS → Ataque → Defensa → Especial → Velocidad →
+   * Total → apagado). Ordena la Caja PC de mayor a menor en esa estadística (lo que se ve con el filtro de región de la
+   * web), pone el valor en cada tarjeta y en los del equipo, corona al mejor 👑 y dice quién la tiene más alta.
+   * Los números son los del propio juego (los mismos de la ficha de cada Pokémon). ── */
+  const STATS_VER = [
+    { k: 'hpMax', n: 'PS', e: '❤️' }, { k: 'ataque', n: 'Ataque', e: '⚔️' }, { k: 'defensa', n: 'Defensa', e: '🛡️' },
+    { k: 'especial', n: 'Especial', e: '✨' }, { k: 'velocidad', n: 'Velocidad', e: '💨' }, { k: 'total', n: 'Total', e: 'Σ' },
+  ];
+  const LS_STAT = 'axt-orden-stat';
+  let ordenStat = (() => { const v = lsGet(LS_STAT, null); return STATS_VER.some(x => x.k === v) ? v : null; })();
+  const statSel = () => STATS_VER.find(x => x.k === ordenStat) || null;
+  const valorStat = (o, k) => {
+    if (!o) return null;
+    if (k === 'total') { const v = ['hpMax', 'ataque', 'defensa', 'especial', 'velocidad'].map(x => +o[x]); return v.every(Number.isFinite) ? v.reduce((a, b) => a + b, 0) : null; }
+    const v = +o[k]; return Number.isFinite(v) ? v : null;
+  };
+  // id de React (la «key» de cada tarjeta de la Caja es el id del Pokémon) → sus datos
+  const keyDe = el => { const f = fibraDe(el); return f && f.key != null ? String(f.key) : null; };
+  let memoStat = { t: 0, porId: null };
+  function datosPorId() {
+    if (memoStat.porId && Date.now() - memoStat.t < 1500) return memoStat.porId;
+    const porId = new Map();
+    for (const o of datosPaginaEquipo().todos) porId.set(String(o.id), o);
+    memoStat = { t: Date.now(), porId };
+    return porId;
+  }
   function botonOrden() {
     const fila = $$('main div.flex').find(d => { const t = $$(':scope > button', d).map(b => b.textContent.trim()); return t.includes('Nivel') && t.includes('Rareza'); });
     if (!fila) return;
@@ -630,9 +656,26 @@
       b.className = 'axt-orden pastilla flex-1 justify-center border-2 text-[11px] transition';
       b.setAttribute('data-ax-ignore', '1');
       b.textContent = 'Tier';
-      b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); ordenTier = !ordenTier; lsPut(LS_ORDEN, ordenTier); pintarBotonOrden(b); ordenar(); });
+      b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); ordenTier = !ordenTier; lsPut(LS_ORDEN, ordenTier); if (ordenTier) { ordenStat = null; lsPut(LS_STAT, null); } pintarBotonOrden(b); ordenar(); });
       fila.appendChild(b);
-      for (const otro of $$(':scope > button:not(.axt-orden)', fila)) otro.addEventListener('click', () => { if (ordenTier) { ordenTier = false; lsPut(LS_ORDEN, false); pintarBotonOrden(b); ordenar(); } });
+      for (const otro of $$(':scope > button:not(.axt-orden):not(.axt-stat)', fila)) otro.addEventListener('click', () => { if (ordenTier || ordenStat) { ordenTier = false; ordenStat = null; lsPut(LS_ORDEN, false); lsPut(LS_STAT, null); pintarBotonOrden(b); ordenar(); } });
+    }
+    let bs = fila.querySelector(':scope > .axt-stat');
+    if (!bs) {
+      bs = document.createElement('button');
+      bs.type = 'button';
+      bs.className = 'axt-stat pastilla flex-1 justify-center border-2 text-[11px] transition';
+      bs.setAttribute('data-ax-ignore', '1');
+      bs.addEventListener('click', e => {
+        e.preventDefault(); e.stopPropagation();
+        const i = STATS_VER.findIndex(x => x.k === ordenStat);
+        ordenStat = i + 1 < STATS_VER.length ? STATS_VER[i + 1].k : null;
+        lsPut(LS_STAT, ordenStat);
+        if (ordenStat) { ordenTier = false; lsPut(LS_ORDEN, false); }
+        memoStat.t = 0;
+        pintarBotonOrden(b); ordenar();
+      });
+      fila.appendChild(bs);
     }
     pintarBotonOrden(b);
   }
@@ -640,18 +683,74 @@
     b.classList.remove(...(ordenTier ? CLASES_OFF : CLASES_ON));
     b.classList.add(...(ordenTier ? CLASES_ON : CLASES_OFF));
     b.title = ordenTier ? 'Ordenado por tier (de S a G). Toca para quitarlo.' : 'Ordenar por tier (de S a G)';
+    const bs = b.parentElement && b.parentElement.querySelector(':scope > .axt-stat');
+    if (!bs) return;
+    const st = statSel();
+    bs.classList.remove(...(st ? CLASES_OFF : CLASES_ON));
+    bs.classList.add(...(st ? CLASES_ON : CLASES_OFF));
+    const txt = st ? `${st.e} ${st.n}` : '📊 Stat';
+    if (bs.textContent !== txt) bs.textContent = txt;
+    const sig = STATS_VER[STATS_VER.findIndex(x => x.k === ordenStat) + 1];
+    bs.title = st ? `Ordenado por ${st.n} (de mayor a menor). Toca para pasar a ${sig ? sig.n : 'quitarlo'}.` : 'Ordenar por estadística: toca para ir pasando por PS, Ataque, Defensa, Especial, Velocidad y Total';
+  }
+  // valor de la estadística en cada tarjeta (arriba a la izquierda) y en cada uno del equipo; 👑 para el mejor
+  function chipStat(caja, st, v, puesto, pos, conEmoji) {
+    let c = caja.querySelector(':scope > .axt-statv');
+    if (!st || v == null) { if (c) c.remove(); return; }
+    const firma = st.k + '|' + v + '|' + puesto + '|' + (conEmoji ? 1 : 0);
+    if (c && c.dataset.f === firma) return;
+    if (!c) { c = document.createElement('span'); c.className = 'axt-statv'; c.setAttribute('data-ax-ignore', '1'); caja.appendChild(c); }
+    c.dataset.f = firma;
+    const oro = puesto === 1, top = puesto > 0 && puesto <= 3;
+    c.textContent = (oro ? '👑 ' : '') + (conEmoji ? st.e + ' ' : '') + v;
+    c.title = `${st.n}: ${v}${puesto ? ` · ${puesto}.º` : ''}`;
+    c.style.cssText = `position:absolute;${pos};z-index:2;padding:1px 5px;border-radius:999px;font-size:10px;font-weight:900;line-height:1.4;pointer-events:none;white-space:nowrap;` +
+      `background:${oro ? '#E0A21E' : top ? '#2FA84F' : 'rgba(30,38,56,.82)'};color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.85),0 1px 3px rgba(0,0,0,.35)`;
+  }
+  // «Mayor Ataque — equipo: Rayquaza 305 · caja: Dragonite 263»
+  function resumenStat(fila, st, mejorEq, mejorCaja) {
+    let r = fila.parentElement && fila.parentElement.querySelector(':scope > .axt-stat-res');
+    if (!st) { if (r) r.remove(); return; }
+    if (!r) { r = document.createElement('p'); r.className = 'axt-stat-res text-[11px] font-bold text-tinta-500'; r.setAttribute('data-ax-ignore', '1'); fila.insertAdjacentElement('afterend', r); }
+    const nom = x => x ? `<b>${esc(x.o.mote || x.o.nombre)}</b> Nv.${x.o.nivel} · <b>${x.v}</b>` : '—';
+    const html = `${st.e} Mayor ${st.n} · equipo: ${nom(mejorEq)} · caja: ${nom(mejorCaja)}`;
+    if (r.innerHTML !== html) r.innerHTML = html;
   }
   function ordenar() {
+    const st = statSel();
+    const porId = st ? datosPorId() : null;
+    const tarjetas = [];
     for (const li of $$('main ul.grid > li')) {
       const b = li.querySelector(':scope > button');
       const img = b && b.querySelector('img[src*="/sprites/"]');
       if (!img) continue;
+      if (st) { const o = porId.get(keyDe(li)); tarjetas.push({ li, b, o, v: valorStat(o, st.k) }); continue; }
+      chipStat(b, null);
       if (!ordenTier) { if (li.dataset.axtOrden) { li.style.order = ''; delete li.dataset.axtOrden; } continue; }
       const num = numDe(img), t = num && analizar(num, tiposEn(b));
       const nivel = parseInt((b.textContent.match(/Nv\.\s*(\d+)/) || [])[1], 10) || 0;
       const o = t ? String(Math.round((1 - t.nota) * 10000) * 1000 + (999 - nivel)) : '99999999';
       if (li.style.order !== o) { li.style.order = o; li.dataset.axtOrden = '1'; }
     }
+    // el equipo (los que llevas)
+    const lista = listaEquipo();
+    const equipo = lista ? $$(':scope > li[data-id]', lista).map(li => { const o = st && porId.get(li.dataset.id); return { li, o, v: st ? valorStat(o, st.k) : null }; }) : [];
+    const puestos = arr => { const orden = arr.filter(x => x.v != null).sort((a, b) => b.v - a.v || (b.o.nivel || 0) - (a.o.nivel || 0)); orden.forEach((x, i) => { x.puesto = orden.findIndex(y => y.v === x.v) + 1; x.i = i; }); return orden; };
+    const ordEq = st ? puestos(equipo) : [];
+    for (const x of equipo) {
+      const hueco = x.li.querySelector('button');
+      if (hueco && getComputedStyle(hueco).position === 'static') hueco.style.position = 'relative';
+      if (hueco) chipStat(hueco, st, x.v, x.puesto || 0, 'right:8px;top:6px', true);
+    }
+    const fila = $$('main div.flex').find(d => d.querySelector(':scope > .axt-stat'));
+    if (!st) { if (fila) resumenStat(fila, null); return; }
+    const ordCaja = puestos(tarjetas);
+    for (const x of tarjetas) {
+      chipStat(x.b, st, x.v, x.puesto || 0, 'left:4px;top:4px');
+      const o = x.v == null ? '99999' : String(x.i);
+      if (x.li.style.order !== o) { x.li.style.order = o; x.li.dataset.axtOrden = '1'; }
+    }
+    if (fila) resumenStat(fila, st, ordEq[0], ordCaja[0]);
   }
 
   /* ------------------------------------------------------------------ *
