@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Huerto de Bayas (automático)
 // @namespace    auroradex-huerto
-// @version      1.4.1
+// @version      1.5.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
 // @description  En el Huerto de Bayas: eliges una baya (solo su icono) o 🥾 (solo Meloc y Latano, en la proporción de las Botas de Andar) y con un botón cosecha lo que esté listo, planta en todo lo vacío y riega todo, con los botones de la propia página. «🥾 Ponerme las Botas de Andar» las usa (o las prepara) para el Subsuelo; /huerto?botas=1&volver=… lo hace solo.
@@ -321,7 +321,7 @@
    * ------------------------------------------------------------------ */
   const LS_BAYA = 'axh-baya';
   // para que el Subsuelo sepa que este script está (y le puede pedir las Botas)
-  try { localStorage.setItem('axh-v', '1.4.1'); } catch { /* nada */ }
+  try { localStorage.setItem('axh-v', '1.5.0'); } catch { /* nada */ }
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
   const lsPut = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin storage */ } };
   let enMarcha = false;
@@ -522,6 +522,8 @@
     for (const b of $$('.axh-baya', fila)) b.setAttribute('aria-pressed', String(b.dataset.id === baya));
     const cat = bayaAPlantar(e);
     const t = proxima(e), r = proxRiego(e);
+    // cuándo hará falta volver (lo usa el bot para despertar el PC solo cuando haya cosecha): ya, si hay algo listo o vacío
+    lsPut('axh-proxima', listas(e).length || vacias(e).length ? Date.now() : (t || 0));
     kSet(p.querySelector('.axh-t-listas'), String(listas(e).length));
     kSet(p.querySelector('.axh-t-prox'), listas(e).length ? '¡Ya!' : t ? falta(t - Date.now()) : '–');
     kSet(p.querySelector('.axh-t-riego'), regables(e).length ? `${regables(e).length} ya` : r ? falta(r - Date.now()) : 'hecho');

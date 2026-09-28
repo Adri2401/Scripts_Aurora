@@ -4,10 +4,10 @@ Juega con los mismos scripts de Tampermonkey en un navegador sin pantalla, a sus
 
 | Cuándo (hora de España) | Tarea | Qué hace |
 |---|---|---|
-| Cada día entre 08:00 y 12:00 | `diario` | Todas las diarias (y los Safaris, Tren y Casa Treta de las otras regiones), el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo»), los respiros del Salón, los 3 encuentros gratis de la manada de cada región, la marea de la Isla, la bajada gratis de las Entrañas (desde el piso 1), los Tronos (defiende el tuyo con el mejor equipo o reta al más fácil) y los retos a ciegas de la Torre |
-| Entre 20:00 y 23:59, y otra vez entre 00:00 y 02:00 | `subsuelo` | Se pone las Botas de Andar del Huerto y pica todas las vetas del Subsuelo |
-| Lunes 00:00 | `entranas-pases` | Baja las Entrañas con los Pases del monte hasta gastarlos, sin gastar energía |
-| Cada 3 horas | `isla` | Isla Espejismo: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura las que no tienes (y los variocolor), ordena el equipo para evolucionar y lucha contra el jefe cuando llega |
+| Mañana, entre 08:00 y 12:00 | `manana` | Todas las diarias (y los Safaris, Tren y Casa Treta de las otras regiones), el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo»), los respiros del Salón, los 3 encuentros gratis de la manada de cada región, la marea de la Isla, los Tronos (defiende el tuyo o reta al más fácil, y si pierde, al siguiente) y los retos a ciegas de la Torre |
+| Tarde, entre 22:30 y 23:30 (domingo 21:30–22:15) | `tarde` | Subsuelo (se pone las Botas de Andar si no las lleva), Entrañas (bajada gratis y Pases del monte desde el piso 1, nunca energía), la marea de la Isla y el Huerto |
+| Noche, entre 00:00 y 02:00 (lunes a las 00:01) | `noche` | Los lunes primero las Galerías hasta la planta 40; luego Subsuelo y Huerto |
+| Cuando hay cosecha | `huerto` | En Windows solo despierta el PC si ninguna de las otras lo va a hacer en la hora y media siguiente ni es de madrugada; en el servidor, cada 4 h |
 
 Las de franja salen cada día a una hora distinta dentro de ella. Nunca entra en el Suelo Helado, Voltorb Flip ni las Ruinas Alfa.
 
@@ -38,4 +38,4 @@ Si el PC admite «Modo de espera (S3)» (`powercfg /a`), Windows lo despierta a 
    de tareas > AuroraDex) y te pide la cookie una vez (no se ve al pegarla).
 3. Deja el PC **en suspensión, no apagado**, y con tu usuario iniciado. Mientras juega no deja que se duerma; al acabar, sí.
 
-Mismo horario que en el servidor (hora del PC). Log: `bot\aurora.log`. Aviso por Telegram: `bot\aviso.env`.
+Mismo horario que en el servidor (hora del PC): se despierta 3 veces al día y alguna más solo si el Huerto tiene cosecha. Log: `bot\aurora.log`. Aviso por Telegram: `bot\aviso.env`.

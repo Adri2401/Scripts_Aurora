@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.25.0
-// @description  Solo en /castillo. Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y a un variocolor o legendario le lanza la Master Ball (y avisa).
+// @version      0.26.0
+// @description  Solo en /castillo. /castillo?hasta=40: baja desde el sello más hondo derecho hasta esa planta y para. Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y a un variocolor o legendario le lanza la Master Ball (y avisa).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_galerias.user.js
@@ -276,6 +276,9 @@
     const ini = t.jugador.c + ',' + t.jugador.f;
     const prev = new Map([[ini, null]]), cola = [ini];
     const bajadas = bajadasDe(t);
+    // personajes que no se apartan (mercader, arqueólogo, puerta, lápida…): nunca se pasa por encima (chocar con el
+    // mercader abre su tienda y se volvía a intentar sin fin)
+    const duros = new Set(t.entidades.filter(e => !['entrenador', 'remolino', 'objeto', 'movediza', 'jarron'].includes(e.tipo)).map(e => e.c + ',' + e.f));
     const pasa = (k, meta) => {
       const cel = t.celdas.get(k);
       if (bajadas.has(k) || (!(cel && cel.tipo !== 'niebla') && (m.c[k] === 'e' || m.c[k] === 'm'))) return meta;
@@ -290,6 +293,7 @@
         const nk = (c + dc) + ',' + (f + df);
         if (prev.has(nk) || !pasa(nk, esMeta(c + dc, f + df))) continue;
         if (evitar && t.ocupadas && t.ocupadas.has(nk) && !esMeta(c + dc, f + df)) continue;
+        if (duros.has(nk) && !esMeta(c + dc, f + df)) continue;
         prev.set(nk, k); cola.push(nk);
       }
     }
@@ -1124,7 +1128,9 @@
     if (!mejor) return false;
     const { e, r, dist } = mejor;
     msg = `Algo tapa el paso (${e.tipo}): pruebo a chocar con ello…`; pintar();
-    if (dist === 1) { bloqueadores[clave(e)] = (bloqueadores[clave(e)] || 0) + 1; await andar(e.c - t.jugador.c, e.f - t.jugador.f); await pausa(900, 1300); return true; }
+    // cada intento cuenta, también el de ir hacia él (si por el camino se cruza otro personaje, antes no se acababa nunca)
+    bloqueadores[clave(e)] = (bloqueadores[clave(e)] || 0) + 1;
+    if (dist === 1) { await andar(e.c - t.jugador.c, e.f - t.jugador.f); await pausa(900, 1300); return true; }
     if (r.length > 1) { await irPor(r, t); await pausa(700, 1100); return true; }
     return false;
   }
@@ -1151,6 +1157,14 @@
       }
       sinPantalla = 0;
       recordar(t);
+      // objetivo de planta (p. ej. la 40 los lunes): al llegar, se para ahí
+      if (hasta && (numPlanta() || 0) >= hasta) {
+        msg = `🏁 Planta ${numPlanta()}: objetivo alcanzado.`;
+        console.log('[axg] ' + msg);
+        try { localStorage.setItem('axg-hasta-ok', JSON.stringify({ t: Date.now(), planta: numPlanta() })); } catch { /* nada */ }
+        hasta = 0;
+        break;
+      }
       if (await gestionarVida()) continue;
       if (await gestionarLuz()) continue;
 
@@ -1378,6 +1392,39 @@
     dejar.insertAdjacentElement('beforebegin', b);
   }
 
+  /* ── Bajar hasta una planta: /castillo?hasta=40 (lo usa el bot los lunes a las 00:00). Elige el sello más hondo por
+   * debajo de esa planta, baja (⚡ 10) y va derecho a cada escalera, sin combates, jarrones ni cámaras, hasta llegar.
+   * Si esta semana ya llegaste, no hace nada. ── */
+  let hasta = 0;
+  async function bajarHasta(n, forzar = false) {
+    const avisar = t => { msg = t; console.log('[axg] ' + t); try { localStorage.setItem('axg-hasta-ok', JSON.stringify({ t: Date.now(), planta: 0, msg: t })); } catch { /* nada */ } };
+    for (let i = 0; i < 60 && !leerTablero(); i++) {
+      const main = (document.querySelector('main') || {}).textContent || '';
+      const sem = main.match(/semana\s*(\d+)/i);
+      if (sem && +sem[1] >= n && !forzar) { avisar(`🏁 Esta semana ya llegaste a la planta ${sem[1]}.`); return; }
+      const bajar = botonesVisibles().find(b => /^\s*bajar a la planta/i.test(b.textContent || '') && !b.disabled);
+      if (bajar) {
+        const sellos = botonesVisibles().map(b => { const m = (b.textContent || '').match(/sello\s*·\s*planta\s*(\d+)/i); return m ? { b, n: +m[1] } : null; }).filter(x => x && x.n < n).sort((a, b) => b.n - a.n);
+        if (sellos[0] && !new RegExp('planta\\s*' + sellos[0].n + '\\b').test(bajar.textContent || '')) { sellos[0].b.click(); await sleep(900); continue; }
+        console.log('[axg] ' + (bajar.textContent || '').trim());
+        bajar.click(); await sleep(3500); continue;
+      }
+      await sleep(500);
+    }
+    if (!leerTablero()) { avisar('⚠ No he podido entrar en las Galerías (¿sin energía?).'); return; }
+    hasta = n; combatir = false; recoger = false;
+    if (panel) { const bc = panel.querySelector('[data-a="combatir"]'), br = panel.querySelector('[data-a="recoger"]'); if (bc) bc.textContent = '⚔️ Combatir: no'; if (br) br.textContent = '🏺 Jarrones y tumbas: no'; }
+    console.log('[axg] Bajo derecho hasta la planta ' + n);
+    if (!explorando) explorar('escalera');
+  }
+  function hastaDesdeEnlace() {
+    const q = new URLSearchParams(location.search);
+    const n = parseInt(q.get('hasta'), 10);
+    if (!/^\/castillo/.test(location.pathname) || !n) return;
+    history.replaceState(history.state, '', location.pathname);
+    setTimeout(() => bajarHasta(n, q.has('forzar')), 2000);
+  }
+
   // Solo funciona en /castillo. La web no recarga al navegar, así que si sales se para la exploración y se quita todo.
   const enCastillo = () => /^\/castillo(\/|$)/.test(location.pathname);
   function quitarTodo() {
@@ -1392,6 +1439,7 @@
   }
 
   esperarHidratacion().then(() => {
+    hastaDesdeEnlace();
     setInterval(() => { if (enCastillo()) botonResolver(); }, 600);
     tick();
     setInterval(tick, 500);

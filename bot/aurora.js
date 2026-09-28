@@ -1,15 +1,12 @@
 // Juega Aurora Dex solo, en un navegador sin pantalla, con los mismos userscripts de Tampermonkey.
 // Pensado para cron en un servidor (Oracle Cloud Free, una Raspberry…). Cada tarea hace una cosa y acaba:
 //
-//   node aurora.js diario          → diarias (con Huerto, Valle y Salón), Manadas gratis, bajada gratis de las Entrañas, Tronos y Torre
-//   node aurora.js isla            → Isla Espejismo: gasta la marea explorando y capturando especies nuevas (cada 3 h)
-//   node aurora.js manadas         → en cada región busca la manada y hace sus 3 encuentros gratis (sin gastar energía)
-//   node aurora.js diarias         → solo la ruta de «Jugar todas las diarias»
-//   node aurora.js entranas        → la bajada gratis del día de las Entrañas (nunca gasta energía ni pases)
-//   node aurora.js entranas-pases  → baja con los Pases del monte hasta gastarlos (nunca gasta energía; los lunes 00:00)
-//   node aurora.js subsuelo        → se pone las Botas de Andar del Huerto y pica todas las vetas del Subsuelo
-//   node aurora.js tronos          → defiende el trono que tengas con el mejor equipo o reta al más fácil
-//   node aurora.js torre           → retos a ciegas de la Torre (espera entre retos) hasta hacer los del día
+//   Las que usa el horario (cada una junta varias para despertar el PC las menos veces posible):
+//   node aurora.js manana          → diarias (con Huerto, Valle y Salón), Manadas gratis, Isla, Tronos y Torre
+//   node aurora.js tarde           → Subsuelo, Entrañas (bajada gratis y pases, nunca energía), Isla y Huerto
+//   node aurora.js noche           → (los lunes, primero Galerías hasta la planta 40) Subsuelo y Huerto
+//   node aurora.js huerto          → cosecha, planta Meloc/Latano y riega (solo cuando hay cosecha lista)
+//   Sueltas: diarias, manadas, isla, entranas, entranas-pases, subsuelo, tronos, torre, galerias
 //   node aurora.js --sesion FICHERO → la primera vez: mete tu sesión (la cookie __Secure-next-auth.session-token)
 //
 // La sesión se guarda en ./perfil y el juego la va renovando sola. Si caduca, sale con código 2 y avisa.
@@ -25,7 +22,7 @@ const PERFIL = process.env.AURORA_PERFIL || path.join(__dirname, 'perfil');
 const SCRIPTS = (process.env.AURORA_SCRIPTS || [
   'Auroradex_diarias.user.js', 'Auroradex_safari.user.js', 'Auroradex_casatreta.user.js', 'Auroradex_huerto.user.js',
   'Auroradex_valle.user.js', 'Auroradex_salon.user.js', 'Auroradex_entranas.user.js', 'Auroradex_grutas.user.js', 'Auroradex_tiers.user.js',
-  'Auroradex_manadas.user.js', 'Auroradex_capturaryguarderia.user.js', 'Auroradex_isla.user.js',
+  'Auroradex_manadas.user.js', 'Auroradex_capturaryguarderia.user.js', 'Auroradex_isla.user.js', 'Auroradex_galerias.user.js',
 ].join(',')).split(',').map(s => s.trim()).filter(Boolean);
 const LIGAS = (process.env.AURORA_LIGAS || 'clasico').split(',').map(s => s.trim()).filter(Boolean);
 const ahora = () => new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
@@ -108,6 +105,22 @@ const TAREAS = {
     const hecho = r.texto.split('\n').filter(l => /✅|✨|👑|evolucionado|Marea gastada/.test(l));
     return '🏝️ Isla Espejismo\n' + (hecho.join('\n') || r.texto.slice(-300)) + (r.ok ? '' : '\n⚠ Se ha pasado el tiempo.');
   },
+  async huerto(p) {
+    await p.addInitScript(() => { try { const v = JSON.parse(localStorage.getItem('axh-baya') || 'null'); if (!['baya-meloc', 'baya-latano', 'botas'].includes(v)) localStorage.setItem('axh-baya', JSON.stringify('botas')); } catch { /* nada */ } });
+    await p.goto('https://auroradex.es/huerto', { waitUntil: 'domcontentloaded' });
+    if (!await pulsarCuandoSalga(p, '#axh-panel .axh-todo', /⏳/, 40)) return '🌱 Huerto: ⚠ no veo el panel del script.';
+    await espera(3000);
+    const r = await esperarFin(p, () => { const b = document.querySelector('#axh-panel .axh-todo'); return b && !b.disabled ? 'fin ' + ((document.querySelector('#axh-panel .axh-log') || {}).innerText || '') : ''; }, /^fin/, 5);
+    const hecho = r.texto.split('\n').filter(l => /🧺|🌱|💧|⚠|Nada/.test(l)).slice(-4).join('\n');
+    return '🌱 Huerto\n' + (hecho || r.texto.slice(-200));
+  },
+  async galerias(p) {
+    const t0 = Date.now();
+    await p.goto('https://auroradex.es/castillo?hasta=40', { waitUntil: 'domcontentloaded' });
+    const r = await esperarFin(p, desde => { try { const o = JSON.parse(localStorage.getItem('axg-hasta-ok') || 'null'); return o && o.t >= desde ? (o.msg || `🏁 Planta ${o.planta}: objetivo alcanzado.`) : ((document.querySelector('#axg-panel .axg-msg') || {}).textContent || ''); } catch { return ''; } },
+      /🏁|No he podido entrar/, 90, t0);
+    return '🪜 Galerías (planta 40)\n' + (r.texto || '⚠ Sin respuesta del script.') + (r.ok ? '' : '\n⚠ Se ha pasado el tiempo.');
+  },
   async subsuelo(p) {
     await p.goto('https://auroradex.es/huerto?botas=1&volver=' + encodeURIComponent('/subsuelo?explorar=1'), { waitUntil: 'domcontentloaded' });
     await espera(25000);
@@ -142,18 +155,29 @@ const TAREAS = {
   },
 };
 TAREAS['entranas-pases'] = (p, ctx) => TAREAS.entranas(p, ctx, true);
-TAREAS.diario = async (p, ctx) => {
-  const out = [];
-  for (const t of ['diarias', 'manadas', 'isla', 'entranas', 'tronos', 'torre']) {
-    try { out.push(await nueva(ctx, TAREAS[t])); } catch (e) { out.push(`⚠ ${t}: ${e.message}`); }
-    log(out[out.length - 1]);
-  }
-  return out.join('\n\n');
+// Las del horario: varias seguidas en la misma vez que se despierta el PC
+const esLunes = () => new Date().toLocaleDateString('es-ES', { weekday: 'long', timeZone: 'Europe/Madrid' }) === 'lunes';
+const GRUPOS = {
+  manana: () => ['diarias', 'manadas', 'isla', 'tronos', 'torre'],
+  tarde: () => ['subsuelo', 'entranas-pases', 'isla', 'huerto'],
+  noche: () => [...(esLunes() ? ['galerias'] : []), 'subsuelo', 'huerto'],
 };
+GRUPOS.diario = GRUPOS.manana;                                  // el nombre de antes
+for (const [g, lista] of Object.entries(GRUPOS)) {
+  TAREAS[g] = async (p, ctx) => {
+    const out = [];
+    for (const t of lista()) {
+      try { out.push(await nueva(ctx, TAREAS[t])); } catch (e) { out.push(`⚠ ${t}: ${e.message}`); }
+      log(out[out.length - 1]);
+    }
+    return out.join('\n\n');
+  };
+  TAREAS[g].grupo = true;
+}
 // cada tarea en una pestaña nueva (así el sessionStorage de una no se mezcla con la siguiente)
 async function nueva(ctx, fn) {
   const p = await ctx.newPage();
-  p.on('console', m => { const t = m.text(); if (/^\[(diarias|axh|axsub)\]/.test(t)) log(t); });
+  p.on('console', m => { const t = m.text(); if (/^\[(diarias|axh|axsub|axg|axi|manadas)\]/.test(t)) log(t); });
   try { return await fn(p, ctx); } finally { await p.close().catch(() => {}); }
 }
 
@@ -184,9 +208,15 @@ async function nueva(ctx, fn) {
   if (!tarea) { log('Dentro. Sesión lista.'); await ctx.close(); return; }
   log(`Dentro. Tarea: ${tarea}`);
   let resumen;
-  try { resumen = tarea === 'diario' ? await TAREAS.diario(p0, ctx) : await nueva(ctx, TAREAS[tarea]); }
+  try { resumen = TAREAS[tarea].grupo ? await TAREAS[tarea](p0, ctx) : await nueva(ctx, TAREAS[tarea]); }
   catch (e) { resumen = `⚠ ${tarea}: ${e.message}`; try { await p0.screenshot({ path: path.join(__dirname, 'ultimo.png') }); } catch { /* nada */ } }
   log('Resumen:\n' + resumen);
+  // cuándo estará lista la próxima cosecha del Huerto (para despertar el PC justo entonces; lo lee ejecutar.ps1)
+  try {
+    const h = await p0.evaluate(() => { try { return +JSON.parse(localStorage.getItem('axh-proxima') || '0') || 0; } catch { return 0; } });
+    fs.writeFileSync(path.join(__dirname, 'proximo.json'), JSON.stringify({ huerto: h, t: Date.now() }));
+    if (h) log('Próxima cosecha del Huerto: ' + new Date(h).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }));
+  } catch { /* nada */ }
   await telegram('🎮 Aurora Dex · ' + tarea + '\n\n' + resumen);
   await ctx.close();
 })().catch(async e => { log('Error:', e.message); await telegram('⚠ Aurora Dex: el bot ha fallado: ' + e.message); process.exit(1); });

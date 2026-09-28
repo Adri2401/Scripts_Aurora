@@ -46,27 +46,37 @@ $ps = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $ejecutar = Join-Path $bot 'ejecutar.ps1'
 $ajustes = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 6) -MultipleInstances IgnoreNew
 $quien = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-$islaHoras = 0..7 | ForEach-Object { New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.AddHours(3 * $_).AddMinutes(40)) }
-# las de franja (v) cambian de hora cada dia: al jugar, se vuelven a programar para el dia siguiente al azar dentro de ella
+# Pocas veces al dia, cada una con varias cosas seguidas (para despertar el PC lo menos posible). Las de franja (v)
+# cambian de hora cada dia: al jugar, se vuelven a programar para el dia siguiente al azar dentro de ella.
+#   manana 08:00-12:00: diarias (Huerto, Valle, Salon), Manadas, Isla, Tronos y Torre
+#   tarde  22:30-23:30 (domingo 21:30-22:15, para acabar antes de las Galerias): Subsuelo, Entranas, Isla y Huerto
+#   noche  00:00-02:00 (lunes a las 00:01: primero Galerias hasta la planta 40): Subsuelo y Huerto
+#   huerto: solo cuando hay cosecha lista y ninguna de las otras va a despertar el PC en la hora y media siguiente
 $provisional = New-ScheduledTaskTrigger -Once -At ([datetime]::Now.AddDays(1))
 $tareas = @(
-  @{ n = 'diario';         tarea = 'diario';   v = '08:00-12:00'; t = @($provisional) },
-  @{ n = 'subsuelo-tarde'; tarea = 'subsuelo'; v = '20:00-23:59'; t = @($provisional) },
-  @{ n = 'subsuelo-noche'; tarea = 'subsuelo'; v = '00:00-02:00'; t = @($provisional) },
-  @{ n = 'entranas-pases'; tarea = 'entranas-pases'; t = @(New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At '00:00') },
-  @{ n = 'isla';           tarea = 'isla';     t = $islaHoras }
+  @{ n = 'manana'; v = '08:00-12:00' },
+  @{ n = 'tarde';  v = '22:30-23:30'; dom = '21:30-22:15' },
+  @{ n = 'noche';  v = '00:00-02:00'; lun = '00:01' },
+  @{ n = 'huerto' }
 )
-Unregister-ScheduledTask -TaskPath '\AuroraDex\' -TaskName 'subsuelo' -Confirm:$false -ErrorAction SilentlyContinue   # la de antes (23:00 y 01:00 fijas)
+# las de antes (otra organizacion de horarios)
+foreach ($viejo in 'diario', 'subsuelo', 'subsuelo-tarde', 'subsuelo-noche', 'isla', 'entranas-pases') { Unregister-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $viejo -Confirm:$false -ErrorAction SilentlyContinue }
 foreach ($x in $tareas) {
-  $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ejecutar`" -Tarea $($x.tarea)"
+  $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ejecutar`" -Tarea $($x.n)"
   if ($x.v) { $arg += " -Nombre $($x.n) -Ventana $($x.v)" }
+  if ($x.dom) { $arg += " -VentanaDomingo $($x.dom)" }
+  if ($x.lun) { $arg += " -HoraLunes $($x.lun)" }
   $accion = New-ScheduledTaskAction -Execute $ps -Argument $arg -WorkingDirectory $bot
-  Register-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $x.n -Action $accion -Trigger $x.t -Settings $ajustes -Principal $quien -Force | Out-Null
+  Register-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $x.n -Action $accion -Trigger $provisional -Settings $ajustes -Principal $quien -Force | Out-Null
   if ($x.v) {
-    & $ps -NoProfile -ExecutionPolicy Bypass -File $ejecutar -Nombre $x.n -Ventana $x.v -SoloProgramar
+    $extra = @(); if ($x.dom) { $extra += @('-VentanaDomingo', $x.dom) }; if ($x.lun) { $extra += @('-HoraLunes', $x.lun) }
+    & $ps -NoProfile -ExecutionPolicy Bypass -File $ejecutar -Nombre $x.n -Ventana $x.v @extra -SoloProgramar
     $sig = (Get-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $x.n | Get-ScheduledTaskInfo).NextRunTime
-    Write-Host "  - $($x.n): cada dia entre $($x.v.Replace('-', ' y ')), la proxima $($sig.ToString('dd/MM HH:mm'))"
-  } else { Write-Host "  - $($x.n)" }
+    Write-Host "  - $($x.n): la proxima $($sig.ToString('ddd dd/MM HH:mm'))"
+  } else {
+    Disable-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $x.n | Out-Null
+    Write-Host "  - $($x.n): se programa sola cuando haya cosecha"
+  }
 }
 
 # 6) Tu sesion (la cookie de auroradex.es)
@@ -88,7 +98,7 @@ if ($pedir) {
 }
 
 Paso 'Hecho'
-Write-Host 'Tareas (hora de tu PC): diarias entre 08:00 y 12:00, Subsuelo entre 20:00 y 23:59 y otra entre 00:00 y 02:00 (a una hora distinta cada dia), Entranas con pases lunes 00:00, Isla cada 3 h (00:40, 03:40...).'
+Write-Host 'Se despierta 3 veces al dia (manana 08-12, tarde 22:30-23:30, noche 00-02; lunes 00:01 con las Galerias) y alguna mas solo si el Huerto tiene cosecha.'
 Write-Host 'Deja el PC en SUSPENSION (no apagado) y con tu usuario iniciado: se despierta, juega y vuelve a dormirse.'
 Write-Host "Probar ahora:   cd `"$bot`";  node aurora.js tronos"
 Write-Host "Ver que ha hecho:   Get-Content `"$(Join-Path $bot 'aurora.log')`" -Tail 40"
