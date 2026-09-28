@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Grutas del Subsuelo (todas las vetas)
 // @namespace    auroradex-grutas
-// @version      0.6.4
-// @description  Solo en /subsuelo. «🧭 Explorar y picar»: recorre el mapa deprisa y pica cada veta (y Poké Ball) que ve de los tipos elegidos. «⛏️ Picarlas todas»: el camino más corto por todas las que conoce (el mínimo de pasos, que es lo que cuesta energía al andar; con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa del servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar y el ritmo (humano por defecto). Dibuja el camino y se para si no llega la energía; sigue donde lo dejó.
+// @version      0.7.0
+// @description  Solo en /subsuelo. «🧭 Explorar y picar»: recorre el mapa deprisa y pica cada veta (y Poké Ball) que ve de los tipos elegidos. «⛏️ Picarlas todas»: el camino más corto por todas las que conoce (el mínimo de pasos, que es lo que cuesta energía al andar; con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa del servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar y el ritmo (humano por defecto). Dibuja el camino y se para si no llega la energía; sigue donde lo dejó. Antes de andar se pone las Botas de Andar del Huerto (con su script). /subsuelo?explorar=1 empieza solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_grutas.user.js
@@ -299,7 +299,7 @@
    *  AJUSTES Y MEMORIA
    * ------------------------------------------------------------------ */
   const PANEL_ID = 'axsub-panel', U = '#' + PANEL_ID, DIBUJO_ID = 'axsub-dibujo';
-  const VERSION = '0.6.4';
+  const VERSION = '0.7.0';
   const LS_CFG = 'axsub-cfg', LS_MEM = 'axsub-mem-v1';
   const H12 = 12 * 3600e3, H24 = 24 * 3600e3;
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -311,7 +311,7 @@
   const lsLee = (k, def) => { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v ?? def; } catch { return def; } };
   const lsPon = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin storage */ } };
 
-  const cfg = Object.assign({ agua: true, dibujar: true, ritmo: 'humano' }, lsLee(LS_CFG, {}));
+  const cfg = Object.assign({ agua: true, dibujar: true, ritmo: 'humano', botas: true }, lsLee(LS_CFG, {}));
   // Ritmo: «humano» (por defecto) mete pausas al azar entre pasos, antes y después de picar y, de vez en cuando,
   // un descanso más largo, para no ir a golpe de reloj; «rápido» va tan deprisa como deja el juego
   const RITMOS = {
@@ -1965,6 +1965,7 @@
         <label class="k-switch"><input type="checkbox" class="axsub-agua"><span class="text-xs font-bold text-tinta-600">🌊 Cruzar el agua (Medalla Ciénaga)</span></label>
         <div class="k-seg axsub-ritmo" style="--k-cols:2"><button type="button" data-r="humano"><span>🐢</span>Ritmo humano</button><button type="button" data-r="rapido"><span>🐇</span>Rápido</button></div>
         <label class="k-switch"><input type="checkbox" class="axsub-dib"><span class="text-xs font-bold text-tinta-600">🗺️ Dibujar el camino en el mapa</span></label>
+        <label class="k-switch"><input type="checkbox" class="axsub-botas"><span class="text-xs font-bold text-tinta-600">🥾 Antes, ponerme las Botas de Andar del Huerto (cobra cada 9 pasos)</span></label>
         <button type="button" class="axsub-go boton-principal w-full !py-2.5 text-sm">⛏️ Picarlas todas (camino más corto)</button>
         <button type="button" class="axsub-exp boton-secundario w-full !py-2 text-xs">🧭 Explorar y picar lo que encuentre</button>
         <div class="${K_LOG}"></div>
@@ -1973,10 +1974,13 @@
       for (const [ts, tx] of registro) { const d = new Date(ts), q = document.createElement('p'); q.textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}  ${tx}`; caja.appendChild(q); }
       const ag = p.querySelector('.axsub-agua'), di = p.querySelector('.axsub-dib');
       ag.checked = cfg.agua; di.checked = cfg.dibujar;
+      const bo = p.querySelector('.axsub-botas');
+      bo.checked = cfg.botas !== false;
+      bo.addEventListener('change', () => { cfg.botas = bo.checked; guardaCfg(); });
       ag.addEventListener('change', () => { cfg.agua = ag.checked; guardaCfg(); plan = null; refrescar(true); });
       di.addEventListener('change', () => { cfg.dibujar = di.checked; guardaCfg(); dibujar(ultimaObs); });
-      p.querySelector('.axsub-go').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); recorrer('picar'); });
-      p.querySelector('.axsub-exp').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); recorrer('explorar'); });
+      p.querySelector('.axsub-go').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); iniciar('picar'); });
+      p.querySelector('.axsub-exp').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); iniciar('explorar'); });
       p.querySelector('.axsub-copiar').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); copiarDatos(); });
       p.querySelector('.axsub-ritmo').addEventListener('click', e => {
         const b = e.target.closest('button[data-r]');
@@ -2090,5 +2094,35 @@
   // Para probar sin la web
   window.__axSub = { leerVista, codPlano, porVer, planExplorar, tablero, leerCosas, energia, pasosParaCobro, planificar, construirMapa, ordenExacto, ordenHeuristico, cobroAndar, observar, copiarDatos, mems: () => mems };
 
-  esperarHidratacion().then(() => { tick(); setInterval(tick, 1500); });
+  /* ── 🥾 Botas de Andar: antes de andar, si no las llevas puestas, se va al Huerto a ponérselas (lo hace el script del
+   * Huerto con /huerto?botas=1&volver=…) y se vuelve aquí a seguir. Un intento cada 10 min como mucho. ── */
+  const BOTAS_SS = 'axsub-botas-intento';
+  function faltanBotas() {
+    if (cfg.botas === false || corriendo) return false;
+    try { if (!localStorage.getItem('axh-v')) return false; } catch { return false; }   // sin el script del Huerto no se va
+    if (lsLee('axh-botas-hasta', 0) > Date.now() + 20 * 60 * 1000) return false;
+    let t = 0; try { t = +sessionStorage.getItem(BOTAS_SS) || 0; } catch { /* nada */ }
+    return Date.now() - t > 10 * 60 * 1000;
+  }
+  function iniciar(m) {
+    if (faltanBotas()) {
+      try { sessionStorage.setItem(BOTAS_SS, String(Date.now())); } catch { /* nada */ }
+      log('🥾 Voy al Huerto a ponerme las Botas de Andar y vuelvo.');
+      location.assign('/huerto?botas=1&volver=' + encodeURIComponent('/subsuelo?' + m + '=1'));
+      return;
+    }
+    recorrer(m);
+  }
+  // /subsuelo?explorar=1 o ?picar=1: empieza solo (lo usan el bot y la vuelta del Huerto)
+  async function arranqueDesdeEnlace() {
+    const q = new URLSearchParams(location.search);
+    const m = q.has('explorar') ? 'explorar' : q.has('picar') ? 'picar' : null;
+    if (!m || !enGrutas()) return;
+    history.replaceState(history.state, '', location.pathname);
+    for (let i = 0; i < 60 && !montar(); i++) await sleep(500);
+    await sleep(1500);
+    if (!corriendo) iniciar(m);
+  }
+
+  esperarHidratacion().then(() => { tick(); setInterval(tick, 1500); arranqueDesdeEnlace(); });
 })();

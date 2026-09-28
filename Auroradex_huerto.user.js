@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Huerto de Bayas (automático)
 // @namespace    auroradex-huerto
-// @version      1.4.0
+// @version      1.4.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_huerto.user.js
 // @description  En el Huerto de Bayas: eliges una baya (solo su icono) o 🥾 (solo Meloc y Latano, en la proporción de las Botas de Andar) y con un botón cosecha lo que esté listo, planta en todo lo vacío y riega todo, con los botones de la propia página. «🥾 Ponerme las Botas de Andar» las usa (o las prepara) para el Subsuelo; /huerto?botas=1&volver=… lo hace solo.
@@ -320,6 +320,8 @@
    *  (con los botones de la propia página).
    * ------------------------------------------------------------------ */
   const LS_BAYA = 'axh-baya';
+  // para que el Subsuelo sepa que este script está (y le puede pedir las Botas)
+  try { localStorage.setItem('axh-v', '1.4.1'); } catch { /* nada */ }
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
   const lsPut = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin storage */ } };
   let enMarcha = false;
