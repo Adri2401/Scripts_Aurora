@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.13.0
+// @version      2.14.0
 // @description  Auto-explora y captura; ante shiny/legendario lanza la Master Ball solo y avisa (vibra y notifica). Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -52,7 +52,8 @@
     PARTNER_KEY: 'adx_macro_partner',      // Pokémon 2 de la crianza (se mantiene la clave antigua)
     PARENT1_KEY: 'adx_macro_parent1',      // Pokémon 1 de la crianza (por defecto Ditto)
     MODE_KEY: 'adx_macro_nursery_mode',    // off | pair | mystery
-    X2_KEY: 'adx_macro_egg_x2',            // '1': alguien del equipo lleva la Piedra Cálida (los huevos progresan el doble)
+    X2_KEY: 'adx_macro_egg_x2',
+    FAST_KEY: 'adx_macro_rapido',          // '1': modo rápido (esperas mínimas entre acciones)            // '1': alguien del equipo lleva la Piedra Cálida (los huevos progresan el doble)
     ENERGY_KEY: 'adx_macro_energy_limit',  // energía máxima a gastar por sesión (vacío = sin límite; 0 = solo lo gratis de la manada)
     DEFAULT_PARENT1: 'Ditto',
 
@@ -546,6 +547,26 @@
   const MYSTERY_LEFT_KEY = 'adx_macro_mystery_left';
   // Piedra Cálida: cada exploración suma 2 al huevo (uno de 5 se abre en 3 exploraciones)
   const eggX2 = () => lsGet(CONFIG.X2_KEY, '0') === '1';
+  // Modo rápido: las esperas «humanas» se quedan en lo mínimo y se espera menos a las animaciones del juego
+  const LENTO = { EXPLORE_DELAY: CONFIG.EXPLORE_DELAY, ACTION_DELAY: CONFIG.ACTION_DELAY, POLL: CONFIG.POLL, LONG_PAUSE_CHANCE: CONFIG.LONG_PAUSE_CHANCE, ANIM_MAX_MS: CONFIG.ANIM_MAX_MS, NURSERY_GRACE_MS: CONFIG.NURSERY_GRACE_MS, MIN_RETHROW_MS: CONFIG.MIN_RETHROW_MS, THROW_CHECK_MS: CONFIG.THROW_CHECK_MS };
+  const RAPIDO = { EXPLORE_DELAY: [30, 90], ACTION_DELAY: [20, 70], POLL: [60, 130], LONG_PAUSE_CHANCE: 0, ANIM_MAX_MS: 1500, NURSERY_GRACE_MS: 1200, MIN_RETHROW_MS: 350, THROW_CHECK_MS: 1200 };
+  const rapido = () => lsGet(CONFIG.FAST_KEY, '0') === '1';
+  const aplicarVelocidad = () => Object.assign(CONFIG, rapido() ? RAPIDO : LENTO);
+  aplicarVelocidad();
+  // En modo rápido, la animación de la Ball (vuela 0,45 s, tres sacudidas de 0,62 s y 0,9 s de final) va 6 veces más
+  // deprisa: el resultado ya viene del servidor antes de animarlo, así que solo se acorta lo que se ve.
+  (() => {
+    const w = window, orig = w.setTimeout;
+    if (w.__adxTimeout) return;
+    w.__adxTimeout = true;
+    const ANIM = new Set([450, 620, 350, 900, 700]);
+    w.setTimeout = function (f, ms, ...r) {
+      try {
+        if (rapido() && ANIM.has(+ms) && document.querySelector('div.h-64.place-items-center.bg-gradient-to-b')) ms = Math.round(ms / 6);
+      } catch { /* nada */ }
+      return orig.call(this, f, ms, ...r);
+    };
+  })();
   const pasoHuevo = () => (eggX2() ? 2 : 1);
 
   const fmtTime = ms => {
@@ -612,6 +633,11 @@
         </div>
       </div>
 
+      <button type="button" role="switch" class="adx-x2 adx-fast rounded-card border-2 border-cielo-200 bg-cielo-50 text-cielo-700" aria-checked="false">
+        <span style="font-size:22px;line-height:1">⚡</span>
+        <span class="adx-x2-t"><b>Modo rápido</b><small class="adx-fast-s"></small></span>
+        <span class="adx-sw" aria-hidden="true"></span>
+      </button>
       <button class="${BTN_CLASS.start}" type="button" data-s="start">▶ Iniciar macro</button>
 
       <div class="adx-progress space-y-2">
@@ -669,7 +695,9 @@
     for (const b of $$('[data-e]', card)) b.addEventListener('click', () => setEnergy(Math.max(0, (getEnergyLimit() ?? 0) + +b.dataset.e)));
     for (const b of $$('[data-q]', card)) b.addEventListener('click', () => setEnergy(b.dataset.q));
     for (const b of $$('[data-mode]', card)) b.addEventListener('click', () => { lsSet(CONFIG.MODE_KEY, b.dataset.mode); renderUI(); });
-    const x2 = $('.adx-x2', card);
+    const rap = $('.adx-fast', card);
+    if (rap) rap.addEventListener('click', () => { lsSet(CONFIG.FAST_KEY, rapido() ? '0' : '1'); aplicarVelocidad(); renderUI(); });
+    const x2 = $('.adx-x2:not(.adx-fast)', card);
     if (x2) x2.addEventListener('click', () => {
       const on = !eggX2();
       lsSet(CONFIG.X2_KEY, on ? '1' : '0');
@@ -802,7 +830,9 @@
     }
     const pair = $('.adx-pair', card);
     if (pair) pair.hidden = mode !== 'pair';
-    const x2b = $('.adx-x2', card);
+    const rb = $('.adx-fast', card);
+    if (rb) { const on = rapido(); if (rb.getAttribute('aria-checked') !== String(on)) rb.setAttribute('aria-checked', String(on)); setText($('.adx-fast-s', card), on ? 'Sin esperas de más: explora y captura lo más deprisa posible' : 'Con pausas de persona entre acción y acción'); }
+    const x2b = $('.adx-x2:not(.adx-fast)', card);
     if (x2b) {
       const on = eggX2();
       x2b.hidden = mode === 'off';
