@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.15.1
+// @version      1.15.2
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  «🔁 En segundo plano hasta gastar los pases»: hace la bajada gratis y luego una tras otra con los Pases del monte en una ventana oculta mientras juegas a otra cosa, con una tarjeta que dice por dónde va. Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Bendiciones: nunca Veterano ni Reclutador, y las Afinidades de un tipo solo si ese tipo es mayoría en el equipo. Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -20,7 +20,7 @@
   const SSF = { on: 'axe-fondo-on', fin: 'axe-fondo-fin', bajadas: 'axe-fondo-bajadas', estado: 'axe-fondo-estado', t0: 'axe-fondo-t0' };
   const ssJ = k => { try { return JSON.parse(sessionStorage.getItem(k) || 'null'); } catch { return null; } };
   const ssW = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* nada */ } };
-  const VERSION = '1.15.1';
+  const VERSION = '1.15.2';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -2281,7 +2281,7 @@
         c.innerHTML = `<div class="axef-cab"><div class="axef-ico"><span>⛰️</span></div><div style="flex:1;min-width:0"><p class="axef-tit"></p><p class="axef-sub"></p></div>
           <button type="button" class="axef-bt axef-min" title="Minimizar">–</button><button type="button" class="axef-bt axef-stop" title="Parar">■</button></div><div class="axef-cuerpo"></div>`;
         c.querySelector('.axef-min').addEventListener('click', e => { e.stopPropagation(); const m = !c.classList.contains('axef-mini'); try { localStorage.setItem('axe-fondo-mini', m ? '1' : '0'); } catch { /* nada */ } this.pintar(); });
-        c.querySelector('.axef-stop').addEventListener('click', e => { e.stopPropagation(); if (ssJ(SSF.on)) { if (confirm('¿Parar las Entrañas en segundo plano?\\n\\nSi estás a mitad de una bajada, se queda donde está: puedes seguirla tú o volver a lanzarla.')) this.parar(); } else this.cerrar(); });
+        c.querySelector('.axef-stop').addEventListener('click', e => { e.stopPropagation(); if (ssJ(SSF.on)) { if (confirm('¿Parar las Entrañas en segundo plano?\n\nSi estás a mitad de una bajada, se queda donde está: puedes seguirla tú o volver a lanzarla.')) this.parar(); } else this.cerrar(); });
         c.querySelector('.axef-cab').addEventListener('click', () => { if (c.classList.contains('axef-mini')) this.ver(); });
         c.querySelector('.axef-cuerpo').addEventListener('click', e => { if (e.target.closest('.axef-vale')) this.cerrar(); });
         document.body.appendChild(c);
