@@ -17,20 +17,17 @@ if [ "$(free -m | awk '/^Mem:/{print $2}')" -lt 2000 ] && [ "$(swapon --show | w
   grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
 fi
 # Horario (hora de España). Cada tarea espera su turno (flock) para no abrir dos navegadores con la misma sesión:
-#   mañana 06:00–08:00 → diarias (con Huerto, Valle y Salón), Manadas gratis, Tronos, Torre a ciegas, Subsuelo e Isla
-#   tarde 18:00–20:00 → Subsuelo (con Botas), Entrañas (gratis y pases, nunca energía), Isla y Huerto
-#   semanal, lunes 00:01 → Galerías hasta la planta 40
+#   solo semanal, lunes 00:01 → Galerías hasta terminar la planta 40 (lo demás, a mano: node aurora.js manana, tarde…)
 #   huerto cada 4 h → cosecha, planta Meloc/Latano y riega
 #   (las de franja salen cada día a una hora distinta: esperan al azar dentro de la franja antes de empezar)
 BOT="$(pwd)"
 # aviso.env (opcional): TELEGRAM_TOKEN=... y TELEGRAM_CHAT=... para que avise al móvil al acabar cada tarea
 tarea() { echo "$1 ${3:+sleep \$(shuf -i 0-$3 -n 1); }cd $BOT/.. && git pull -q; cd $BOT && set -a && { [ -f aviso.env ] && . ./aviso.env; set +a; } && flock -w 21600 aurora.lock /usr/bin/env node aurora.js $2 >> aurora.log 2>&1"; }
 ( crontab -l 2>/dev/null | grep -v -e 'diarias.js' -e 'aurora.js' ;
-  tarea "0 6 * * *" manana 7140 ; tarea "0 18 * * *" tarde 7140 ;
-  tarea "1 0 * * 1" semanal ; tarea "20 */4 * * *" huerto ) | crontab -
+  tarea "1 0 * * 1" semanal ) | crontab -
 echo
 echo "Hecho. Falta meter tu sesión una vez:"
 echo "  1) En el navegador de tu PC, con la sesión iniciada en auroradex.es: F12 → Aplicación/Almacenamiento → Cookies"
 echo "     → copia el valor de  __Secure-next-auth.session-token"
 echo "  2) Aquí:  nano sesion.txt  (pégalo, guarda)  y luego:  node aurora.js --sesion sesion.txt && rm sesion.txt"
-echo "Cron puesto (mañana 06-08, tarde 18-20, lunes 00:01 Galerías, huerto cada 4 h). Log en bot/aurora.log. Para cambiar horas: crontab -e"
+echo "Cron puesto: solo los lunes a las 00:01, Galerías hasta la planta 40. Log en bot/aurora.log. Para cambiar horas: crontab -e"

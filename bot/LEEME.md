@@ -1,15 +1,17 @@
 # Aurora Dex solo, en un servidor (Oracle Cloud Free)
 
-Juega con los mismos scripts de Tampermonkey en un navegador sin pantalla, a sus horas:
+Juega con los mismos scripts de Tampermonkey en un navegador sin pantalla. **Solo se programa la semanal** (lunes a las
+00:01, Galerías hasta terminar la planta 40); el resto son tareas que puedes lanzar a mano cuando quieras
+(`node aurora.js manana`, `tarde`…):
 
-| Cuándo (hora de España) | Tarea | Qué hace |
-|---|---|---|
-| Mañana, entre 06:00 y 08:00 | `manana` | Todas las diarias (y los Safaris, Tren y Casa Treta de las otras regiones), el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo»), los respiros del Salón, los 3 encuentros gratis de la manada de cada región, los Tronos (defiende el tuyo o reta al más fácil, y si pierde, al siguiente), los retos a ciegas de la Torre, el Subsuelo y la marea de la Isla |
-| Tarde, entre 18:00 y 20:00 | `tarde` | Subsuelo (se pone las Botas de Andar si no las lleva), Entrañas (bajada gratis y Pases del monte desde el piso 1, nunca energía), la marea de la Isla y el Huerto |
-| Lunes a las 00:01 | `semanal` | Las Galerías hasta terminar la planta 40 |
-| Cuando hay cosecha | `huerto` | En Windows solo despierta el PC si ninguna de las otras lo va a hacer en la hora y media siguiente ni es de madrugada; en el servidor, cada 4 h |
+| Tarea | Qué hace |
+|---|---|
+| `manana` | Todas las diarias (y los Safaris, Tren y Casa Treta de las otras regiones), el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo»), los respiros del Salón, los 3 encuentros gratis de la manada de cada región, los Tronos (defiende el tuyo o reta al más fácil, y si pierde, al siguiente), los retos a ciegas de la Torre, el Subsuelo y la marea de la Isla |
+| `tarde` | Subsuelo (se pone las Botas de Andar si no las lleva), Entrañas (bajada gratis y Pases del monte desde el piso 1, nunca energía), la marea de la Isla y el Huerto |
+| `semanal` (programada: lunes 00:01) | Las Galerías hasta terminar la planta 40 |
+| `huerto` | Cosecha, planta Meloc/Latano y riega |
 
-Las de franja salen cada día a una hora distinta dentro de ella. Nunca entra en el Suelo Helado, Voltorb Flip ni las Ruinas Alfa.
+Nunca entra en el Suelo Helado, Voltorb Flip ni las Ruinas Alfa.
 
 1. Crea una VM «Always Free» en Oracle Cloud (Ubuntu 22.04 o 24.04; vale la ARM Ampere o la AMD micro) y entra por SSH.
 2. `sudo apt-get install -y git && git clone https://github.com/Adri2401/Scripts_Aurora.git && cd Scripts_Aurora/bot && bash instalar.sh`
@@ -38,4 +40,4 @@ Si el PC admite «Modo de espera (S3)» (`powercfg /a`), Windows lo despierta a 
    de tareas > AuroraDex) y te pide la cookie una vez (no se ve al pegarla).
 3. Deja el PC **en suspensión, no apagado**, y con tu usuario iniciado. Mientras juega no deja que se duerma; al acabar, sí.
 
-Mismo horario que en el servidor (hora del PC): se despierta 2 veces al día, los lunes a las 00:01 para las Galerías y alguna vez más solo si el Huerto tiene cosecha. Log: `bot\aurora.log`. Aviso por Telegram: `bot\aviso.env`.
+Mismo horario que en el servidor (hora del PC): solo se despierta los lunes a las 00:01 para las Galerías. Log: `bot\aurora.log`. Aviso por Telegram: `bot\aviso.env`.
