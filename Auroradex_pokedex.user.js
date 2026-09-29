@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Cazador de Pokédex
 // @namespace    auroradex-pokedex
-// @version      1.3.0
+// @version      1.4.0
 // @description  «🎯 Ir a por…» en la Pokédex: toca un Pokémon que te falta, o añade cualquiera a tu lista (p. ej. Rayquaza), y te lleva a su región y al tramo donde más sale (con el «Donde aparece» de la Pokédex del juego).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -78,13 +78,17 @@
     const reg = regionDe(num);
     if (!reg) { aviso(`#${num}: esa especie no está en ninguna región del juego.`, 'mal'); return; }
     const nombre = NOMBRES[num] || '#' + num;
-    ssW(SS_IR, { num, nombre, region: reg, fase: 'region', t: Date.now() });
+    if (irPidiendo) return;
     aviso(`🧭 Voy a por ${nombre} (${reg})…`);
-    const cur = await regionActual();
-    const ir = ssJ(SS_IR); if (!ir || ir.num !== num) return;
-    if (cur === reg) { ir.fase = 'dex'; ssW(SS_IR, ir); location.assign('/pokedex'); }
+    // primero mira dónde estás: si ya estás en su región no se toca el viaje
+    irPidiendo = true;
+    let cur; try { cur = await regionActual(); } finally { irPidiendo = false; }
+    const aqui = cur === reg;
+    ssW(SS_IR, { num, nombre, region: reg, fase: aqui ? 'dex' : 'region', t: Date.now() });
+    if (aqui) { if (location.pathname.replace(/\/+$/, '') === '/pokedex') pasoIr(); else location.assign('/pokedex'); }
     else location.assign('/johto');
   }
+  let irPidiendo = false;
   let irOcupado = false;
   async function pasoIr() {
     const ir = ssJ(SS_IR);
@@ -125,6 +129,18 @@
         }).filter(z => z.pct || z.b);
         const libres = zonas.filter(z => z.b && !z.b.disabled).sort((a, b) => b.pct - a.pct);
         if (!libres.length) {
+          // no sale salvaje pero evoluciona de otro: se va a por la preevolución (hasta 2 saltos)
+          const de = (texto(hoja).match(/Evoluciona de\s+(.+?)(?=\s*(?:›|Evoluciona|DONDE|Donde|$))/) || [])[1];
+          const nDe = de ? numDeNombre(de) : 0;
+          if (nDe && nDe !== ir.num && regionDe(nDe) && (ir.saltos || 0) < 2) {
+            const cond = (texto(hoja).match(/Solo se consigue evolucionando a\s+[^.]+?(al llegar al Nv\.\s*\d+)/i) || [])[1];
+            aviso(`🥚 ${ir.nombre} no sale salvaje: evoluciona de ${NOMBRES[nDe]}${cond ? ' ' + cond : ''}. Voy a por ${NOMBRES[nDe]}.`);
+            const cerrar = $$('button', hoja).find(x => /^cerrar$/i.test(texto(x)));
+            if (cerrar) cerrar.click();
+            ssW(SS_IR, { num: nDe, nombre: NOMBRES[nDe], region: regionDe(nDe), fase: regionDe(nDe) === ir.region ? 'dex' : 'region', t: Date.now(), saltos: (ir.saltos || 0) + 1, chip: regionDe(nDe) === ir.region ? 1 : 0, para: ir.para || ir.nombre });
+            await sleep(900);
+            return;
+          }
           ssW(SS_IR, null);
           if (/no aparece en estado salvaje/i.test(texto(hoja))) aviso(`${ir.nombre} no sale en estado salvaje (evoluciona, sale de un huevo o de un evento).`, 'mal');
           else aviso(`${ir.nombre} solo sale en tramos que aún tienes bloqueados: ${zonas.map(z => z.nombre).join(', ')}.`, 'mal');
@@ -137,7 +153,7 @@
         return;
       }
       if (ir.fase === 'llegando') {
-        if (path === '/mapa') { ssW(SS_IR, null); aviso(`✅ En ${ir.zona}: ${ir.nombre} sale en ~${ir.pct}% de los encuentros. ¡A explorar!`, 'ok'); }
+        if (path === '/mapa') { ssW(SS_IR, null); aviso(`✅ En ${ir.zona}: ${ir.nombre} sale en ~${ir.pct}% de los encuentros.${ir.para ? ` Evoluciónalo para tener a ${ir.para}.` : ''} ¡A explorar!`, 'ok'); }
         else if (Date.now() - (ir.tz || ir.t) > 15000) { ssW(SS_IR, null); aviso(`⚠ No he podido llegar a ${ir.zona}.`, 'mal'); }
       }
     } catch (e) { console.warn('[pokedex ir]', e); }
