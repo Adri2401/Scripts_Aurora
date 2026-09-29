@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Cazador de Manadas
 // @namespace    aurora-dex-manadas
-// @version      1.4.1
+// @version      1.5.0
 // @description  Lee las pistas del Canal Manadas, cambia de región solo, recorre el mapa buscando el tramo que cuadra y para en cuanto encuentra la manada. «🐾 Manadas gratis»: en cada región busca la manada y hace sus 3 encuentros gratis con la macro de Capturar y Guardería (a ⚡ 0), y sigue con la siguiente; /manadas?gratis=1 lo empieza solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -13,8 +13,10 @@
 
 (() => {
   'use strict';
-  // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
-  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
+  // En la ventana oculta del robot de Diarias sí corre (lo usa para las Manadas gratis), con sus propias claves: la
+  // pestaña y esa ventana comparten el sessionStorage. En otras ventanas, no.
+  const EN_FONDO_M = (() => { try { return window.top !== window && window.name === 'axd-fondo'; } catch { return false; } })();
+  try { if (window.top !== window && !EN_FONDO_M) return; } catch { return; }
 
   /* ── Espera a que Next.js/React termine de hidratar ─────────────────────────
    * Si se mete algo en el DOM antes, React da un error de hidratación (#418/#423),
@@ -92,7 +94,7 @@
 
   /* ─────────────────────────── 2 · estado (sobrevive a recargas) ───────────── */
 
-  const KEY  = 'adx:cazador-manadas';
+  const KEY  = EN_FONDO_M ? 'adx:cazador-manadas-fondo' : 'adx:cazador-manadas';
   const E    = () => { try { return JSON.parse(sessionStorage.getItem(KEY) || '{}') || {}; } catch { return {}; } };
   const setE = p => { const s = { ...E(), ...p }; sessionStorage.setItem(KEY, JSON.stringify(s)); pintar(); return s; };
   const borrarE = () => { sessionStorage.removeItem(KEY); pintar(); };
@@ -869,7 +871,7 @@
    * En cada región busca la manada y hace sus encuentros gratis (los 3 primeros no gastan energía) con la macro de
    * «Capturar y Guardería» puesta en «⚡ 0 · solo gratis» (para sola en cuanto el siguiente costaría energía; los
    * variocolor y legendarios, con Master Ball). Luego vuelve al Canal y sigue con la siguiente región. */
-  const GR_KEY = 'mh-gratis', GR_DIA = 'mh-gratis-dia', LIM_KEY = 'adx_macro_energy_limit';
+  const GR_KEY = EN_FONDO_M ? 'mh-gratis-fondo' : 'mh-gratis', GR_DIA = 'mh-gratis-dia', LIM_KEY = 'adx_macro_energy_limit';
   const hoyMh = () => new Date().toLocaleDateString('sv');
   const G = () => { try { return JSON.parse(sessionStorage.getItem(GR_KEY) || 'null'); } catch { return null; } };
   const setG = g => { try { if (g) sessionStorage.setItem(GR_KEY, JSON.stringify(g)); else sessionStorage.removeItem(GR_KEY); } catch { /* nada */ } };
@@ -912,7 +914,7 @@
     gratisLog('🏁 Manadas gratis hechas.');
     const lineas = G().log || [];
     setG(null);
-    try { localStorage.setItem('mh-gratis-ultimo', JSON.stringify({ dia: hoyMh(), log: lineas })); } catch { /* nada */ }
+    try { localStorage.setItem('mh-gratis-ultimo', JSON.stringify({ dia: hoyMh(), t: Date.now(), log: lineas })); } catch { /* nada */ }
     kAviso({ tipo: 'fin', app: 'Cazador de Manadas', icono: '🐾', titulo: 'Manadas gratis hechas', lineas: lineas.slice(-8) });
   }
   let gratisOcupado = false;

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.14.1
-// @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) y el Subsuelo cuando vuelven a llenarse las vetas. Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
+// @version      1.15.0
+// @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_diarias.user.js
@@ -15,7 +15,7 @@
   'use strict';
   // Pokédex nacional (1-1025): nombre en español y, si cambia, el inglés detrás de «/»
   const NOMBRES_DATOS = 'Bulbasaur|Ivysaur|Venusaur|Charmander|Charmeleon|Charizard|Squirtle|Wartortle|Blastoise|Caterpie|Metapod|Butterfree|Weedle|Kakuna|Beedrill|Pidgey|Pidgeotto|Pidgeot|Rattata|Raticate|Spearow|Fearow|Ekans|Arbok|Pikachu|Raichu|Sandshrew|Sandslash|Nidoran♀|Nidorina|Nidoqueen|Nidoran♂|Nidorino|Nidoking|Clefairy|Clefable|Vulpix|Ninetales|Jigglypuff|Wigglytuff|Zubat|Golbat|Oddish|Gloom|Vileplume|Paras|Parasect|Venonat|Venomoth|Diglett|Dugtrio|Meowth|Persian|Psyduck|Golduck|Mankey|Primeape|Growlithe|Arcanine|Poliwag|Poliwhirl|Poliwrath|Abra|Kadabra|Alakazam|Machop|Machoke|Machamp|Bellsprout|Weepinbell|Victreebel|Tentacool|Tentacruel|Geodude|Graveler|Golem|Ponyta|Rapidash|Slowpoke|Slowbro|Magnemite|Magneton|Farfetch’d|Doduo|Dodrio|Seel|Dewgong|Grimer|Muk|Shellder|Cloyster|Gastly|Haunter|Gengar|Onix|Drowzee|Hypno|Krabby|Kingler|Voltorb|Electrode|Exeggcute|Exeggutor|Cubone|Marowak|Hitmonlee|Hitmonchan|Lickitung|Koffing|Weezing|Rhyhorn|Rhydon|Chansey|Tangela|Kangaskhan|Horsea|Seadra|Goldeen|Seaking|Staryu|Starmie|Mr. Mime|Scyther|Jynx|Electabuzz|Magmar|Pinsir|Tauros|Magikarp|Gyarados|Lapras|Ditto|Eevee|Vaporeon|Jolteon|Flareon|Porygon|Omanyte|Omastar|Kabuto|Kabutops|Aerodactyl|Snorlax|Articuno|Zapdos|Moltres|Dratini|Dragonair|Dragonite|Mewtwo|Mew|Chikorita|Bayleef|Meganium|Cyndaquil|Quilava|Typhlosion|Totodile|Croconaw|Feraligatr|Sentret|Furret|Hoothoot|Noctowl|Ledyba|Ledian|Spinarak|Ariados|Crobat|Chinchou|Lanturn|Pichu|Cleffa|Igglybuff|Togepi|Togetic|Natu|Xatu|Mareep|Flaaffy|Ampharos|Bellossom|Marill|Azumarill|Sudowoodo|Politoed|Hoppip|Skiploom|Jumpluff|Aipom|Sunkern|Sunflora|Yanma|Wooper|Quagsire|Espeon|Umbreon|Murkrow|Slowking|Misdreavus|Unown|Wobbuffet|Girafarig|Pineco|Forretress|Dunsparce|Gligar|Steelix|Snubbull|Granbull|Qwilfish|Scizor|Shuckle|Heracross|Sneasel|Teddiursa|Ursaring|Slugma|Magcargo|Swinub|Piloswine|Corsola|Remoraid|Octillery|Delibird|Mantine|Skarmory|Houndour|Houndoom|Kingdra|Phanpy|Donphan|Porygon2|Stantler|Smeargle|Tyrogue|Hitmontop|Smoochum|Elekid|Magby|Miltank|Blissey|Raikou|Entei|Suicune|Larvitar|Pupitar|Tyranitar|Lugia|Ho-Oh|Celebi|Treecko|Grovyle|Sceptile|Torchic|Combusken|Blaziken|Mudkip|Marshtomp|Swampert|Poochyena|Mightyena|Zigzagoon|Linoone|Wurmple|Silcoon|Beautifly|Cascoon|Dustox|Lotad|Lombre|Ludicolo|Seedot|Nuzleaf|Shiftry|Taillow|Swellow|Wingull|Pelipper|Ralts|Kirlia|Gardevoir|Surskit|Masquerain|Shroomish|Breloom|Slakoth|Vigoroth|Slaking|Nincada|Ninjask|Shedinja|Whismur|Loudred|Exploud|Makuhita|Hariyama|Azurill|Nosepass|Skitty|Delcatty|Sableye|Mawile|Aron|Lairon|Aggron|Meditite|Medicham|Electrike|Manectric|Plusle|Minun|Volbeat|Illumise|Roselia|Gulpin|Swalot|Carvanha|Sharpedo|Wailmer|Wailord|Numel|Camerupt|Torkoal|Spoink|Grumpig|Spinda|Trapinch|Vibrava|Flygon|Cacnea|Cacturne|Swablu|Altaria|Zangoose|Seviper|Lunatone|Solrock|Barboach|Whiscash|Corphish|Crawdaunt|Baltoy|Claydol|Lileep|Cradily|Anorith|Armaldo|Feebas|Milotic|Castform|Kecleon|Shuppet|Banette|Duskull|Dusclops|Tropius|Chimecho|Absol|Wynaut|Snorunt|Glalie|Spheal|Sealeo|Walrein|Clamperl|Huntail|Gorebyss|Relicanth|Luvdisc|Bagon|Shelgon|Salamence|Beldum|Metang|Metagross|Regirock|Regice|Registeel|Latias|Latios|Kyogre|Groudon|Rayquaza|Jirachi|Deoxys|Turtwig|Grotle|Torterra|Chimchar|Monferno|Infernape|Piplup|Prinplup|Empoleon|Starly|Staravia|Staraptor|Bidoof|Bibarel|Kricketot|Kricketune|Shinx|Luxio|Luxray|Budew|Roserade|Cranidos|Rampardos|Shieldon|Bastiodon|Burmy|Wormadam|Mothim|Combee|Vespiquen|Pachirisu|Buizel|Floatzel|Cherubi|Cherrim|Shellos|Gastrodon|Ambipom|Drifloon|Drifblim|Buneary|Lopunny|Mismagius|Honchkrow|Glameow|Purugly|Chingling|Stunky|Skuntank|Bronzor|Bronzong|Bonsly|Mime Jr.|Happiny|Chatot|Spiritomb|Gible|Gabite|Garchomp|Munchlax|Riolu|Lucario|Hippopotas|Hippowdon|Skorupi|Drapion|Croagunk|Toxicroak|Carnivine|Finneon|Lumineon|Mantyke|Snover|Abomasnow|Weavile|Magnezone|Lickilicky|Rhyperior|Tangrowth|Electivire|Magmortar|Togekiss|Yanmega|Leafeon|Glaceon|Gliscor|Mamoswine|Porygon-Z|Gallade|Probopass|Dusknoir|Froslass|Rotom|Uxie|Mesprit|Azelf|Dialga|Palkia|Heatran|Regigigas|Giratina|Cresselia|Phione|Manaphy|Darkrai|Shaymin|Arceus|Victini|Snivy|Servine|Serperior|Tepig|Pignite|Emboar|Oshawott|Dewott|Samurott|Patrat|Watchog|Lillipup|Herdier|Stoutland|Purrloin|Liepard|Pansage|Simisage|Pansear|Simisear|Panpour|Simipour|Munna|Musharna|Pidove|Tranquill|Unfezant|Blitzle|Zebstrika|Roggenrola|Boldore|Gigalith|Woobat|Swoobat|Drilbur|Excadrill|Audino|Timburr|Gurdurr|Conkeldurr|Tympole|Palpitoad|Seismitoad|Throh|Sawk|Sewaddle|Swadloon|Leavanny|Venipede|Whirlipede|Scolipede|Cottonee|Whimsicott|Petilil|Lilligant|Basculin|Sandile|Krokorok|Krookodile|Darumaka|Darmanitan|Maractus|Dwebble|Crustle|Scraggy|Scrafty|Sigilyph|Yamask|Cofagrigus|Tirtouga|Carracosta|Archen|Archeops|Trubbish|Garbodor|Zorua|Zoroark|Minccino|Cinccino|Gothita|Gothorita|Gothitelle|Solosis|Duosion|Reuniclus|Ducklett|Swanna|Vanillite|Vanillish|Vanilluxe|Deerling|Sawsbuck|Emolga|Karrablast|Escavalier|Foongus|Amoonguss|Frillish|Jellicent|Alomomola|Joltik|Galvantula|Ferroseed|Ferrothorn|Klink|Klang|Klinklang|Tynamo|Eelektrik|Eelektross|Elgyem|Beheeyem|Litwick|Lampent|Chandelure|Axew|Fraxure|Haxorus|Cubchoo|Beartic|Cryogonal|Shelmet|Accelgor|Stunfisk|Mienfoo|Mienshao|Druddigon|Golett|Golurk|Pawniard|Bisharp|Bouffalant|Rufflet|Braviary|Vullaby|Mandibuzz|Heatmor|Durant|Deino|Zweilous|Hydreigon|Larvesta|Volcarona|Cobalion|Terrakion|Virizion|Tornadus|Thundurus|Reshiram|Zekrom|Landorus|Kyurem|Keldeo|Meloetta|Genesect|Chespin|Quilladin|Chesnaught|Fennekin|Braixen|Delphox|Froakie|Frogadier|Greninja|Bunnelby|Diggersby|Fletchling|Fletchinder|Talonflame|Scatterbug|Spewpa|Vivillon|Litleo|Pyroar|Flabébé|Floette|Florges|Skiddo|Gogoat|Pancham|Pangoro|Furfrou|Espurr|Meowstic|Honedge|Doublade|Aegislash|Spritzee|Aromatisse|Swirlix|Slurpuff|Inkay|Malamar|Binacle|Barbaracle|Skrelp|Dragalge|Clauncher|Clawitzer|Helioptile|Heliolisk|Tyrunt|Tyrantrum|Amaura|Aurorus|Sylveon|Hawlucha|Dedenne|Carbink|Goomy|Sliggoo|Goodra|Klefki|Phantump|Trevenant|Pumpkaboo|Gourgeist|Bergmite|Avalugg|Noibat|Noivern|Xerneas|Yveltal|Zygarde|Diancie|Hoopa|Volcanion|Rowlet|Dartrix|Decidueye|Litten|Torracat|Incineroar|Popplio|Brionne|Primarina|Pikipek|Trumbeak|Toucannon|Yungoos|Gumshoos|Grubbin|Charjabug|Vikavolt|Crabrawler|Crabominable|Oricorio|Cutiefly|Ribombee|Rockruff|Lycanroc|Wishiwashi|Mareanie|Toxapex|Mudbray|Mudsdale|Dewpider|Araquanid|Fomantis|Lurantis|Morelull|Shiinotic|Salandit|Salazzle|Stufful|Bewear|Bounsweet|Steenee|Tsareena|Comfey|Oranguru|Passimian|Wimpod|Golisopod|Sandygast|Palossand|Pyukumuku|Código Cero/Type: Null|Silvally|Minior|Komala|Turtonator|Togedemaru|Mimikyu|Bruxish|Drampa|Dhelmise|Jangmo-o|Hakamo-o|Kommo-o|Tapu Koko|Tapu Lele|Tapu Bulu|Tapu Fini|Cosmog|Cosmoem|Solgaleo|Lunala|Nihilego|Buzzwole|Pheromosa|Xurkitree|Celesteela|Kartana|Guzzlord|Necrozma|Magearna|Marshadow|Poipole|Naganadel|Stakataka|Blacephalon|Zeraora|Meltan|Melmetal|Grookey|Thwackey|Rillaboom|Scorbunny|Raboot|Cinderace|Sobble|Drizzile|Inteleon|Skwovet|Greedent|Rookidee|Corvisquire|Corviknight|Blipbug|Dottler|Orbeetle|Nickit|Thievul|Gossifleur|Eldegoss|Wooloo|Dubwool|Chewtle|Drednaw|Yamper|Boltund|Rolycoly|Carkol|Coalossal|Applin|Flapple|Appletun|Silicobra|Sandaconda|Cramorant|Arrokuda|Barraskewda|Toxel|Toxtricity|Sizzlipede|Centiskorch|Clobbopus|Grapploct|Sinistea|Polteageist|Hatenna|Hattrem|Hatterene|Impidimp|Morgrem|Grimmsnarl|Obstagoon|Perrserker|Cursola|Sirfetch’d|Mr. Rime|Runerigus|Milcery|Alcremie|Falinks|Pincurchin|Snom|Frosmoth|Stonjourner|Eiscue|Indeedee|Morpeko|Cufant|Copperajah|Dracozolt|Arctozolt|Dracovish|Arctovish|Duraludon|Dreepy|Drakloak|Dragapult|Zacian|Zamazenta|Eternatus|Kubfu|Urshifu|Zarude|Regieleki|Regidrago|Glastrier|Spectrier|Calyrex|Wyrdeer|Kleavor|Ursaluna|Basculegion|Sneasler|Overqwil|Enamorus|Sprigatito|Floragato|Meowscarada|Fuecoco|Crocalor|Skeledirge|Quaxly|Quaxwell|Quaquaval|Lechonk|Oinkologne|Tarountula|Spidops|Nymble|Lokix|Pawmi|Pawmo|Pawmot|Tandemaus|Maushold|Fidough|Dachsbun|Smoliv|Dolliv|Arboliva|Squawkabilly|Nacli|Naclstack|Garganacl|Charcadet|Armarouge|Ceruledge|Tadbulb|Bellibolt|Wattrel|Kilowattrel|Maschiff|Mabosstiff|Shroodle|Grafaiai|Bramblin|Brambleghast|Toedscool|Toedscruel|Klawf|Capsakid|Scovillain|Rellor|Rabsca|Flittle|Espathra|Tinkatink|Tinkatuff|Tinkaton|Wiglett|Wugtrio|Bombirdier|Finizen|Palafin|Varoom|Revavroom|Cyclizar|Orthworm|Glimmet|Glimmora|Greavard|Houndstone|Flamigo|Cetoddle|Cetitan|Veluza|Dondozo|Tatsugiri|Annihilape|Clodsire|Farigiraf|Dudunsparce|Kingambit|Colmilargo/Great Tusk|Colagrito/Scream Tail|Furioseta/Brute Bonnet|Melenaleteo/Flutter Mane|Reptalada/Slither Wing|Pelarena/Sandy Shocks|Ferrodada/Iron Treads|Ferrosaco/Iron Bundle|Ferropalmas/Iron Hands|Ferrocuello/Iron Jugulis|Ferropolilla/Iron Moth|Ferropúas/Iron Thorns|Frigibax|Arctibax|Baxcalibur|Gimmighoul|Gholdengo|Wo-Chien|Chien-Pao|Ting-Lu|Chi-Yu|Bramaluna/Roaring Moon|Ferropaladín/Iron Valiant|Koraidon|Miraidon|Ondulagua/Walking Wake|Ferroverdor/Iron Leaves|Dipplin|Poltchageist|Sinistcha|Okidogi|Munkidori|Fezandipiti|Ogerpon|Archaludon|Hydrapple|Flamariete/Gouging Fire|Electrofuria/Raging Bolt|Ferromole/Iron Boulder|Ferrotesta/Iron Crown|Terapagos|Pecharunt';
-  const VERSION = '1.14.1';
+  const VERSION = '1.15.0';
   // ¿Esta es la pestaña o la ventana oculta donde se juegan las diarias en segundo plano? (en otras ventanas, nada)
   const FONDO_NOMBRE = 'axd-fondo';
   let EN_FONDO = false;
@@ -862,7 +862,8 @@
         const r = ssGet();
         const rec = (r && r.actual && r.actual.recargas) || 0;
         if (rec < 2 && r && r.actual) { r.actual.recargas = rec + 1; ssPut(r); await pausa(800, 1500); location.reload(); return true; }
-        this.rendido = true; if (r && r.actual) { r.actual.rendido = true; ssPut(r); } log(`⚠ 🎯 Misiones: no me deja cobrar${aviso ? ` («${aviso.slice(0, 80)}»)` : ''}; lo dejo.`);
+        const msg = `⚠ 🎯 Misiones: no me deja cobrar${aviso ? ` («${aviso.slice(0, 80)}»)` : ''}; lo dejo.`;
+        this.rendido = true; if (r && r.actual) { r.actual.rendido = true; r.log.push(msg); ssPut(r); } log(msg);
         return false;
       }
       this.intentos++;
@@ -1060,11 +1061,18 @@
     diarias: { nombre: '🗓️ Diarias' },
     huerto: { nombre: '🌱 Huerto', href: '/huerto' },
     torre: { nombre: '🗼 Torre', href: '/torre' },
-    tronos: { nombre: '👑 Tronos', href: '/tronos' },
+    tronos: { nombre: '👑 Tronos', href: '/tronos', chequeo: async () => {
+      const { texto: txt } = await leerPagina('/tronos');
+      const tipo = (txt.match(/tienes el de (Normal|Fuego|Agua|Planta|El[eé]ctrico|Hielo|Lucha|Veneno|Tierra|Volador|Ps[ií]quico|Bicho|Roca|Fantasma|Drag[oó]n|Siniestro|Acero|Hada)/i) || [])[1];
+      if (/TUYO/.test(txt) || tipo) return { listo: false, prox: Date.now() + 20 * 60000, info: `👑 tienes el de ${tipo || '?'} (miro cada 20 min si te lo quitan)` };
+      if (/tronos/i.test(txt)) return { listo: true, info: 'sin trono: a por uno' };
+      return { listo: false, prox: Date.now() + 10 * 60000 };
+    } },
     entranas: { nombre: '⛰️ Entrañas', href: '/entranas' },
     subsuelo: { nombre: '⛏️ Subsuelo', href: '/subsuelo', otras: ['/huerto'] },
+    missingno: { nombre: '👾 MissingNo.', href: '/jefe', chequeo: () => missingnoPendiente() },
   };
-  const ROBOT_DE = { '/huerto': 'huerto', '/torre': 'torre', '/tronos': 'tronos', '/entranas': 'entranas', '/subsuelo': 'subsuelo' };
+  const ROBOT_DE = { '/huerto': 'huerto', '/torre': 'torre', '/tronos': 'tronos', '/entranas': 'entranas', '/subsuelo': 'subsuelo', '/jefe': 'missingno' };
   const SS_EF = { on: 'axe-dfondo-on', fin: 'axe-dfondo-fin', una: 'axe-dfondo-una', estado: 'axe-dfondo-estado' };
   // al acabar una parada: cuándo toca la siguiente vez y cómo ha ido (se mira aquí, aún en su página)
   const ROBOT_FIN = {
@@ -1095,6 +1103,10 @@
       if (f && /energ|pases|gratis/i.test(f.motivo || '')) return { prox: manana(), dia: hoyK, bajadas, info: `${res ? res + ' · ' : ''}sin pases hasta mañana` };
       return { prox: Date.now() + 30 * 60000, dia: hoyK, bajadas, info: `${res ? res + ' · ' : ''}${corto((f && f.motivo) || 'se ha parado')}`.slice(0, 90) };
     },
+    missingno() {
+      const t = textoMain(), mejor = (t.match(/([\d.]+)\s*tu mejor/i) || [])[1];
+      return { prox: Date.now() + 2 * 3600000, listo: false, info: /ya tiraste|ya cobraste/i.test(t) ? 'cobrado' : mejor ? `tu mejor golpe: ${mejor}` : '' };
+    },
     subsuelo() {
       const f = lsGet('axsub-fin', null), s = lsGet('axsub-resumen', null);
       const vetas = s && s.total ? `${s.picadas}/${s.total} vetas picadas` : '';
@@ -1103,6 +1115,14 @@
       return { prox: p, info: vetas || 'hecho' };
     },
   };
+  // las diarias de hoy, una a una: ya hechas, hechas ahora, con aviso, la de ahora y las que quedan (sin los viajes)
+  function listaDiarias(r) {
+    const out = [...(r.yaHechas || []).map(n => ({ n, e: 'ya' }))];
+    for (const p of r.pasos || []) if (!/^🧭/.test(p.nombre)) out.push({ n: p.nombre, e: p.ok ? 'ok' : p.saltado ? 'salto' : 'mal', m: p.motivo });
+    if (r.actual && !r.actual.viaje) out.push({ n: nombrePaso(r.actual, r.casa), e: 'ahora' });
+    for (const x of r.cola || []) if (!x.viaje) out.push({ n: nombrePaso(x, r.casa), e: 'luego' });
+    return out;
+  }
   function robotCierre(a) {
     const id = a.robot || ROBOT_DE[a.href];
     if (!id || !ROBOT_FIN[id] || !robotOn()) return;
@@ -1177,7 +1197,69 @@
     },
   };
 
-  const DIARIAS = [QUIEN, POKEATHLON, MUELLE, CARRERAS, BUCEO, TREN, SAFARI, VIAJE, CANTERA, ALBUM, TRETA, HUERTO, VALLE, SALON, JESSIE, MISIONES, ISLA, SOLAR, TRONOS, TORRE, ENTRANAS, SUBSUELO];
+
+  // Canal Manadas: los 3 encuentros gratis de cada región con el script del Cazador de Manadas («Manadas gratis», que
+  // usa la macro de Capturar y Guardería). Va de región en región y por el mapa, y al final vuelve a la tuya.
+  const MANADAS = {
+    id: 'manadas', nombre: '📺 Canal Manadas', soloRuta: true, sinPanel: true, maxMs: 50 * 60000,
+    detecta: () => ruta() === '/manadas' && document.querySelector('main'),
+    desde: 0, dicho: false,
+    inicio() { const r = ssGet(); return (r && r.actual && r.actual.arrancado) || 0; },
+    fin() { const a = this.inicio(), u = lsGet('mh-gratis-ultimo', null); return a && u && (u.t || 0) >= a ? u : null; },
+    listo() { return !!this.fin(); },
+    async paso() {
+      const f = this.fin();
+      if (f) {
+        if (!this.dicho) { this.dicho = true; for (const l of (f.log || []).filter(l => /^(✅|⚠)/.test(l)).slice(-5)) log(`📺 ${l}`); }
+        return false;
+      }
+      const r = ssGet();
+      if (!r || !r.actual) return false;
+      if (r.actual.arrancado) return true;
+      const b = document.querySelector('#mh-gratis button');
+      if (!b) {
+        if (!this.desde) this.desde = Date.now();
+        else if (Date.now() - this.desde > 20000) { log('⚠ 📺 No veo el Cazador de Manadas: instálalo (y la macro de Capturar y Guardería) para las manadas gratis.'); r.actual.arrancado = Date.now(); ssPut(r); lsPut('mh-gratis-ultimo', { dia: hoy(), t: Date.now(), log: [] }); }
+        return false;
+      }
+      r.actual.arrancado = Date.now(); ssPut(r);
+      return pulsar(b, '📺 Manadas: los 3 encuentros gratis de cada región (te muevo por el mapa y vuelvo a tu región).', [2000, 3000]);
+    },
+  };
+  const manadasPendientes = () => { const u = lsGet('mh-gratis-ultimo', null); return !(u && u.dia === hoy()); };
+
+  // MissingNo. (/jefe, un día de cada tres): se le pega gratis (no gasta energía ni daña al equipo; solo cuenta tu mejor
+  // golpe) y, cuando cae, se tira de la ruleta para cobrar
+  const LS_MN = 'axd-missingno', MN_GOLPES = 12;
+  const MISSINGNO = {
+    id: 'missingno', nombre: '👾 MissingNo.', soloRuta: true, sinPanel: true, maxMs: 15 * 60000,
+    detecta: () => ruta() === '/jefe' && document.querySelector('main'),
+    golpes() { const g = lsGet(LS_MN, {}); return g.dia === hoy() ? g.n || 0 : 0; },
+    saltar: () => $$('button').find(b => !ajeno(b) && !b.disabled && /saltar al resultado/i.test(texto(b))),
+    listo() { return !this.saltar() && !botonMain(/tirar de la ruleta/i) && (!botonMain(/^atacar$/i) || this.golpes() >= MN_GOLPES); },
+    async paso() {
+      const s = this.saltar();
+      if (s) return pulsar(s, '');
+      const rul = botonMain(/tirar de la ruleta/i);
+      if (rul) return pulsar(rul, '👾 MissingNo.: tiro de la ruleta para cobrar.', [5000, 6500]);
+      const at = botonMain(/^atacar$/i), n = this.golpes();
+      if (at && n < MN_GOLPES) { lsPut(LS_MN, { dia: hoy(), n: n + 1 }); return pulsar(at, `👾 MissingNo.: golpe ${n + 1} de ${MN_GOLPES} (solo cuenta el mejor).`, [2500, 3500]); }
+      return pulsarSeguir();
+    },
+  };
+  // ¿hay algo que hacer en MissingNo.? (se mira por detrás)
+  async function missingnoPendiente() {
+    const { doc, texto: t } = await leerPagina('/jefe');
+    const bot = re => [...doc.querySelectorAll('main button')].find(b => re.test(texto(b)) && !b.disabled);
+    const mejor = (t.match(/([\d.]+)\s*tu mejor/i) || [])[1];
+    if (bot(/tirar de la ruleta/i)) return { listo: true, info: 'ha caído: a tirar de la ruleta' };
+    if (bot(/^atacar$/i) && lsGet(LS_MN, {}).dia !== hoy()) return { listo: true, info: 'está: a por él' };
+    if (bot(/^atacar$/i) && (lsGet(LS_MN, {}).n || 0) < MN_GOLPES) return { listo: true, info: 'está: a por él' };
+    const info = /no est[aá]/i.test(t) ? (/ya cobraste/i.test(t) ? 'no está (ya cobraste el último)' : 'no está hoy') : `golpeado${mejor ? `, tu mejor ${mejor}` : ''}; la ruleta, cuando caiga`;
+    return { listo: false, prox: Date.now() + 2 * 3600000, info };
+  }
+
+  const DIARIAS = [QUIEN, POKEATHLON, MUELLE, CARRERAS, BUCEO, TREN, SAFARI, VIAJE, CANTERA, ALBUM, TRETA, HUERTO, VALLE, SALON, JESSIE, MISIONES, ISLA, SOLAR, TRONOS, TORRE, ENTRANAS, SUBSUELO, MANADAS, MISSINGNO];
 
   /* ══════════ Ruta: jugar todas las diarias seguidas ══════════
    * Desde el menú se apuntan las diarias de «Para hoy» que aún no están hechas y que el script sabe jugar; se va a
@@ -1194,7 +1276,7 @@
   // dirección → diaria que la juega
   const RUTAS = { '/jessie-y-james': JESSIE, '/siluetas': QUIEN, '/pokeathlon': POKEATHLON, '/pesca': MUELLE, '/carreras': CARRERAS, '/buceo': BUCEO, '/safari': SAFARI, '/cantera': CANTERA, '/album': ALBUM };
   // las que no salen en el menú (o no con su estado): Tren (Teselia) y Casa Treta (Hoenn)
-  const EXTRA = { '/tren': TREN, '/casa': TRETA, '/huerto': HUERTO, '/valle': VALLE, '/salon': SALON, '/misiones': MISIONES, '/isla': ISLA, '/solar': SOLAR, '/tronos': TRONOS, '/torre': TORRE, '/entranas': ENTRANAS, '/subsuelo': SUBSUELO };
+  const EXTRA = { '/tren': TREN, '/casa': TRETA, '/huerto': HUERTO, '/valle': VALLE, '/salon': SALON, '/misiones': MISIONES, '/isla': ISLA, '/solar': SOLAR, '/tronos': TRONOS, '/torre': TORRE, '/entranas': ENTRANAS, '/subsuelo': SUBSUELO, '/manadas': MANADAS, '/jefe': MISSINGNO };
   // las que se hacen en casa en cada ruta (las juegan sus scripts): Huerto (Meloc/Latano), Valle («Hacerlo todo») y los
   // respiros del Salón (una vez al día; si el cupo ya está, su script para solo)
   const DE_CASA = () => [{ href: '/huerto' }, { href: '/valle' }, ...(lsGet('axd-salon-hecho', '') === hoy() ? [] : [{ href: '/salon' }])];
@@ -1262,12 +1344,13 @@
     // (con el robot, los Tronos y la Torre van aparte, cuando les toca)
     if (tronosP && !opc.robot) cola.push({ href: '/tronos' });
     if (torreP && !opc.robot) cola.push({ href: '/torre' });
+    if (manadasPendientes()) cola.push({ href: '/manadas', otras: '*' });
     if (misionesP || torreP || tronosP) cola.push({ href: '/misiones' });
     if (!cola.length) {
       ssPut(null);
       pintarMenu([...log0, '✅ Las que sé jugar ya están hechas hoy.']);
       if (EN_FONDO) ssSet(SS_FIN, { t: Date.now(), t0: Date.now(), pasos: [], yaHechas, avisos: log0, robot: opc.robot });
-      if (opc.robot === 'diarias') rtSet('diarias', { prox: manana(), info: 'las que sé jugar, hechas', casa });
+      if (opc.robot === 'diarias') rtSet('diarias', { prox: manana(), info: 'las que sé jugar, hechas', casa, dia: hoy(), lista: listaDiarias({ yaHechas, pasos: [], cola: [] }) });
       return;
     }
     const r = { cola, hechas: [], log: [...log0], actual: null, casa, pasos: [], yaHechas, avisos: log0, t0: Date.now(), robot: opc.robot };
@@ -1421,7 +1504,7 @@
     ssPut(null);
     pintarMenu([...r.log, `🏁 Ruta terminada: ${r.hechas.length} jugada${r.hechas.length === 1 ? '' : 's'}.`]);
     if (EN_FONDO) ssSet(SS_FIN, { t: Date.now(), t0: r.t0, pasos: r.pasos || [], yaHechas: r.yaHechas || [], avisos: r.avisos || [], fuera: r.fuera, casa: r.casa, robot: r.robot });
-    if (r.robot === 'diarias') { const ok = (r.pasos || []).filter(p => p.ok).length; rtSet('diarias', { prox: manana(), info: `${ok} hecha${ok === 1 ? '' : 's'}${(r.yaHechas || []).length ? ` (+${r.yaHechas.length} que ya estaban)` : ''}`, casa: r.casa }); }
+    if (r.robot === 'diarias') { const ok = (r.pasos || []).filter(p => p.ok).length; rtSet('diarias', { prox: manana(), info: `${ok} hecha${ok === 1 ? '' : 's'}${(r.yaHechas || []).length ? ` (+${r.yaHechas.length} que ya estaban)` : ''}`, casa: r.casa, dia: hoy(), lista: listaDiarias(r) }); }
   }
 
   // ¿toca jugar aquí? (modo solo, o esta página es la parada actual de la ruta; en el menú manda la ruta)
@@ -1436,7 +1519,7 @@
   let ocupado = false, parado = false, buscando = 0, perdido = 0;
   // en la ruta pero en otra página (una redirección, el viaje que te lleva al mapa…): se vuelve, y a la tercera se salta
   function perdida(r) {
-    if (!r || !r.actual || !r.actual.href || r.actual.href === ruta() || (r.actual.otras || []).includes(ruta())) { perdido = 0; return false; }
+    if (!r || !r.actual || !r.actual.href || r.actual.href === ruta() || r.actual.otras === '*' || (r.actual.otras || []).includes(ruta())) { perdido = 0; return false; }
     if (!perdido) { perdido = Date.now(); return true; }
     if (Date.now() - perdido < 8000) return true;
     perdido = 0;
@@ -1457,6 +1540,10 @@
     if (perdida(r)) return;
     if (ruta() === '/menu') { tickMenu(); return; }
     const enRuta = !!(r && r.actual && r.actual.href === ruta());
+    if (r && r.actual && r.actual.otras && !enRuta && !r.actual.viaje) {
+      const d0 = EXTRA[r.actual.href] || RUTAS[r.actual.href];
+      if (d0 && ((d0.listo && d0.listo()) || Date.now() - r.actual.desde > (d0.maxMs || POR_DIARIA_MS)) && !r.actual.volviendo) { r.actual.volviendo = true; ssPut(r); location.assign(r.actual.href); return; }
+    }
     const d = DIARIAS.find(x => x.detecta());
     if (!d) {
       // en la ruta, en una diaria que no carga o que no reconozco: se espera un poco y se salta
@@ -1540,6 +1627,17 @@
     #axd-fondo-card .axdf-rueda{width:12px;height:12px;border-radius:999px;border:2px solid color-mix(in srgb,var(--axdf-c) 30%,transparent);border-top-color:var(--axdf-c);display:inline-block;animation:axdf-gira .8s linear infinite}
     #axd-fondo-card .axdf-pie{display:flex;gap:8px;padding:0 12px 12px}
     #axd-fondo-card .axdf-agenda{margin-top:8px;max-height:250px}
+    #axd-fondo-card .axdf-diarias{margin:0 12px 8px}
+    #axd-fondo-card .axdf-diarias:empty{display:none}
+    #axd-fondo-card .axdf-dtit{margin:0 0 5px;font-size:11px;font-weight:900;color:rgb(var(--tinta-500,99 102 92))}
+    #axd-fondo-card .axdf-chips{display:flex;flex-wrap:wrap;gap:4px;max-height:118px;overflow-y:auto}
+    #axd-fondo-card .axdf-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:800;white-space:nowrap;background:rgb(var(--crema-100,244 239 226));color:rgb(var(--tinta-600,72 75 66))}
+    #axd-fondo-card .axdf-chip .axdf-rueda{width:9px;height:9px}
+    #axd-fondo-card .axdf-c-ok,#axd-fondo-card .axdf-c-ya{background:color-mix(in srgb,#2FA84F 14%,rgb(var(--lienzo,255 255 255)));color:rgb(var(--hoja-700,40 120 60))}
+    #axd-fondo-card .axdf-c-ya{opacity:.75}
+    #axd-fondo-card .axdf-c-mal,#axd-fondo-card .axdf-c-salto{background:color-mix(in srgb,#E0A000 16%,rgb(var(--lienzo,255 255 255)));color:rgb(var(--ambar-700,160 100 0))}
+    #axd-fondo-card .axdf-c-ahora{background:color-mix(in srgb,var(--axdf-c) 16%,rgb(var(--lienzo,255 255 255)));color:rgb(var(--tinta-800,33 36 29));box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--axdf-c) 50%,transparent)}
+    #axd-fondo-card .axdf-c-luego{opacity:.6}
     #axd-fondo-card .axdf-agenda li .axdf-m{font-size:14px}
     #axd-fondo-card .axdf-mas{margin:0 12px 10px;border-radius:14px;background:rgb(var(--crema-50,250 247 238));padding:4px 0}
     #axd-fondo-card .axdf-mas>summary{cursor:pointer;padding:4px 10px;font-size:11px;font-weight:900;color:rgb(var(--tinta-500,99 102 92))}
@@ -1553,7 +1651,7 @@
     #axd-fondo-card.axdf-mini .axdf-cab{padding:5px 6px 5px 5px;gap:8px;cursor:pointer}
     #axd-fondo-card.axdf-mini .axdf-ico{width:34px;height:34px;font-size:18px;border-radius:999px}
     #axd-fondo-card.axdf-mini .axdf-tit{font-size:13px}
-    #axd-fondo-card.axdf-mini .axdf-sub,#axd-fondo-card.axdf-mini .axdf-barra,#axd-fondo-card.axdf-mini .axdf-ahora,#axd-fondo-card.axdf-mini .axdf-pasos,#axd-fondo-card.axdf-mini .axdf-pie,#axd-fondo-card.axdf-mini .axdf-stop{display:none}
+    #axd-fondo-card.axdf-mini .axdf-sub,#axd-fondo-card.axdf-mini .axdf-barra,#axd-fondo-card.axdf-mini .axdf-ahora,#axd-fondo-card.axdf-mini .axdf-pasos,#axd-fondo-card.axdf-mini .axdf-pie,#axd-fondo-card.axdf-mini .axdf-stop,#axd-fondo-card.axdf-mini .axdf-diarias,#axd-fondo-card.axdf-mini .axdf-mas{display:none}
     #axd-fondo-card .axdf-anillo{position:relative}
     #axd-fondo-card.axdf-mini .axdf-ico{background:conic-gradient(var(--axdf-c) calc(var(--axdf-p,0) * 1%),rgb(var(--crema-200,232 226 210)) 0)}
     #axd-fondo-card.axdf-mini .axdf-ico span{width:26px;height:26px;border-radius:999px;display:grid!important;place-items:center;background:rgb(var(--lienzo,255 255 255));font-size:15px;animation:none!important}
@@ -1633,22 +1731,19 @@
       return Object.keys(ROBOT).filter(id => {
         const t = rtGet(id);
         if ((t.prox || 0) > ahora) return false;
-        if (id === 'tronos' && !t.listo) return false;
+        if (ROBOT[id].chequeo && !t.listo) return false;
         if (id === 'entranas' && ssLeer('axe-fondo-on')) return false;        // ya las estás jugando en segundo plano
         return true;
       }).sort((a, b) => (a === 'diarias' ? -1 : b === 'diarias' ? 1 : (rtGet(a).prox || 0) - (rtGet(b).prox || 0)));
     },
-    async chequeoTronos() {
-      const t = rtGet('tronos');
-      if (this.chequeando || (t.prox || 0) > Date.now() || t.listo) return;
+    // lo que se mira por detrás antes de abrir la ventana (los Tronos: si sigues teniendo uno; MissingNo.: si está)
+    async chequeos() {
+      if (this.chequeando) return;
+      const id = Object.keys(ROBOT).find(k => ROBOT[k].chequeo && (rtGet(k).prox || 0) <= Date.now() && !rtGet(k).listo);
+      if (!id) return;
       this.chequeando = true;
-      try {
-        const { texto: txt } = await leerPagina('/tronos');
-        const tipo = (txt.match(/tienes el de (Normal|Fuego|Agua|Planta|El[eé]ctrico|Hielo|Lucha|Veneno|Tierra|Volador|Ps[ií]quico|Bicho|Roca|Fantasma|Drag[oó]n|Siniestro|Acero|Hada)/i) || [])[1];
-        if (/TUYO/.test(txt) || tipo) rtSet('tronos', { prox: Date.now() + 20 * 60000, info: `👑 tienes el de ${tipo || '?'} (miro cada 20 min si te lo quitan)`, listo: false });
-        else if (/tronos/i.test(txt)) rtSet('tronos', { listo: true, info: 'sin trono: a por uno' });
-        else rtSet('tronos', { prox: Date.now() + 10 * 60000 });
-      } catch { rtSet('tronos', { prox: Date.now() + 10 * 60000 }); }
+      try { const r = await ROBOT[id].chequeo(); rtSet(id, r.listo ? { listo: true, info: r.info || rtGet(id).info } : { prox: r.prox || Date.now() + 20 * 60000, info: r.info, listo: false }); }
+      catch { rtSet(id, { prox: Date.now() + 10 * 60000 }); }
       finally { this.chequeando = false; }
     },
     lanzar(ids) {
@@ -1706,7 +1801,7 @@
         }
         const f = this.iframe(); if (f) f.remove();
         if (R && R.on) {
-          this.chequeoTronos();
+          this.chequeos();
           const ids = this.pendientes();
           // de una en una, la que antes tocaba: así lo que tiene hora (la Torre, el Huerto) no espera a lo largo (una bajada)
           if (ids.length) this.lanzar([ids[0]]);
@@ -1745,6 +1840,7 @@
             <div class="axdf-barra"><span></span></div>
             <div class="axdf-ahora"></div>
             <ul class="axdf-pasos axdf-agenda"></ul>
+            <div class="axdf-diarias"></div>
             <details class="axdf-mas"><summary></summary><ul class="axdf-pasos axdf-lista"></ul></details>
             <div class="axdf-pie"></div></div>`;
         c.querySelector('.axdf-min').addEventListener('click', e => { e.stopPropagation(); const m = !c.classList.contains('axdf-mini'); try { localStorage.setItem(LS_MINI, m ? '1' : '0'); } catch { /* nada */ } this.pintar(); });
@@ -1806,24 +1902,23 @@
       // la agenda: cada cosa, cómo va y cuándo le toca
       const filas = Object.keys(ROBOT).map(id => {
         const t = rtGet(id), ya = on && r && (r.robot === 'diarias' ? id === 'diarias' : idAhora === id || (r.cola || []).some(x => x.robot === id));
-        const cuando = !on ? '' : ya ? (idAhora === id || (id === 'diarias' && r.robot === 'diarias') ? 'ahora' : 'en cola') : !t.prox ? '' : t.prox <= ahora ? (id === 'tronos' && !t.listo ? 'mirando' : 'ya') : t.prox - ahora > 6 * 3600000 ? `a las ${hhmm(t.prox)}` : `en ${mmss(t.prox - ahora)}`;
+        const cuando = !on ? '' : ya ? (idAhora === id || (id === 'diarias' && r.robot === 'diarias') ? 'ahora' : 'en cola') : !t.prox ? '' : t.prox <= ahora ? (ROBOT[id].chequeo && !t.listo ? 'mirando' : 'ya') : t.prox - ahora > 6 * 3600000 ? `a las ${hhmm(t.prox)}` : `en ${mmss(t.prox - ahora)}`;
         const info = idAhora === id ? this.detalle(id) || t.info : id === 'torre' && on ? this.detalle('torre') : id === 'subsuelo' ? (this.detalle('subsuelo') || t.info) : t.info;
         return `<li class="${ya ? 'axdf-ya' : ''}"><span class="axdf-m">${ya ? '<span class="axdf-rueda"></span>' : ROBOT[id].nombre.split(' ')[0]}</span><span class="axdf-n">${esc(ROBOT[id].nombre.split(' ').slice(1).join(' '))}${info ? `<small class="axdf-mot">${esc(info)}</small>` : ''}</span><span class="axdf-t">${esc(cuando)}</span></li>`;
       }).join('');
       set('.axdf-agenda', filas, true);
+      // las diarias de hoy, una a una (en directo mientras se juegan; si no, las de la última vuelta de hoy)
+      const td = rtGet('diarias');
+      const ld = r && (r.robot === 'diarias' || r.preparar || r.preparando) ? listaDiarias(r) : td.dia === hoy() ? td.lista || [] : [];
+      const ICO = { ya: '✔', ok: '✅', mal: '⚠️', salto: '⏭', ahora: '<span class="axdf-rueda"></span>', luego: '○' };
+      const hechasN = ld.filter(x => ['ya', 'ok'].includes(x.e)).length;
+      set('.axdf-diarias', ld.length ? `<p class="axdf-dtit">🗓️ Diarias de hoy · ${hechasN}/${ld.length}</p><div class="axdf-chips">${ld.map(x => `<span class="axdf-chip axdf-c-${x.e}"${x.m ? ` title="${esc(x.m)}"` : ''}>${ICO[x.e] || ''} ${esc(String(x.n).replace(/^[^\p{L}¿]+/u, ''))}</span>`).join('')}</div>` : '', true);
       // las diarias de hoy (la ruta) y lo que ha ido pasando
       const lista = [];
-      const ya = (r && r.yaHechas) || [];
-      if (ya.length) lista.push(`<li class="axdf-antes"><span class="axdf-m">✔</span><span class="axdf-n">Ya hechas hoy: ${esc(ya.join(', '))}</span></li>`);
       for (const l of (r && r.avisos) || []) lista.push(`<li class="axdf-antes"><span class="axdf-m">⏭</span><span class="axdf-n" style="white-space:normal">${esc(corto(l.replace(/^(⚠️?|⏭)\s*/, '')))}</span></li>`);
-      if (r) {
-        pasos.forEach((p, i) => lista.push(`<li class="${p.ok ? 'axdf-hecho' : 'axdf-mal'}"><span class="axdf-m">${p.ok ? '✅' : p.saltado ? '⏭' : '⚠️'}</span><span class="axdf-n">(${i + 1}/${total}) ${esc(p.nombre)}${p.motivo ? `<small class="axdf-mot">${esc(p.motivo)}</small>` : ''}</span><span class="axdf-t">${p.saltado ? 'saltada' : seg(p.seg)}</span></li>`));
-        if (actual) lista.push(`<li class="axdf-ya"><span class="axdf-m"><span class="axdf-rueda"></span></span><span class="axdf-n">(${n}/${total}) ${esc(actual)}</span><span class="axdf-t">ahora</span></li>`);
-        cola.forEach((x, i) => lista.push(`<li class="axdf-luego"><span class="axdf-m">○</span><span class="axdf-n">(${n + i + 1}/${total}) ${esc(x)}</span></li>`));
-      }
       for (const l of (R.log || []).slice(-12).reverse()) lista.push(`<li class="axdf-antes"><span class="axdf-n" style="white-space:normal">${esc(l)}</span></li>`);
       if (R.fuera) lista.unshift(`<li class="axdf-mal"><span class="axdf-m">🧭</span><span class="axdf-n" style="white-space:normal">Te he dejado fuera de ${esc(R.fuera)}: vuelve desde «Viajar a otra región».</span></li>`);
-      set('.axdf-mas summary', r && r.robot === 'diarias' ? `Diarias de hoy (${n}/${total || '…'})` : `Lo que ha hecho (${(R.log || []).length})`);
+      set('.axdf-mas summary', `Lo que ha hecho (${(R.log || []).length})`);
       const ul = c.querySelector('.axdf-lista'), html = lista.join('');
       if (ul.dataset.h !== html) { ul.dataset.h = html; ul.innerHTML = html; }
       set('.axdf-pie', on ? '' : `<button type="button" data-a="cerrar">Cerrar</button><button type="button" data-a="seguir" class="axdf-prim">▶ Seguir</button>`, true);
