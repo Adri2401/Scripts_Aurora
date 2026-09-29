@@ -8,7 +8,13 @@ param([string]$Tarea = 'manana', [string]$Nombre = '', [string]$Ventana = '', [s
 $bot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $raiz = Split-Path -Parent $bot
 $logf = Join-Path $bot 'aurora.log'
-function Log([string]$t) { Add-Content -Path $logf -Value ('[{0}] {1}' -f (Get-Date -Format 'dd/MM/yyyy HH:mm:ss'), $t) -Encoding UTF8 }
+# (si el bot esta escribiendo en el log, se reintenta un poco; y si no se puede, se sigue sin apuntarlo)
+function Log([string]$t) {
+  $linea = '[{0}] {1}' -f (Get-Date -Format 'dd/MM/yyyy HH:mm:ss'), $t
+  for ($i = 0; $i -lt 10; $i++) {
+    try { Add-Content -Path $logf -Value $linea -Encoding UTF8 -ErrorAction Stop; return } catch { Start-Sleep -Milliseconds 300 }
+  }
+}
 
 # La siguiente vez: el dia despues de la franja que toca (o que se acaba de pasar), a una hora al azar dentro de ella
 function Programar-Siguiente {
