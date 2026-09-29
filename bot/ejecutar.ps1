@@ -31,7 +31,7 @@ function Programar-Siguiente {
   try {
     Set-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $Nombre -Trigger (New-ScheduledTaskTrigger -Once -At $cuando) -ErrorAction Stop | Out-Null
     Log "Proxima '$Nombre': $($cuando.ToString('dd/MM HH:mm'))"
-  } catch { Log "No he podido programar '$Nombre': $($_.Exception.Message)" }
+  } catch { Log "No he podido programar '$Nombre': $($_.Exception.Message) Vuelve a ejecutar el instalador (irm ... | iex) para arreglarlo." }
 }
 # El Huerto: se despierta el PC solo cuando hay cosecha, y no si otra tarea lo va a despertar en la hora y media
 # siguiente ni de madrugada (02:00-07:30: ya lo hara la manana)
@@ -79,7 +79,11 @@ try {
   if (-not $red) { Log 'Sin internet: no juego esta vez.'; exit 1 }
 
   # 4) La ultima version de los scripts
-  if (Get-Command git -ErrorAction SilentlyContinue) { git -C $raiz pull -q 2>&1 | Out-Null }
+  # (safe.directory: la carpeta la pudo crear el instalador como administrador y git no querria tocarla)
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    $g = git -c 'safe.directory=*' -C $raiz pull -q 2>&1
+    if ($LASTEXITCODE -ne 0) { Log "No he podido actualizar los scripts (sigo con los que hay): $($g -join ' ')" }
+  }
 
   # 5) Aviso por Telegram (opcional): bot\aviso.env con TELEGRAM_TOKEN=... y TELEGRAM_CHAT=...
   $env_f = Join-Path $bot 'aviso.env'

@@ -1,8 +1,16 @@
 # Aurora Dex en tu PC con Windows: juega solo a sus horas despertando el PC de la suspension.
-# En PowerShell (no hace falta abrirlo como administrador):
+# En PowerShell (si no lo abres como administrador, pide permiso y sigue en otra ventana):
 #   irm https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/bot/instalar_windows.ps1 | iex
 # Se puede volver a ejecutar cuando quieras (actualiza, rehace las tareas y, si quieres, cambia la sesion).
 $ErrorActionPreference = 'Stop'
+# Hace falta administrador: las tareas corren con privilegios altos para poder volver a programarse solas cada dia
+# (sin ellos Windows responde 'Acceso denegado' y la tarea se queda sin proxima hora)
+$yo = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $yo.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  Write-Host 'Hace falta permiso de administrador: acepta el aviso de Windows y sigue en la ventana nueva.' -ForegroundColor Yellow
+  Start-Process -FilePath (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -NoExit -Command "irm https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/bot/instalar_windows.ps1 | iex"'
+  return
+}
 function Paso([string]$t) { Write-Host ''; Write-Host "== $t" -ForegroundColor Cyan }
 function Refrescar-Path { $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') }
 
@@ -22,7 +30,7 @@ Write-Host ("Node " + (node -v))
 # 2) Los scripts (en tu carpeta de usuario)
 Paso 'Descargando los scripts'
 $raiz = Join-Path $env:USERPROFILE 'Scripts_Aurora'
-if (Test-Path (Join-Path $raiz '.git')) { git -C $raiz pull -q } else { git clone -q https://github.com/Adri2401/Scripts_Aurora.git $raiz }
+if (Test-Path (Join-Path $raiz '.git')) { git -c 'safe.directory=*' -C $raiz pull -q } else { git clone -q https://github.com/Adri2401/Scripts_Aurora.git $raiz }
 $bot = Join-Path $raiz 'bot'
 Set-Location $bot
 
@@ -45,7 +53,7 @@ Paso 'Programando las tareas'
 $ps = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $ejecutar = Join-Path $bot 'ejecutar.ps1'
 $ajustes = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 6) -MultipleInstances IgnoreNew
-$quien = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+$quien = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
 # Pocas veces al dia, cada una con varias cosas seguidas (para despertar el PC lo menos posible). Las de franja (v)
 # cambian de hora cada dia: al jugar, se vuelven a programar para el dia siguiente al azar dentro de ella.
 #   manana 08:00-12:00: diarias (Huerto, Valle, Salon), Manadas, Isla, Tronos y Torre

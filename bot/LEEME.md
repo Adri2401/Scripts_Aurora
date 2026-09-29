@@ -32,7 +32,7 @@ Ojo: las normas del juego dicen que automatizar te deja fuera de los premios.
 
 Si el PC admite «Modo de espera (S3)» (`powercfg /a`), Windows lo despierta a su hora, juega y lo deja volver a dormirse.
 
-1. Abre **PowerShell** (no hace falta como administrador) y pega:
+1. Abre **PowerShell** (si no es como administrador, pide permiso y sigue en otra ventana: las tareas necesitan privilegios altos para volver a programarse solas) y pega:
    `irm https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/bot/instalar_windows.ps1 | iex`
 2. Instala Git y Node si faltan, descarga los scripts en `%USERPROFILE%\Scripts_Aurora`, programa las tareas (Programador
    de tareas > AuroraDex) y te pide la cookie una vez (no se ve al pegarla).
