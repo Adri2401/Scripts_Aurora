@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.15.1
+// @version      2.15.2
 // @description  Auto-explora y captura; ante shiny/legendario lo captura solo con la bola que elijas (Master o Ultra) sin parar la macro y avisa, o para y te avisa. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -492,6 +492,8 @@
       ${U} .adx-seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
       ${U} .adx-seg button{padding:8px 4px;font-size:11px;font-weight:800;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.15}
       ${U} .adx-seg button span:first-child{font-size:18px}
+      ${U} .adx-seg .adx-bola{height:30px;display:grid;place-items:center}
+      ${U} .adx-seg .adx-bola img{width:30px;height:30px;image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25))}
       ${U} .adx-pair{display:grid;grid-template-columns:1fr auto 1fr;gap:6px;align-items:center}
       ${U} .adx-x2{width:100%;display:flex;align-items:center;gap:10px;padding:8px 10px;text-align:left;margin-top:8px;transition:box-shadow .2s, background .2s}
       ${U} .adx-x2 img{width:30px;height:30px;image-rendering:pixelated;flex-shrink:0;transition:filter .3s, transform .3s}
@@ -618,8 +620,8 @@
         <div>
           <div class="adx-lbl"><span class="titulo-seccion">✨👑 Legendarios y variocolor</span></div>
           <div class="adx-seg" role="radiogroup" aria-label="Legendarios y variocolor">
-            <button type="button" data-raro="master" role="radio"><span>🟣</span><span>Master Ball</span></button>
-            <button type="button" data-raro="ultra" role="radio"><span>🟡</span><span>Ultra Ball</span></button>
+            <button type="button" data-raro="master" role="radio"><span class="adx-bola"><img src="/items/master-ball.png?v=5" alt="" width="30" height="30"></span><span>Master Ball</span></button>
+            <button type="button" data-raro="ultra" role="radio"><span class="adx-bola"><img src="/items/ultra-ball.png?v=5" alt="" width="30" height="30"></span><span>Ultra Ball</span></button>
             <button type="button" data-raro="parar" role="radio"><span>✋</span><span>Parar y avisar</span></button>
           </div>
         </div>
