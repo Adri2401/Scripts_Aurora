@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.16.0
+// @version      1.17.0
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -738,7 +738,7 @@
     plantas() { const m = textoMain().match(/(\d+)\s*de\s*(\d+)\s*plantas hoy/i); return m ? [+m[1], +m[2]] : null; },
     listo() {
       const p = this.plantas(), b = document.querySelector('#ct-embedded-panel .ct-btn');
-      return /casa treta est[aá] en/i.test(textoMain()) || (!!p && p[0] >= p[1]) || (!!b && this.arrancado && /volver a intentar/i.test(texto(b)));
+      return /casa treta est[aá] en|se te acabaron los intentos de hoy/i.test(textoMain()) || (!!p && p[0] >= p[1]) || (!!b && this.arrancado && /volver a intentar/i.test(texto(b)));
     },
     desde: 0, arrancado: false,
     async paso() {
@@ -764,7 +764,9 @@
       const t = new DOMParser().parseFromString(html, 'text/html').body.textContent.replace(/\s+/g, ' ');
       const m = t.match(/(\d+)\s*de\s*(\d+)\s*plantas hoy/i), ruta = (t.match(/la casa treta\s*(ruta \d+)/i) || [])[1];
       // 🔒: no estás donde está (se sabe si es por la región o por el sitio del mapa comparando con tu región)
-      return { pendiente: m ? +m[1] < +m[2] : true, cerrada: /🔒\s*la casa treta est[aá] en/i.test(t), ruta: ruta ? ruta.replace(/^r/, 'R') : '' };
+      // «Se te acabaron los intentos de hoy» en una planta: por hoy ya está, aunque no las hayas subido todas
+      const sinIntentos = /se te acabaron los intentos de hoy/i.test(t);
+      return { pendiente: m ? +m[1] < +m[2] && !sinIntentos : !sinIntentos, cerrada: /🔒\s*la casa treta est[aá] en/i.test(t), ruta: ruta ? ruta.replace(/^r/, 'R') : '' };
     } catch { return { pendiente: true }; }
   }
 
@@ -1279,6 +1281,18 @@
   const EXTRA = { '/tren': TREN, '/casa': TRETA, '/huerto': HUERTO, '/valle': VALLE, '/salon': SALON, '/misiones': MISIONES, '/isla': ISLA, '/solar': SOLAR, '/tronos': TRONOS, '/torre': TORRE, '/entranas': ENTRANAS, '/subsuelo': SUBSUELO, '/manadas': MANADAS, '/jefe': MISSINGNO };
   // las que se hacen en casa en cada ruta (las juegan sus scripts): Huerto (Meloc/Latano), Valle («Hacerlo todo») y los
   // respiros del Salón (una vez al día; si el cupo ya está, su script para solo)
+  // lo que ya se ha hecho hoy (cada diaria en su región): la ruta lo salta sin ir a mirarlo. Lo que va por tiempos
+  // (Huerto, Isla, Torre, Tronos, Misiones, Entrañas, Subsuelo, MissingNo, Manadas) se sigue mirando cada vez
+  const LS_HECHAS = 'axd-hechas-hoy';
+  const REPITEN = ['/huerto', '/isla', '/misiones', '/torre', '/tronos', '/entranas', '/subsuelo', '/jefe', '/manadas'];
+  const claveHecha = (x, casa) => x.href + '@' + (x.region || (x.href === '/safari' || x.href === '/casa' ? casa || '' : ''));
+  const hechasHoy = () => { const h = lsGet(LS_HECHAS, null); return h && h.dia === hoy() && Array.isArray(h.k) ? h.k : []; };
+  const yaHoy = (x, casa) => !!x && !x.viaje && !REPITEN.includes(x.href) && hechasHoy().includes(claveHecha(x, casa));
+  function apuntarHecha(x, casa) {
+    if (!x || x.viaje || REPITEN.includes(x.href)) return;
+    const k = hechasHoy(), c = claveHecha(x, casa);
+    if (!k.includes(c)) { k.push(c); lsPut(LS_HECHAS, { dia: hoy(), k }); }
+  }
   const DE_CASA = () => [{ href: '/huerto' }, { href: '/valle' }, ...(lsGet('axd-salon-hecho', '') === hoy() ? [] : [{ href: '/salon' }])];
   // las que no sé jugar (se dicen y se saltan); Jessie y James, Solar y MissingNo no hacen falta
   const NO_SE = {};
@@ -1333,12 +1347,10 @@
     if (casa) {
       const sr0 = lsGet('axd-sin-reserva', {}), sinReserva = Object.keys(sr0).filter(g => Date.now() - sr0[g] < 7 * 864e5);
       const destinos = REGIONES.filter(g => norm(texto(ev)).includes(norm(g)));
-      const fuera = destinos.filter(g => g !== casa && ((!s.hechas.includes(g) && !sinReserva.includes(g)) || extras(g).length));
-      for (const g of fuera) {
-        viajes.push({ viaje: g });
-        if (!s.hechas.includes(g) && !sinReserva.includes(g)) viajes.push({ href: '/safari', region: g });
-        viajes.push(...extras(g));
-      }
+      // solo se viaja a donde queda algo por hacer hoy
+      const deFuera = g => [...(!s.hechas.includes(g) && !sinReserva.includes(g) ? [{ href: '/safari', region: g }] : []), ...extras(g)].filter(x => !yaHoy(x, casa));
+      const fuera = destinos.filter(g => g !== casa && deFuera(g).length);
+      for (const g of fuera) viajes.push({ viaje: g }, ...deFuera(g));
       if (fuera.length) viajes.push({ viaje: casa, vuelta: true });
     } else log0.push('⚠ No encuentro en el menú en qué región estás: solo juego las de aquí.');
     // al final, ya en casa: los Tronos (si no tienes ninguno), la Torre (con sus esperas de 15 min) y cobrar las misiones
@@ -1346,7 +1358,9 @@
     if (tronosP && !opc.robot) alFinal.push({ href: '/tronos' });
     if (torreP && !opc.robot) alFinal.push({ href: '/torre' });
     if (misionesP || torreP || tronosP) alFinal.push({ href: '/misiones' });
-    const cola = [...(manadasPendientes() ? [{ href: '/manadas', otras: '*' }] : []), ...viajes, ...deCasa, ...alFinal];
+    // lo que ya hice hoy ni se visita: sale como «ya estaba»
+    const deCasaHoy = deCasa.filter(x => { if (!yaHoy(x, casa)) return true; const n = nombrePaso(x, casa); if (!yaHechas.includes(n)) yaHechas.push(n); return false; });
+    const cola = [...(manadasPendientes() ? [{ href: '/manadas', otras: '*' }] : []), ...viajes, ...deCasaHoy, ...alFinal];
     if (!cola.length) {
       ssPut(null);
       pintarMenu([...log0, '✅ Las que sé jugar ya están hechas hoy.']);
@@ -1429,6 +1443,7 @@
       const msg = agotada ? `⚠ ${nom}: se me ha atascado, la dejo.` : cerrada ? `✅ ${nom}${r.actual.viaje ? '' : ': hecha'}.` : `⚠ ${nom}: no veo nada más que hacer (si no está hecha, pásame su HTML).`;
       if (r.actual.viaje && r.actual.vuelta && listo) r.fuera = false;
       if (!r.actual.viaje) r.hechas.push(r.actual.href);
+      if (!r.actual.viaje && cerrada && !agotada) apuntarHecha(r.actual, r.casa);
       r.log.push(msg); log(msg);
       quietoDesde = 0;
       ssPut(r);
