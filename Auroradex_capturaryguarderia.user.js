@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.16.0
+// @version      2.17.0
 // @description  Auto-explora y captura; ante shiny/legendario lo captura solo con la bola que elijas (Master o Ultra) sin parar la macro y avisa, o para y te avisa. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -57,7 +57,7 @@
     X2_KEY: 'adx_macro_egg_x2',
     RAROS_KEY: 'adx_macro_raros',          // legendarios y variocolor: 'master' | 'ultra' (sin parar la macro) | 'parar' (que lo captures tú)
     FAST_KEY: 'adx_macro_rapido',          // '1': modo rápido (esperas mínimas entre acciones)            // '1': alguien del equipo lleva la Piedra Cálida (los huevos progresan el doble)
-    ENERGY_KEY: 'adx_macro_energy_limit',  // energía máxima a gastar por sesión (vacío = sin límite; 0 = solo lo gratis de la manada)
+    ENERGY_KEY: 'adx_macro_energy_limit',  // '0' = solo lo gratis de la manada · '7' = 7 · 'verde' = solo la 🌿 · '' = toda (🌿 y ⚡)
     DEFAULT_PARENT1: 'Ditto',
 
     // Retardos "humanos" (ms) → [mínimo, máximo]
@@ -197,9 +197,11 @@
     return getPartner() ? 'pair' : 'off';
   };
   // null = sin límite; 0 = no gastar energía (solo las exploraciones gratis de ¡MANADA!); n = tope de energía
+  // «verde»: sin tope, pero solo se explora donde cuesta 🌿 (la energía verde) y se para al acabarse
+  const soloVerde = () => String(lsGet(CONFIG.ENERGY_KEY) ?? '').trim() === 'verde';
   const getEnergyLimit = () => {
     const raw = String(lsGet(CONFIG.ENERGY_KEY) ?? '').trim();
-    if (raw === '') return null;
+    if (raw === '' || raw === 'verde') return null;
     const n = parseInt(raw, 10);
     return Number.isFinite(n) && n >= 0 ? n : null;
   };
@@ -488,6 +490,11 @@
       ${U} .adx-step input{text-align:center;height:42px;-moz-appearance:textfield}
       ${U} .adx-step input::-webkit-outer-spin-button,${U} .adx-step input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
       ${U} .adx-chips{display:flex;gap:6px;margin-top:6px}
+      ${U} .adx-seg4{grid-template-columns:repeat(4,1fr)!important}
+      ${U} .adx-en-n{font-family:var(--font-display),system-ui,sans-serif;font-size:19px!important;font-weight:800;line-height:1}
+      ${U} .adx-en-i{width:26px;height:26px;border-radius:999px;display:grid;place-items:center;font-size:15px!important;line-height:1}
+      ${U} .adx-en-verde{background:#DDF3D8;box-shadow:inset 0 0 0 2px #3FA34D}
+      ${U} .adx-en-amarilla{background:#FBEFC4;box-shadow:inset 0 0 0 2px #E0A000}
       ${U} .adx-chips button{flex:1;padding:4px 0;font-size:11px;font-weight:800}
       ${U} .adx-seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
       ${U} .adx-seg button{padding:8px 4px;font-size:11px;font-weight:800;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.15}
@@ -601,19 +608,14 @@
       <div class="adx-settings space-y-3">
         <div>
           <div class="adx-lbl">
-            <label class="titulo-seccion" for="adx-energy">⚡ Energía a gastar</label>
+            <span class="titulo-seccion">⚡ Energía a gastar</span>
             <span class="adx-have text-[11px] font-bold text-tinta-400 tabular-nums"></span>
           </div>
-          <div class="adx-step">
-            <button type="button" class="boton-suave" data-e="-1" aria-label="Menos energía">−</button>
-            <input id="adx-energy" class="adx-in-energy ${FIELD} font-display !text-base font-extrabold tabular-nums" type="number" min="0" step="1" inputmode="numeric" placeholder="∞  toda" autocomplete="off">
-            <button type="button" class="boton-suave" data-e="1" aria-label="Más energía">+</button>
-          </div>
-          <div class="adx-chips">
-            <button type="button" class="boton-suave" data-q="0">0</button>
-            <button type="button" class="boton-suave" data-q="7">7</button>
-            <button type="button" class="boton-suave" data-q="20">20</button>
-            <button type="button" class="boton-suave" data-q="">Toda</button>
+          <div class="adx-seg adx-seg4" role="radiogroup" aria-label="Energía a gastar">
+            <button type="button" data-q="0" role="radio" title="Solo lo gratis (los encuentros de la manada)"><span class="adx-en-n">0</span><span>Nada</span></button>
+            <button type="button" data-q="7" role="radio" title="Hasta 7 de energía"><span class="adx-en-n">7</span><span>Siete</span></button>
+            <button type="button" data-q="verde" role="radio" title="Toda la energía verde (🌿) y ninguna amarilla: solo explora donde cuesta 🌿"><span class="adx-en-i adx-en-verde">🌿</span><span>Toda la verde</span></button>
+            <button type="button" data-q="" role="radio" title="Toda la energía: la verde (🌿) y la amarilla (⚡)"><span class="adx-en-i adx-en-amarilla">⚡</span><span>Toda</span></button>
           </div>
         </div>
 
@@ -693,22 +695,12 @@
       </div>
       <p class="adx-msg rounded-card border-2 border-crema-200 bg-crema-50 p-2 text-[11px] font-bold text-tinta-600"></p>
     `;
-    const inEnergy = $('.adx-in-energy', card);
     const inP1 = $('.adx-in-p1', card);
     const inP2 = $('.adx-in-p2', card);
-    inEnergy.value = getEnergyLimit() ?? '';
     inP1.value = getParent1();
     inP2.value = getPartner();
 
-    const setEnergy = v => {
-      const vacio = v === '' || v === null || v === undefined;
-      const n = vacio ? null : Math.max(0, parseInt(v, 10) || 0);
-      inEnergy.value = n ?? '';
-      lsSet(CONFIG.ENERGY_KEY, n === null ? '' : String(n));
-      renderUI();
-    };
-    inEnergy.addEventListener('input', () => { lsSet(CONFIG.ENERGY_KEY, inEnergy.value.trim()); renderUI(); });
-    for (const b of $$('[data-e]', card)) b.addEventListener('click', () => setEnergy(Math.max(0, (getEnergyLimit() ?? 0) + +b.dataset.e)));
+    const setEnergy = v => { lsSet(CONFIG.ENERGY_KEY, v == null ? '' : String(v)); renderUI(); };
     for (const b of $$('[data-q]', card)) b.addEventListener('click', () => setEnergy(b.dataset.q));
     for (const b of $$('[data-mode]', card)) b.addEventListener('click', () => { lsSet(CONFIG.MODE_KEY, b.dataset.mode); renderUI(); });
     for (const b of $$('[data-raro]', card)) b.addEventListener('click', () => { lsSet(CONFIG.RAROS_KEY, b.dataset.raro); renderUI(); });
@@ -731,7 +723,7 @@
     inP1.addEventListener('blur', () => { if (!inP1.value.trim()) { inP1.value = CONFIG.DEFAULT_PARENT1; lsSet(CONFIG.PARENT1_KEY, CONFIG.DEFAULT_PARENT1); } });
     inP2.addEventListener('input', () => { lsSet(CONFIG.PARTNER_KEY, inP2.value.trim()); inP2.classList.remove('adx-err'); });
     // Enter en cualquier campo = iniciar
-    for (const i of [inEnergy, inP1, inP2]) i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); toggle(); } });
+    for (const i of [inP1, inP2]) i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); toggle(); } });
     $('.adx-btn', card).addEventListener('click', toggle);
     return card;
   }
@@ -835,9 +827,13 @@
     if (settings) settings.hidden = S.running;
     const en = readEnergy();
     setText($('.adx-have', card), en ? `tienes ⚡ ${en.normal}${en.vet ? ' · 🌿 ' + en.vet : ''}` : '');
+    const eq = String(lsGet(CONFIG.ENERGY_KEY) ?? '').trim();
     for (const b of $$('[data-q]', card)) {
-      const on = b.dataset.q === '' ? lim === null : lim === +b.dataset.q;
-      b.style.boxShadow = on ? 'inset 0 0 0 2px currentColor' : '';
+      // (un número viejo que no sea 0 ni 7 cuenta como «toda»)
+      const on = b.dataset.q === eq || (b.dataset.q === '' && !['0', '7', 'verde'].includes(eq));
+      const cls = on ? SEG_ON : SEG_OFF;
+      if (b.className !== cls) b.className = cls;
+      b.setAttribute('aria-checked', String(on));
     }
     for (const b of $$('[data-raro]', card)) {
       const on = b.dataset.raro === modoRaros();
@@ -879,7 +875,7 @@
     setText(btn, S.running ? '■ Detener macro' : '▶ Iniciar macro');
 
     // Barras de progreso
-    setText($('.adx-en-t', card), lim === null ? `${S.spent} · sin límite` : `${S.spent} / ${lim}`);
+    setText($('.adx-en-t', card), soloVerde() ? `${S.spent} · solo 🌿` : lim === null ? `${S.spent} · toda` : `${S.spent} / ${lim}`);
     const enBar = $('.adx-en-bar', card);
     if (enBar) enBar.style.width = (lim ? Math.min(100, (S.spent / lim) * 100) : 0) + '%';
 
@@ -1472,9 +1468,16 @@
       stop(lim === 0 ? `Hecho: ${S.explores} exploraciones gratis, sin gastar energía.` : `Límite de energía alcanzado: gastadas ${S.spent} de ${lim}.`, { alert: true });
       return true;
     }
+    if (n > 0 && soloVerde() && cost.sym !== '🌿') {
+      stop(`Hecho: aquí explorar cuesta ⚡ (amarilla) y solo gasto la 🌿 verde. ${S.explores} exploraciones.`, { alert: true });
+      return true;
+    }
     if (n > 0) {
       const es = energyState(ex2);
-      if (es.have !== null && es.have < n) throw new Fail(noEnergyMsg(es));
+      if (es.have !== null && es.have < n) {
+        if (soloVerde()) { stop(`Hecho: energía verde gastada (${S.spent} 🌿 en ${S.explores} exploraciones).`, { alert: true }); return true; }
+        throw new Fail(noEnergyMsg(es));
+      }
     }
     ex2.click();
     S.spent += n;

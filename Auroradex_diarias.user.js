@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.15.0
+// @version      1.16.0
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -15,7 +15,7 @@
   'use strict';
   // Pokédex nacional (1-1025): nombre en español y, si cambia, el inglés detrás de «/»
   const NOMBRES_DATOS = 'Bulbasaur|Ivysaur|Venusaur|Charmander|Charmeleon|Charizard|Squirtle|Wartortle|Blastoise|Caterpie|Metapod|Butterfree|Weedle|Kakuna|Beedrill|Pidgey|Pidgeotto|Pidgeot|Rattata|Raticate|Spearow|Fearow|Ekans|Arbok|Pikachu|Raichu|Sandshrew|Sandslash|Nidoran♀|Nidorina|Nidoqueen|Nidoran♂|Nidorino|Nidoking|Clefairy|Clefable|Vulpix|Ninetales|Jigglypuff|Wigglytuff|Zubat|Golbat|Oddish|Gloom|Vileplume|Paras|Parasect|Venonat|Venomoth|Diglett|Dugtrio|Meowth|Persian|Psyduck|Golduck|Mankey|Primeape|Growlithe|Arcanine|Poliwag|Poliwhirl|Poliwrath|Abra|Kadabra|Alakazam|Machop|Machoke|Machamp|Bellsprout|Weepinbell|Victreebel|Tentacool|Tentacruel|Geodude|Graveler|Golem|Ponyta|Rapidash|Slowpoke|Slowbro|Magnemite|Magneton|Farfetch’d|Doduo|Dodrio|Seel|Dewgong|Grimer|Muk|Shellder|Cloyster|Gastly|Haunter|Gengar|Onix|Drowzee|Hypno|Krabby|Kingler|Voltorb|Electrode|Exeggcute|Exeggutor|Cubone|Marowak|Hitmonlee|Hitmonchan|Lickitung|Koffing|Weezing|Rhyhorn|Rhydon|Chansey|Tangela|Kangaskhan|Horsea|Seadra|Goldeen|Seaking|Staryu|Starmie|Mr. Mime|Scyther|Jynx|Electabuzz|Magmar|Pinsir|Tauros|Magikarp|Gyarados|Lapras|Ditto|Eevee|Vaporeon|Jolteon|Flareon|Porygon|Omanyte|Omastar|Kabuto|Kabutops|Aerodactyl|Snorlax|Articuno|Zapdos|Moltres|Dratini|Dragonair|Dragonite|Mewtwo|Mew|Chikorita|Bayleef|Meganium|Cyndaquil|Quilava|Typhlosion|Totodile|Croconaw|Feraligatr|Sentret|Furret|Hoothoot|Noctowl|Ledyba|Ledian|Spinarak|Ariados|Crobat|Chinchou|Lanturn|Pichu|Cleffa|Igglybuff|Togepi|Togetic|Natu|Xatu|Mareep|Flaaffy|Ampharos|Bellossom|Marill|Azumarill|Sudowoodo|Politoed|Hoppip|Skiploom|Jumpluff|Aipom|Sunkern|Sunflora|Yanma|Wooper|Quagsire|Espeon|Umbreon|Murkrow|Slowking|Misdreavus|Unown|Wobbuffet|Girafarig|Pineco|Forretress|Dunsparce|Gligar|Steelix|Snubbull|Granbull|Qwilfish|Scizor|Shuckle|Heracross|Sneasel|Teddiursa|Ursaring|Slugma|Magcargo|Swinub|Piloswine|Corsola|Remoraid|Octillery|Delibird|Mantine|Skarmory|Houndour|Houndoom|Kingdra|Phanpy|Donphan|Porygon2|Stantler|Smeargle|Tyrogue|Hitmontop|Smoochum|Elekid|Magby|Miltank|Blissey|Raikou|Entei|Suicune|Larvitar|Pupitar|Tyranitar|Lugia|Ho-Oh|Celebi|Treecko|Grovyle|Sceptile|Torchic|Combusken|Blaziken|Mudkip|Marshtomp|Swampert|Poochyena|Mightyena|Zigzagoon|Linoone|Wurmple|Silcoon|Beautifly|Cascoon|Dustox|Lotad|Lombre|Ludicolo|Seedot|Nuzleaf|Shiftry|Taillow|Swellow|Wingull|Pelipper|Ralts|Kirlia|Gardevoir|Surskit|Masquerain|Shroomish|Breloom|Slakoth|Vigoroth|Slaking|Nincada|Ninjask|Shedinja|Whismur|Loudred|Exploud|Makuhita|Hariyama|Azurill|Nosepass|Skitty|Delcatty|Sableye|Mawile|Aron|Lairon|Aggron|Meditite|Medicham|Electrike|Manectric|Plusle|Minun|Volbeat|Illumise|Roselia|Gulpin|Swalot|Carvanha|Sharpedo|Wailmer|Wailord|Numel|Camerupt|Torkoal|Spoink|Grumpig|Spinda|Trapinch|Vibrava|Flygon|Cacnea|Cacturne|Swablu|Altaria|Zangoose|Seviper|Lunatone|Solrock|Barboach|Whiscash|Corphish|Crawdaunt|Baltoy|Claydol|Lileep|Cradily|Anorith|Armaldo|Feebas|Milotic|Castform|Kecleon|Shuppet|Banette|Duskull|Dusclops|Tropius|Chimecho|Absol|Wynaut|Snorunt|Glalie|Spheal|Sealeo|Walrein|Clamperl|Huntail|Gorebyss|Relicanth|Luvdisc|Bagon|Shelgon|Salamence|Beldum|Metang|Metagross|Regirock|Regice|Registeel|Latias|Latios|Kyogre|Groudon|Rayquaza|Jirachi|Deoxys|Turtwig|Grotle|Torterra|Chimchar|Monferno|Infernape|Piplup|Prinplup|Empoleon|Starly|Staravia|Staraptor|Bidoof|Bibarel|Kricketot|Kricketune|Shinx|Luxio|Luxray|Budew|Roserade|Cranidos|Rampardos|Shieldon|Bastiodon|Burmy|Wormadam|Mothim|Combee|Vespiquen|Pachirisu|Buizel|Floatzel|Cherubi|Cherrim|Shellos|Gastrodon|Ambipom|Drifloon|Drifblim|Buneary|Lopunny|Mismagius|Honchkrow|Glameow|Purugly|Chingling|Stunky|Skuntank|Bronzor|Bronzong|Bonsly|Mime Jr.|Happiny|Chatot|Spiritomb|Gible|Gabite|Garchomp|Munchlax|Riolu|Lucario|Hippopotas|Hippowdon|Skorupi|Drapion|Croagunk|Toxicroak|Carnivine|Finneon|Lumineon|Mantyke|Snover|Abomasnow|Weavile|Magnezone|Lickilicky|Rhyperior|Tangrowth|Electivire|Magmortar|Togekiss|Yanmega|Leafeon|Glaceon|Gliscor|Mamoswine|Porygon-Z|Gallade|Probopass|Dusknoir|Froslass|Rotom|Uxie|Mesprit|Azelf|Dialga|Palkia|Heatran|Regigigas|Giratina|Cresselia|Phione|Manaphy|Darkrai|Shaymin|Arceus|Victini|Snivy|Servine|Serperior|Tepig|Pignite|Emboar|Oshawott|Dewott|Samurott|Patrat|Watchog|Lillipup|Herdier|Stoutland|Purrloin|Liepard|Pansage|Simisage|Pansear|Simisear|Panpour|Simipour|Munna|Musharna|Pidove|Tranquill|Unfezant|Blitzle|Zebstrika|Roggenrola|Boldore|Gigalith|Woobat|Swoobat|Drilbur|Excadrill|Audino|Timburr|Gurdurr|Conkeldurr|Tympole|Palpitoad|Seismitoad|Throh|Sawk|Sewaddle|Swadloon|Leavanny|Venipede|Whirlipede|Scolipede|Cottonee|Whimsicott|Petilil|Lilligant|Basculin|Sandile|Krokorok|Krookodile|Darumaka|Darmanitan|Maractus|Dwebble|Crustle|Scraggy|Scrafty|Sigilyph|Yamask|Cofagrigus|Tirtouga|Carracosta|Archen|Archeops|Trubbish|Garbodor|Zorua|Zoroark|Minccino|Cinccino|Gothita|Gothorita|Gothitelle|Solosis|Duosion|Reuniclus|Ducklett|Swanna|Vanillite|Vanillish|Vanilluxe|Deerling|Sawsbuck|Emolga|Karrablast|Escavalier|Foongus|Amoonguss|Frillish|Jellicent|Alomomola|Joltik|Galvantula|Ferroseed|Ferrothorn|Klink|Klang|Klinklang|Tynamo|Eelektrik|Eelektross|Elgyem|Beheeyem|Litwick|Lampent|Chandelure|Axew|Fraxure|Haxorus|Cubchoo|Beartic|Cryogonal|Shelmet|Accelgor|Stunfisk|Mienfoo|Mienshao|Druddigon|Golett|Golurk|Pawniard|Bisharp|Bouffalant|Rufflet|Braviary|Vullaby|Mandibuzz|Heatmor|Durant|Deino|Zweilous|Hydreigon|Larvesta|Volcarona|Cobalion|Terrakion|Virizion|Tornadus|Thundurus|Reshiram|Zekrom|Landorus|Kyurem|Keldeo|Meloetta|Genesect|Chespin|Quilladin|Chesnaught|Fennekin|Braixen|Delphox|Froakie|Frogadier|Greninja|Bunnelby|Diggersby|Fletchling|Fletchinder|Talonflame|Scatterbug|Spewpa|Vivillon|Litleo|Pyroar|Flabébé|Floette|Florges|Skiddo|Gogoat|Pancham|Pangoro|Furfrou|Espurr|Meowstic|Honedge|Doublade|Aegislash|Spritzee|Aromatisse|Swirlix|Slurpuff|Inkay|Malamar|Binacle|Barbaracle|Skrelp|Dragalge|Clauncher|Clawitzer|Helioptile|Heliolisk|Tyrunt|Tyrantrum|Amaura|Aurorus|Sylveon|Hawlucha|Dedenne|Carbink|Goomy|Sliggoo|Goodra|Klefki|Phantump|Trevenant|Pumpkaboo|Gourgeist|Bergmite|Avalugg|Noibat|Noivern|Xerneas|Yveltal|Zygarde|Diancie|Hoopa|Volcanion|Rowlet|Dartrix|Decidueye|Litten|Torracat|Incineroar|Popplio|Brionne|Primarina|Pikipek|Trumbeak|Toucannon|Yungoos|Gumshoos|Grubbin|Charjabug|Vikavolt|Crabrawler|Crabominable|Oricorio|Cutiefly|Ribombee|Rockruff|Lycanroc|Wishiwashi|Mareanie|Toxapex|Mudbray|Mudsdale|Dewpider|Araquanid|Fomantis|Lurantis|Morelull|Shiinotic|Salandit|Salazzle|Stufful|Bewear|Bounsweet|Steenee|Tsareena|Comfey|Oranguru|Passimian|Wimpod|Golisopod|Sandygast|Palossand|Pyukumuku|Código Cero/Type: Null|Silvally|Minior|Komala|Turtonator|Togedemaru|Mimikyu|Bruxish|Drampa|Dhelmise|Jangmo-o|Hakamo-o|Kommo-o|Tapu Koko|Tapu Lele|Tapu Bulu|Tapu Fini|Cosmog|Cosmoem|Solgaleo|Lunala|Nihilego|Buzzwole|Pheromosa|Xurkitree|Celesteela|Kartana|Guzzlord|Necrozma|Magearna|Marshadow|Poipole|Naganadel|Stakataka|Blacephalon|Zeraora|Meltan|Melmetal|Grookey|Thwackey|Rillaboom|Scorbunny|Raboot|Cinderace|Sobble|Drizzile|Inteleon|Skwovet|Greedent|Rookidee|Corvisquire|Corviknight|Blipbug|Dottler|Orbeetle|Nickit|Thievul|Gossifleur|Eldegoss|Wooloo|Dubwool|Chewtle|Drednaw|Yamper|Boltund|Rolycoly|Carkol|Coalossal|Applin|Flapple|Appletun|Silicobra|Sandaconda|Cramorant|Arrokuda|Barraskewda|Toxel|Toxtricity|Sizzlipede|Centiskorch|Clobbopus|Grapploct|Sinistea|Polteageist|Hatenna|Hattrem|Hatterene|Impidimp|Morgrem|Grimmsnarl|Obstagoon|Perrserker|Cursola|Sirfetch’d|Mr. Rime|Runerigus|Milcery|Alcremie|Falinks|Pincurchin|Snom|Frosmoth|Stonjourner|Eiscue|Indeedee|Morpeko|Cufant|Copperajah|Dracozolt|Arctozolt|Dracovish|Arctovish|Duraludon|Dreepy|Drakloak|Dragapult|Zacian|Zamazenta|Eternatus|Kubfu|Urshifu|Zarude|Regieleki|Regidrago|Glastrier|Spectrier|Calyrex|Wyrdeer|Kleavor|Ursaluna|Basculegion|Sneasler|Overqwil|Enamorus|Sprigatito|Floragato|Meowscarada|Fuecoco|Crocalor|Skeledirge|Quaxly|Quaxwell|Quaquaval|Lechonk|Oinkologne|Tarountula|Spidops|Nymble|Lokix|Pawmi|Pawmo|Pawmot|Tandemaus|Maushold|Fidough|Dachsbun|Smoliv|Dolliv|Arboliva|Squawkabilly|Nacli|Naclstack|Garganacl|Charcadet|Armarouge|Ceruledge|Tadbulb|Bellibolt|Wattrel|Kilowattrel|Maschiff|Mabosstiff|Shroodle|Grafaiai|Bramblin|Brambleghast|Toedscool|Toedscruel|Klawf|Capsakid|Scovillain|Rellor|Rabsca|Flittle|Espathra|Tinkatink|Tinkatuff|Tinkaton|Wiglett|Wugtrio|Bombirdier|Finizen|Palafin|Varoom|Revavroom|Cyclizar|Orthworm|Glimmet|Glimmora|Greavard|Houndstone|Flamigo|Cetoddle|Cetitan|Veluza|Dondozo|Tatsugiri|Annihilape|Clodsire|Farigiraf|Dudunsparce|Kingambit|Colmilargo/Great Tusk|Colagrito/Scream Tail|Furioseta/Brute Bonnet|Melenaleteo/Flutter Mane|Reptalada/Slither Wing|Pelarena/Sandy Shocks|Ferrodada/Iron Treads|Ferrosaco/Iron Bundle|Ferropalmas/Iron Hands|Ferrocuello/Iron Jugulis|Ferropolilla/Iron Moth|Ferropúas/Iron Thorns|Frigibax|Arctibax|Baxcalibur|Gimmighoul|Gholdengo|Wo-Chien|Chien-Pao|Ting-Lu|Chi-Yu|Bramaluna/Roaring Moon|Ferropaladín/Iron Valiant|Koraidon|Miraidon|Ondulagua/Walking Wake|Ferroverdor/Iron Leaves|Dipplin|Poltchageist|Sinistcha|Okidogi|Munkidori|Fezandipiti|Ogerpon|Archaludon|Hydrapple|Flamariete/Gouging Fire|Electrofuria/Raging Bolt|Ferromole/Iron Boulder|Ferrotesta/Iron Crown|Terapagos|Pecharunt';
-  const VERSION = '1.15.0';
+  const VERSION = '1.16.0';
   // ¿Esta es la pestaña o la ventana oculta donde se juegan las diarias en segundo plano? (en otras ventanas, nada)
   const FONDO_NOMBRE = 'axd-fondo';
   let EN_FONDO = false;
@@ -1310,7 +1310,8 @@
   async function iniciarRuta(opc = {}) {
     if (ruta() !== '/menu') { ssPut({ preparar: true, t: Date.now(), robot: opc.robot }); location.assign('/menu'); return; }
     const menu = leerMenu();
-    const cola = menu.filter(d => !d.hecha && d.sabe).map(d => ({ href: d.href }));
+    // primero lo que cambia de región (las Manadas y los viajes con sus Safaris), luego lo de casa y al final lo demás
+    const deCasa = menu.filter(d => !d.hecha && d.sabe).map(d => ({ href: d.href })), viajes = [], alFinal = [];
     pintarMenu(['Mirando qué queda…']);
     // lo que no sale en «Para hoy» se mira por detrás, todo a la vez
     const [ct, misionesP, islaP, tronosP, torreP] = await Promise.all([tretaPendiente(), misionesPendientes(), islaAbierta(), sinTrono(), torrePendiente()]);
@@ -1326,26 +1327,26 @@
     let treta = ct.pendiente;
     if (treta && ct.cerrada && casa === 'Hoenn') { treta = false; log0.push(`⏭ 🚪 La Casa Treta: solo se entra estando en la ${ct.ruta || 'su ruta'}; esa te la dejo.`); }
     const s = safarisHoy();
-    if (casa) cola.push(...extras(casa));
-    cola.push(...DE_CASA());
-    if (islaP) cola.push({ href: '/isla' });
+    if (casa) deCasa.push(...extras(casa));
+    deCasa.push(...DE_CASA());
+    if (islaP) deCasa.push({ href: '/isla' });
     if (casa) {
       const sr0 = lsGet('axd-sin-reserva', {}), sinReserva = Object.keys(sr0).filter(g => Date.now() - sr0[g] < 7 * 864e5);
       const destinos = REGIONES.filter(g => norm(texto(ev)).includes(norm(g)));
       const fuera = destinos.filter(g => g !== casa && ((!s.hechas.includes(g) && !sinReserva.includes(g)) || extras(g).length));
       for (const g of fuera) {
-        cola.push({ viaje: g });
-        if (!s.hechas.includes(g) && !sinReserva.includes(g)) cola.push({ href: '/safari', region: g });
-        cola.push(...extras(g));
+        viajes.push({ viaje: g });
+        if (!s.hechas.includes(g) && !sinReserva.includes(g)) viajes.push({ href: '/safari', region: g });
+        viajes.push(...extras(g));
       }
-      if (fuera.length) cola.push({ viaje: casa, vuelta: true });
+      if (fuera.length) viajes.push({ viaje: casa, vuelta: true });
     } else log0.push('⚠ No encuentro en el menú en qué región estás: solo juego las de aquí.');
     // al final, ya en casa: los Tronos (si no tienes ninguno), la Torre (con sus esperas de 15 min) y cobrar las misiones
     // (con el robot, los Tronos y la Torre van aparte, cuando les toca)
-    if (tronosP && !opc.robot) cola.push({ href: '/tronos' });
-    if (torreP && !opc.robot) cola.push({ href: '/torre' });
-    if (manadasPendientes()) cola.push({ href: '/manadas', otras: '*' });
-    if (misionesP || torreP || tronosP) cola.push({ href: '/misiones' });
+    if (tronosP && !opc.robot) alFinal.push({ href: '/tronos' });
+    if (torreP && !opc.robot) alFinal.push({ href: '/torre' });
+    if (misionesP || torreP || tronosP) alFinal.push({ href: '/misiones' });
+    const cola = [...(manadasPendientes() ? [{ href: '/manadas', otras: '*' }] : []), ...viajes, ...deCasa, ...alFinal];
     if (!cola.length) {
       ssPut(null);
       pintarMenu([...log0, '✅ Las que sé jugar ya están hechas hoy.']);
@@ -1593,74 +1594,58 @@
    * por el sessionStorage de la pestaña, que comparten. Si recargas la página, sigue donde iba. */
   function fondoActivo() { return !!ssLeer(SS_FONDO) || robotOn(); }
   const FONDO_CSS = `
-    #axd-fondo-card{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);transform:translateX(-50%);z-index:2147483000;width:min(400px,calc(100vw - 20px));font-family:inherit;color:rgb(var(--tinta-800,33 36 29));animation:axdf-entra .35s cubic-bezier(.2,1.25,.4,1) both}
-    #axd-fondo-card .axdf-caja{border-radius:22px;background:rgb(var(--lienzo,255 255 255));border:2px solid color-mix(in srgb,var(--axdf-c) 45%,rgb(var(--crema-200,232 226 210)));box-shadow:0 4px 0 0 rgba(0,0,0,.07),0 18px 36px -16px rgba(0,0,0,.5);overflow:hidden}
-    #axd-fondo-card .axdf-cab{display:flex;align-items:center;gap:10px;padding:10px 10px 8px 10px}
-    #axd-fondo-card .axdf-ico{width:42px;height:42px;flex-shrink:0;border-radius:14px;display:grid;place-items:center;font-size:22px;background:color-mix(in srgb,var(--axdf-c) 16%,rgb(var(--lienzo,255 255 255)));box-shadow:inset 0 -3px 0 color-mix(in srgb,var(--axdf-c) 28%,transparent)}
-    #axd-fondo-card[data-s="on"] .axdf-ico span{display:inline-block;animation:axdf-bota 1.4s ease-in-out infinite}
-    #axd-fondo-card .axdf-tit{margin:0;font-family:var(--font-display),system-ui,sans-serif;font-size:15px;font-weight:800;line-height:1.15}
-    #axd-fondo-card .axdf-sub{margin:1px 0 0;font-size:11px;font-weight:800;color:rgb(var(--tinta-400,140 143 133));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    #axd-fondo-card .axdf-num{font-variant-numeric:tabular-nums;color:var(--axdf-c)}
-    #axd-fondo-card .axdf-bt{width:30px;height:30px;flex-shrink:0;border:0;border-radius:999px;display:grid;place-items:center;cursor:pointer;font-size:13px;font-weight:900;background:rgb(var(--crema-100,244 239 226));color:rgb(var(--tinta-500,99 102 92));transition:background .15s,transform .1s}
+    #axd-fondo-card{position:fixed;z-index:2147483000;width:min(292px,calc(100vw - 16px));font-family:inherit;color:rgb(var(--tinta-800,33 36 29));touch-action:none;animation:axdf-entra .3s cubic-bezier(.2,1.25,.4,1) both}
+    #axd-fondo-card .axdf-caja{border-radius:18px;background:color-mix(in srgb,rgb(var(--lienzo,255 255 255)) 94%,transparent);backdrop-filter:blur(8px);border:1.5px solid color-mix(in srgb,var(--axdf-c) 45%,rgb(var(--crema-200,232 226 210)));box-shadow:0 3px 0 0 rgba(0,0,0,.06),0 14px 30px -14px rgba(0,0,0,.55);overflow:hidden}
+    #axd-fondo-card .axdf-cab{display:flex;align-items:center;gap:8px;padding:7px 7px 7px 8px;cursor:grab;user-select:none}
+    #axd-fondo-card.axdf-arrastra .axdf-cab{cursor:grabbing}
+    #axd-fondo-card .axdf-ico{position:relative;width:30px;height:30px;flex-shrink:0;border-radius:10px;display:grid;place-items:center;font-size:16px;background:color-mix(in srgb,var(--axdf-c) 16%,rgb(var(--lienzo,255 255 255)))}
+    #axd-fondo-card[data-s="on"] .axdf-ico::after{content:"";position:absolute;inset:-3px;border-radius:12px;border:2px solid transparent;border-top-color:var(--axdf-c);animation:axdf-gira 1.1s linear infinite}
+    #axd-fondo-card .axdf-tx{flex:1;min-width:0}
+    #axd-fondo-card .axdf-tit{margin:0;font-family:var(--font-display),system-ui,sans-serif;font-size:13px;font-weight:800;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #axd-fondo-card .axdf-sub{margin:1px 0 0;font-size:10.5px;font-weight:700;color:rgb(var(--tinta-400,140 143 133));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #axd-fondo-card .axdf-bt{width:24px;height:24px;flex-shrink:0;border:0;border-radius:999px;display:grid;place-items:center;cursor:pointer;font-size:11px;font-weight:900;background:rgb(var(--crema-100,244 239 226));color:rgb(var(--tinta-500,99 102 92))}
     #axd-fondo-card .axdf-bt:hover{background:rgb(var(--crema-200,232 226 210))}
-    #axd-fondo-card .axdf-bt:active{transform:scale(.92)}
-    #axd-fondo-card .axdf-bt.axdf-stop{color:rgb(var(--rojo-600,200 60 50))}
-    #axd-fondo-card .axdf-barra{margin:0 12px;height:10px;border-radius:999px;background:rgb(var(--crema-200,232 226 210));overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.12)}
-    #axd-fondo-card .axdf-barra>span{display:block;height:100%;width:0;border-radius:999px;background:var(--axdf-c);transition:width .6s cubic-bezier(.22,1,.36,1);background-image:linear-gradient(100deg,rgba(255,255,255,0) 30%,rgba(255,255,255,.45) 50%,rgba(255,255,255,0) 70%);background-size:200% 100%}
-    #axd-fondo-card[data-s="on"] .axdf-barra>span{animation:axdf-brillo 1.6s linear infinite}
-    #axd-fondo-card .axdf-ahora{margin:8px 12px 0;padding:7px 10px;border-radius:14px;background:color-mix(in srgb,var(--axdf-c) 9%,rgb(var(--lienzo,255 255 255)));font-size:12px;font-weight:700;line-height:1.35;color:rgb(var(--tinta-600,72 75 66));display:flex;gap:7px;align-items:flex-start}
+    #axd-fondo-card .axdf-stop{color:rgb(var(--rojo-600,200 60 50))}
+    #axd-fondo-card .axdf-barra{height:3px;background:rgb(var(--crema-200,232 226 210))}
+    #axd-fondo-card .axdf-barra>span{display:block;height:100%;width:0;background:var(--axdf-c);transition:width .6s cubic-bezier(.22,1,.36,1)}
+    #axd-fondo-card .axdf-cuerpo{padding:6px 7px 7px}
+    #axd-fondo-card .axdf-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+    #axd-fondo-card .axdf-tile{position:relative;border:0;padding:5px 2px 4px;border-radius:11px;background:rgb(var(--crema-50,250 247 238));box-shadow:inset 0 0 0 1px rgb(var(--crema-200,232 226 210));display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0;cursor:default;font:inherit;color:inherit}
+    #axd-fondo-card .axdf-tile .i{font-size:14px;line-height:1}
+    #axd-fondo-card .axdf-tile .v{font-size:10.5px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+    #axd-fondo-card .axdf-tile .l{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:rgb(var(--tinta-400,140 143 133));white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+    #axd-fondo-card .axdf-tile.ya{background:color-mix(in srgb,var(--axdf-c) 14%,rgb(var(--lienzo,255 255 255)));box-shadow:inset 0 0 0 1.5px var(--axdf-c)}
+    #axd-fondo-card .axdf-tile.ok .v{color:rgb(var(--hoja-700,40 120 60))}
+    #axd-fondo-card .axdf-tile.pronto .v{color:#E08A00}
+    #axd-fondo-card .axdf-tile.boton{cursor:pointer}
+    #axd-fondo-card .axdf-tile.abierto{box-shadow:inset 0 0 0 1.5px rgb(var(--tinta-400,140 143 133))}
+    #axd-fondo-card .axdf-ahora{margin:0 0 6px;padding:5px 8px;border-radius:10px;background:color-mix(in srgb,var(--axdf-c) 9%,rgb(var(--lienzo,255 255 255)));font-size:11px;font-weight:700;line-height:1.3;color:rgb(var(--tinta-600,72 75 66));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     #axd-fondo-card .axdf-ahora:empty{display:none}
-    #axd-fondo-card .axdf-ahora b{color:rgb(var(--tinta-800,33 36 29))}
-    #axd-fondo-card .axdf-ahora small{display:block;font-size:10.5px;font-weight:700;color:rgb(var(--tinta-400,140 143 133))}
-    #axd-fondo-card .axdf-pasos{list-style:none;margin:8px 0 0;padding:0 12px 10px;max-height:170px;overflow-y:auto;overflow-x:hidden;display:grid;grid-template-columns:minmax(0,1fr);gap:2px;scrollbar-width:thin}
-    #axd-fondo-card .axdf-pasos li{display:flex;align-items:center;gap:7px;padding:3px 6px;border-radius:10px;font-size:12px;font-weight:700;color:rgb(var(--tinta-600,72 75 66))}
-    #axd-fondo-card .axdf-pasos li.axdf-ya{animation:axdf-fila .3s ease both}
-    #axd-fondo-card .axdf-pasos li .axdf-m{width:18px;text-align:center;flex-shrink:0;font-size:12px}
-    #axd-fondo-card .axdf-pasos li .axdf-n{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    #axd-fondo-card .axdf-pasos li .axdf-mot{display:block;white-space:normal;font-size:10.5px;font-weight:700;color:rgb(var(--tinta-400,140 143 133))}
-    #axd-fondo-card .axdf-pasos li .axdf-t{font-size:10px;font-weight:800;color:rgb(var(--tinta-400,140 143 133));font-variant-numeric:tabular-nums}
-    #axd-fondo-card .axdf-pasos li.axdf-hecho{color:rgb(var(--hoja-700,40 120 60))}
-    #axd-fondo-card .axdf-pasos li.axdf-mal{color:rgb(var(--ambar-700,160 100 0))}
-    #axd-fondo-card .axdf-pasos li.axdf-ya{background:color-mix(in srgb,var(--axdf-c) 12%,rgb(var(--lienzo,255 255 255)));color:rgb(var(--tinta-800,33 36 29));box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--axdf-c) 45%,transparent)}
-    #axd-fondo-card .axdf-pasos li.axdf-luego{opacity:.55}
-    #axd-fondo-card .axdf-pasos li.axdf-antes{opacity:.6;font-size:11px}
-    #axd-fondo-card .axdf-rueda{width:12px;height:12px;border-radius:999px;border:2px solid color-mix(in srgb,var(--axdf-c) 30%,transparent);border-top-color:var(--axdf-c);display:inline-block;animation:axdf-gira .8s linear infinite}
-    #axd-fondo-card .axdf-pie{display:flex;gap:8px;padding:0 12px 12px}
-    #axd-fondo-card .axdf-agenda{margin-top:8px;max-height:250px}
-    #axd-fondo-card .axdf-diarias{margin:0 12px 8px}
-    #axd-fondo-card .axdf-diarias:empty{display:none}
-    #axd-fondo-card .axdf-dtit{margin:0 0 5px;font-size:11px;font-weight:900;color:rgb(var(--tinta-500,99 102 92))}
-    #axd-fondo-card .axdf-chips{display:flex;flex-wrap:wrap;gap:4px;max-height:118px;overflow-y:auto}
-    #axd-fondo-card .axdf-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:800;white-space:nowrap;background:rgb(var(--crema-100,244 239 226));color:rgb(var(--tinta-600,72 75 66))}
-    #axd-fondo-card .axdf-chip .axdf-rueda{width:9px;height:9px}
+    #axd-fondo-card .axdf-mas{margin-top:6px}
+    #axd-fondo-card .axdf-mas:empty{display:none}
+    #axd-fondo-card .axdf-chips{display:flex;flex-wrap:wrap;gap:3px;max-height:96px;overflow-y:auto}
+    #axd-fondo-card .axdf-chip{display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:800;white-space:nowrap;background:rgb(var(--crema-100,244 239 226));color:rgb(var(--tinta-600,72 75 66))}
     #axd-fondo-card .axdf-c-ok,#axd-fondo-card .axdf-c-ya{background:color-mix(in srgb,#2FA84F 14%,rgb(var(--lienzo,255 255 255)));color:rgb(var(--hoja-700,40 120 60))}
-    #axd-fondo-card .axdf-c-ya{opacity:.75}
+    #axd-fondo-card .axdf-c-ya{opacity:.7}
     #axd-fondo-card .axdf-c-mal,#axd-fondo-card .axdf-c-salto{background:color-mix(in srgb,#E0A000 16%,rgb(var(--lienzo,255 255 255)));color:rgb(var(--ambar-700,160 100 0))}
-    #axd-fondo-card .axdf-c-ahora{background:color-mix(in srgb,var(--axdf-c) 16%,rgb(var(--lienzo,255 255 255)));color:rgb(var(--tinta-800,33 36 29));box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--axdf-c) 50%,transparent)}
-    #axd-fondo-card .axdf-c-luego{opacity:.6}
-    #axd-fondo-card .axdf-agenda li .axdf-m{font-size:14px}
-    #axd-fondo-card .axdf-mas{margin:0 12px 10px;border-radius:14px;background:rgb(var(--crema-50,250 247 238));padding:4px 0}
-    #axd-fondo-card .axdf-mas>summary{cursor:pointer;padding:4px 10px;font-size:11px;font-weight:900;color:rgb(var(--tinta-500,99 102 92))}
-    #axd-fondo-card .axdf-mas .axdf-pasos{margin:0;padding:0 8px 6px}
-    #axd-fondo-card[data-s="espera"] .axdf-ico span{animation:none}
+    #axd-fondo-card .axdf-c-ahora{background:color-mix(in srgb,var(--axdf-c) 18%,rgb(var(--lienzo,255 255 255)));box-shadow:inset 0 0 0 1px var(--axdf-c)}
+    #axd-fondo-card .axdf-c-luego{opacity:.55}
+    #axd-fondo-card .axdf-log{margin:0;padding:0;list-style:none;max-height:110px;overflow-y:auto;font-size:10.5px;font-weight:700;line-height:1.35;color:rgb(var(--tinta-500,99 102 92))}
+    #axd-fondo-card .axdf-log li+li{border-top:1px dashed rgb(var(--crema-200,232 226 210))}
+    #axd-fondo-card .axdf-pie{display:flex;gap:6px;margin-top:6px}
     #axd-fondo-card .axdf-pie:empty{display:none}
-    #axd-fondo-card .axdf-pie button{flex:1;border:0;border-radius:999px;padding:8px 10px;font-size:12px;font-weight:900;cursor:pointer;background:rgb(var(--crema-100,244 239 226));color:rgb(var(--tinta-600,72 75 66))}
+    #axd-fondo-card .axdf-pie button{flex:1;border:0;border-radius:999px;padding:6px 8px;font-size:11px;font-weight:900;cursor:pointer;background:rgb(var(--crema-100,244 239 226));color:rgb(var(--tinta-600,72 75 66))}
     #axd-fondo-card .axdf-pie button.axdf-prim{background:var(--axdf-c);color:#fff}
     #axd-fondo-card.axdf-mini{width:auto}
     #axd-fondo-card.axdf-mini .axdf-caja{border-radius:999px}
-    #axd-fondo-card.axdf-mini .axdf-cab{padding:5px 6px 5px 5px;gap:8px;cursor:pointer}
-    #axd-fondo-card.axdf-mini .axdf-ico{width:34px;height:34px;font-size:18px;border-radius:999px}
-    #axd-fondo-card.axdf-mini .axdf-tit{font-size:13px}
-    #axd-fondo-card.axdf-mini .axdf-sub,#axd-fondo-card.axdf-mini .axdf-barra,#axd-fondo-card.axdf-mini .axdf-ahora,#axd-fondo-card.axdf-mini .axdf-pasos,#axd-fondo-card.axdf-mini .axdf-pie,#axd-fondo-card.axdf-mini .axdf-stop,#axd-fondo-card.axdf-mini .axdf-diarias,#axd-fondo-card.axdf-mini .axdf-mas{display:none}
-    #axd-fondo-card .axdf-anillo{position:relative}
-    #axd-fondo-card.axdf-mini .axdf-ico{background:conic-gradient(var(--axdf-c) calc(var(--axdf-p,0) * 1%),rgb(var(--crema-200,232 226 210)) 0)}
-    #axd-fondo-card.axdf-mini .axdf-ico span{width:26px;height:26px;border-radius:999px;display:grid!important;place-items:center;background:rgb(var(--lienzo,255 255 255));font-size:15px;animation:none!important}
-    @keyframes axdf-entra{from{opacity:0;transform:translate(-50%,16px) scale(.96)}to{opacity:1}}
-    #axd-fondo-card.axdf-mini{animation:none}
-    @keyframes axdf-brillo{from{background-position:200% 0}to{background-position:-200% 0}}
+    #axd-fondo-card.axdf-mini .axdf-cab{padding:4px 5px 4px 4px;gap:6px}
+    #axd-fondo-card.axdf-mini .axdf-ico{width:26px;height:26px;border-radius:999px;font-size:14px}
+    #axd-fondo-card.axdf-mini[data-s="on"] .axdf-ico::after{border-radius:999px}
+    #axd-fondo-card.axdf-mini .axdf-tit{font-size:12px}
+    #axd-fondo-card.axdf-mini .axdf-sub,#axd-fondo-card.axdf-mini .axdf-barra,#axd-fondo-card.axdf-mini .axdf-cuerpo,#axd-fondo-card.axdf-mini .axdf-stop,#axd-fondo-card.axdf-mini .axdf-log-bt{display:none}
+    #axd-fondo-card .axdf-rueda{width:9px;height:9px;border-radius:999px;border:2px solid color-mix(in srgb,var(--axdf-c) 30%,transparent);border-top-color:var(--axdf-c);display:inline-block;animation:axdf-gira .8s linear infinite}
+    @keyframes axdf-entra{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
     @keyframes axdf-gira{to{transform:rotate(360deg)}}
-    @keyframes axdf-bota{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
-    @keyframes axdf-fila{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
     @media (prefers-reduced-motion:reduce){#axd-fondo-card,#axd-fondo-card *{animation:none!important}}`;
   const LS_MINI = 'axd-fondo-mini';
   const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -1823,6 +1808,44 @@
       if (id === 'subsuelo') { const s = lsGet('axsub-resumen', null); return s && s.total ? `⛏️ ${s.picadas}/${s.total} vetas picadas` : ''; }
       return '';
     },
+    // dónde está la tarjeta (se arrastra por la cabecera y se recuerda)
+    colocar(c) {
+      const pos = lsGet('axd-robot-pos', null), w = c.offsetWidth || 292, h = c.offsetHeight || 60;
+      const vw = window.innerWidth, vh = window.innerHeight;
+      if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
+        c.style.left = Math.max(4, Math.min(vw - w - 4, pos.x)) + 'px'; c.style.top = Math.max(4, Math.min(vh - h - 4, pos.y)) + 'px';
+        c.style.right = 'auto'; c.style.bottom = 'auto';
+      } else { c.style.left = 'auto'; c.style.top = 'auto'; c.style.right = '8px'; c.style.bottom = 'calc(env(safe-area-inset-bottom,0px) + 84px)'; }
+    },
+    arrastre(c) {
+      const cab = c.querySelector('.axdf-cab');
+      let ini = null;
+      cab.addEventListener('pointerdown', e => {
+        if (e.button !== 0 || e.target.closest('button')) return;
+        const r = c.getBoundingClientRect();
+        ini = { x: e.clientX, y: e.clientY, l: r.left, t: r.top, movido: false, id: e.pointerId };
+        try { cab.setPointerCapture(e.pointerId); } catch { /* nada */ }
+      });
+      cab.addEventListener('pointermove', e => {
+        if (!ini) return;
+        const dx = e.clientX - ini.x, dy = e.clientY - ini.y;
+        if (!ini.movido && Math.hypot(dx, dy) < 5) return;
+        ini.movido = true; c.classList.add('axdf-arrastra');
+        const w = c.offsetWidth, h = c.offsetHeight;
+        c.style.right = 'auto'; c.style.bottom = 'auto';
+        c.style.left = Math.max(4, Math.min(window.innerWidth - w - 4, ini.l + dx)) + 'px';
+        c.style.top = Math.max(4, Math.min(window.innerHeight - h - 4, ini.t + dy)) + 'px';
+      });
+      const soltar = () => {
+        if (!ini) return;
+        if (ini.movido) { const r = c.getBoundingClientRect(); lsPut('axd-robot-pos', { x: Math.round(r.left), y: Math.round(r.top) }); c.dataset.recienMovido = String(Date.now()); }
+        ini = null; c.classList.remove('axdf-arrastra');
+      };
+      cab.addEventListener('pointerup', soltar); cab.addEventListener('pointercancel', soltar);
+      // doble toque en la cabecera: vuelve a su sitio de siempre
+      cab.addEventListener('dblclick', e => { if (e.target.closest('button')) return; lsPut('axd-robot-pos', null); this.colocar(c); });
+      addEventListener('resize', () => this.colocar(c));
+    },
     pintar() {
       if (EN_FONDO || !document.body) return;
       const R = ssLeer(SS_ROBOT), r = ssLeer(SS_FONDO);
@@ -1833,94 +1856,106 @@
         c = document.createElement('div');
         c.id = 'axd-fondo-card'; c.setAttribute('data-ax-ignore', ''); c.setAttribute('role', 'status'); c.setAttribute('aria-live', 'polite');
         c.innerHTML = `<div class="axdf-caja">
-            <div class="axdf-cab"><div class="axdf-ico"><span>🤖</span></div>
-              <div style="flex:1;min-width:0"><p class="axdf-tit"></p><p class="axdf-sub"></p></div>
+            <div class="axdf-cab" title="Arrastra para moverlo · doble toque: a su sitio"><div class="axdf-ico"><span>🤖</span></div>
+              <div class="axdf-tx"><p class="axdf-tit"></p><p class="axdf-sub"></p></div>
+              <button type="button" class="axdf-bt axdf-log-bt" title="Lo que ha hecho">📜</button>
               <button type="button" class="axdf-bt axdf-min" title="Minimizar">–</button>
               <button type="button" class="axdf-bt axdf-stop" title="Parar">■</button></div>
             <div class="axdf-barra"><span></span></div>
-            <div class="axdf-ahora"></div>
-            <ul class="axdf-pasos axdf-agenda"></ul>
-            <div class="axdf-diarias"></div>
-            <details class="axdf-mas"><summary></summary><ul class="axdf-pasos axdf-lista"></ul></details>
-            <div class="axdf-pie"></div></div>`;
-        c.querySelector('.axdf-min').addEventListener('click', e => { e.stopPropagation(); const m = !c.classList.contains('axdf-mini'); try { localStorage.setItem(LS_MINI, m ? '1' : '0'); } catch { /* nada */ } this.pintar(); });
+            <div class="axdf-cuerpo"><div class="axdf-ahora"></div><div class="axdf-tiles"></div><div class="axdf-mas"></div><div class="axdf-pie"></div></div></div>`;
+        const abrir = que => { const a = lsGet('axd-fondo-abierto', ''); lsPut('axd-fondo-abierto', a === que ? '' : que); this.pintar(); };
+        c.querySelector('.axdf-min').addEventListener('click', e => { e.stopPropagation(); const m = !c.classList.contains('axdf-mini'); try { localStorage.setItem(LS_MINI, m ? '1' : '0'); } catch { /* nada */ } this.pintar(); setTimeout(() => this.colocar(c), 0); });
+        c.querySelector('.axdf-log-bt').addEventListener('click', e => { e.stopPropagation(); abrir('log'); });
         c.querySelector('.axdf-stop').addEventListener('click', e => {
           e.stopPropagation();
           if (robotOn()) { if (confirm('¿Parar el robot de diarias?\n\nLo que ya está hecho, hecho queda. Puedes seguir luego donde lo dejó.')) this.parar(); }
           else this.cerrar();
         });
-        c.querySelector('.axdf-cab').addEventListener('click', () => { if (c.classList.contains('axdf-mini')) this.ver(); });
+        c.querySelector('.axdf-cab').addEventListener('click', e => {
+          if (e.target.closest('button') || Date.now() - (+c.dataset.recienMovido || 0) < 400) return;
+          if (c.classList.contains('axdf-mini')) { this.ver(); setTimeout(() => this.colocar(c), 0); }
+        });
+        c.querySelector('.axdf-tiles').addEventListener('click', e => { const t = e.target.closest('[data-abre]'); if (t) abrir(t.dataset.abre); });
         c.querySelector('.axdf-pie').addEventListener('click', e => {
           const b = e.target.closest('button'); if (!b) return;
           if (b.dataset.a === 'cerrar') this.cerrar();
           else if (b.dataset.a === 'seguir') this.seguir();
         });
-        c.querySelector('.axdf-mas').addEventListener('toggle', e => { try { localStorage.setItem('axd-fondo-mas', e.target.open ? '1' : '0'); } catch { /* nada */ } });
-        try { c.querySelector('.axdf-mas').open = localStorage.getItem('axd-fondo-mas') === '1'; } catch { /* nada */ }
         document.body.appendChild(c);
+        this.arrastre(c);
+        this.colocar(c);
       }
       const on = !!R.on;
       let mini = false; try { mini = localStorage.getItem(LS_MINI) === '1'; } catch { /* nada */ }
       c.classList.toggle('axdf-mini', mini && on);
       const set = (sel, v, html) => { const el = c.querySelector(sel); if (!el) return; if (html) { if (el.dataset.h !== v) { el.dataset.h = v; el.innerHTML = v; } } else if (el.textContent !== v) el.textContent = v; };
       const ahora = Date.now();
-      // la ruta de ahora (si la hay)
-      const pasos = (r && r.pasos) || [];
       const actual = r && r.actual ? nombrePaso(r.actual, r.casa) : null;
-      const cola = r && r.cola ? r.cola.map(x => nombrePaso(x, r.casa)) : [];
-      const total = pasos.length + (actual ? 1 : 0) + cola.length, n = pasos.length + (actual ? 1 : 0);
       const idAhora = r && r.actual && !r.actual.viaje ? r.actual.robot || ROBOT_DE[r.actual.href] : null;
+      const enDiarias = !!(r && (r.robot === 'diarias' || r.preparar || r.preparando));
+      // las diarias de hoy (en directo mientras se juegan; si no, las de la última vuelta de hoy)
+      const td = rtGet('diarias');
+      const ld = enDiarias ? listaDiarias(r) : td.dia === hoy() ? td.lista || [] : [];
+      const hechasN = ld.filter(x => ['ya', 'ok'].includes(x.e)).length;
       // lo próximo que toca
-      const proximos = Object.keys(ROBOT).map(id => ({ id, t: rtGet(id) })).filter(x => x.t.prox).sort((a, b) => a.t.prox - b.t.prox);
-      const sig = proximos.find(x => x.t.prox > ahora && !(r && (r.robot === 'diarias' ? x.id === 'diarias' : idAhora === x.id)));
-      let color = '#7C5CFF', estado = 'on', titulo, sub, pct = 100;
+      const sig = Object.keys(ROBOT).map(id => ({ id, t: rtGet(id) })).filter(x => x.t.prox > ahora && !(r && (enDiarias ? x.id === 'diarias' : idAhora === x.id))).sort((a, b) => a.t.prox - b.t.prox)[0];
+      const cuenta = t => t - ahora > 6 * 3600000 ? hhmm(t) : mmss(t - ahora);
+      let color = '#7C5CFF', estado = 'on', titulo, sub;
+      const det = idAhora ? this.detalle(idAhora) : '';
+      const ult = ssLeer(SS_AHORA), ultTxt = ult && ult.texto && ahora - ult.t < 10 * 60000 ? corto(ult.texto) : '';
       if (!on) { color = '#8C8F85'; estado = 'off'; titulo = 'Robot parado'; sub = R.parado ? `desde las ${hhmm(R.parado)}` : ''; }
       else if (r) {
-        const diarias = r.robot === 'diarias' || r.preparar || r.preparando;
-        titulo = diarias ? (total && !r.preparar && !r.preparando ? `Robot · diarias (${n}/${total})` : 'Robot · preparando las diarias') : `Robot · ${actual || 'terminando'}`;
-        sub = diarias ? `${actual || 'Mirando qué queda…'}` : `${cola.length ? 'luego: ' + cola.join(', ') : 'luego, a esperar lo siguiente'}`;
-        pct = diarias && total ? Math.max(4, Math.round(100 * (n - 0.5) / total)) : 100;
+        titulo = enDiarias ? `Diarias · ${hechasN}/${ld.length || '…'}` : (actual || 'Terminando…');
+        sub = (det || ultTxt || (enDiarias ? actual || 'Mirando qué queda…' : '')).replace(/^[^\p{L}\d¿]+/u, '');
       } else {
-        titulo = 'Robot en espera';
-        sub = sig ? `lo próximo: ${ROBOT[sig.id].nombre} en ${mmss(sig.t.prox - ahora)}` : 'nada pendiente';
-        estado = 'espera';
+        estado = 'espera'; color = '#5B8DEF';
+        titulo = 'En espera';
+        sub = sig ? `${ROBOT[sig.id].nombre} en ${cuenta(sig.t.prox)}` : 'nada pendiente';
       }
-      if (mini && on) titulo = r ? (r.robot === 'diarias' && total ? `${n}/${total}` : '▶') : sig ? `⏳ ${mmss(sig.t.prox - ahora)}` : '💤';
-      c.style.setProperty('--axdf-c', color); c.style.setProperty('--axdf-p', String(pct)); c.dataset.s = estado;
-      set('.axdf-tit', titulo); set('.axdf-sub', sub);
+      if (mini && on) { titulo = r ? (enDiarias ? `${hechasN}/${ld.length || '…'}` : (ROBOT[idAhora] ? ROBOT[idAhora].nombre : '▶')) : sig ? `${ROBOT[sig.id].nombre.split(' ')[0]} ${cuenta(sig.t.prox)}` : '💤'; }
+      c.style.setProperty('--axdf-c', color); c.dataset.s = estado;
+      set('.axdf-tit', titulo); set('.axdf-sub', sub || '');
       set('.axdf-ico span', !on ? '⏹' : r ? '🤖' : '💤');
-      c.querySelector('.axdf-barra>span').style.width = pct + '%';
-      c.querySelector('.axdf-barra').style.display = r && (r.robot === 'diarias') ? '' : 'none';
+      const barra = c.querySelector('.axdf-barra');
+      barra.style.display = enDiarias && ld.length ? '' : 'none';
+      barra.firstElementChild.style.width = (ld.length ? Math.round(100 * hechasN / ld.length) : 0) + '%';
       c.querySelector('.axdf-stop').title = on ? 'Parar el robot' : 'Cerrar';
       c.querySelector('.axdf-min').style.display = on ? '' : 'none';
       set('.axdf-stop', on ? '■' : '✕');
-      // ahora mismo
-      const ult = ssLeer(SS_AHORA);
-      let det = idAhora ? this.detalle(idAhora) : '';
-      if (!det && ult && ult.texto && ahora - ult.t < 10 * 60000) det = corto(ult.texto);
-      set('.axdf-ahora', on && r ? `<span class="axdf-rueda" style="margin-top:2px"></span><span><b>${esc(actual || (pasos.length ? 'Terminando…' : 'Preparando…'))}</b>${det && det !== actual ? `<small>${esc(det)}</small>` : ''}</span>` : '', true);
-      // la agenda: cada cosa, cómo va y cuándo le toca
-      const filas = Object.keys(ROBOT).map(id => {
-        const t = rtGet(id), ya = on && r && (r.robot === 'diarias' ? id === 'diarias' : idAhora === id || (r.cola || []).some(x => x.robot === id));
-        const cuando = !on ? '' : ya ? (idAhora === id || (id === 'diarias' && r.robot === 'diarias') ? 'ahora' : 'en cola') : !t.prox ? '' : t.prox <= ahora ? (ROBOT[id].chequeo && !t.listo ? 'mirando' : 'ya') : t.prox - ahora > 6 * 3600000 ? `a las ${hhmm(t.prox)}` : `en ${mmss(t.prox - ahora)}`;
-        const info = idAhora === id ? this.detalle(id) || t.info : id === 'torre' && on ? this.detalle('torre') : id === 'subsuelo' ? (this.detalle('subsuelo') || t.info) : t.info;
-        return `<li class="${ya ? 'axdf-ya' : ''}"><span class="axdf-m">${ya ? '<span class="axdf-rueda"></span>' : ROBOT[id].nombre.split(' ')[0]}</span><span class="axdf-n">${esc(ROBOT[id].nombre.split(' ').slice(1).join(' '))}${info ? `<small class="axdf-mot">${esc(info)}</small>` : ''}</span><span class="axdf-t">${esc(cuando)}</span></li>`;
+      set('.axdf-ahora', '', true);
+      // la agenda en fichitas: cada cosa, con su cuenta atrás (o ✅ si ya está hasta mañana)
+      const CORTO = { diarias: 'Diarias', huerto: 'Huerto', torre: 'Torre', tronos: 'Tronos', entranas: 'Entrañas', subsuelo: 'Subsuelo', missingno: 'MissingNo' };
+      const manana0 = (() => { const d = new Date(); d.setHours(24, 0, 0, 0); return d.getTime(); })();
+      const abierto = lsGet('axd-fondo-abierto', '');
+      const tiles = Object.keys(ROBOT).map(id => {
+        const t = rtGet(id), ya = on && r && (enDiarias ? id === 'diarias' : idAhora === id);
+        let v = '—', cls = '', l = CORTO[id];
+        if (ya) {
+          v = id === 'diarias' ? `${hechasN}/${ld.length || '…'}` : id === 'entranas' ? `P${(ssLeer(SS_EF.estado) || {}).piso || 1}` : '▶';
+          cls = 'ya';
+        } else if (on && t.prox) {
+          if (t.prox >= manana0) { v = '✅'; cls = 'ok'; }
+          else if (t.prox <= ahora) v = ROBOT[id].chequeo && !t.listo ? '…' : 'ya';
+          else { v = cuenta(t.prox); if (t.prox - ahora < 5 * 60000) cls = 'pronto'; }
+        }
+        if (id === 'diarias' && !ya && ld.length) { v = `${hechasN}/${ld.length}`; if (hechasN === ld.length) cls = 'ok'; }
+        if (id === 'subsuelo') { const s = lsGet('axsub-resumen', null); if (s && s.total) l = `${s.picadas}/${s.total} vetas`; }
+        if (id === 'tronos') { const tipo = (String(t.info || '').match(/tienes el de (\S+)/) || [])[1]; if (tipo) l = tipo; }
+        const titulo = `${ROBOT[id].nombre}${t.info ? ' · ' + t.info : ''}${t.prox && !ya ? ` · ${t.prox <= ahora ? 'toca ya' : 'a las ' + hhmm(t.prox)}` : ''}`;
+        const abre = id === 'diarias' ? ' boton" data-abre="diarias' : '';
+        return `<button type="button" class="axdf-tile ${cls}${abierto === 'diarias' && id === 'diarias' ? ' abierto' : ''}${abre}" title="${esc(titulo)}"><span class="i">${ya ? '<span class="axdf-rueda"></span>' : ROBOT[id].nombre.split(' ')[0]}</span><span class="v">${esc(v)}</span><span class="l">${esc(l)}</span></button>`;
       }).join('');
-      set('.axdf-agenda', filas, true);
-      // las diarias de hoy, una a una (en directo mientras se juegan; si no, las de la última vuelta de hoy)
-      const td = rtGet('diarias');
-      const ld = r && (r.robot === 'diarias' || r.preparar || r.preparando) ? listaDiarias(r) : td.dia === hoy() ? td.lista || [] : [];
-      const ICO = { ya: '✔', ok: '✅', mal: '⚠️', salto: '⏭', ahora: '<span class="axdf-rueda"></span>', luego: '○' };
-      const hechasN = ld.filter(x => ['ya', 'ok'].includes(x.e)).length;
-      set('.axdf-diarias', ld.length ? `<p class="axdf-dtit">🗓️ Diarias de hoy · ${hechasN}/${ld.length}</p><div class="axdf-chips">${ld.map(x => `<span class="axdf-chip axdf-c-${x.e}"${x.m ? ` title="${esc(x.m)}"` : ''}>${ICO[x.e] || ''} ${esc(String(x.n).replace(/^[^\p{L}¿]+/u, ''))}</span>`).join('')}</div>` : '', true);
-      // las diarias de hoy (la ruta) y lo que ha ido pasando
-      const lista = [];
-      for (const l of (r && r.avisos) || []) lista.push(`<li class="axdf-antes"><span class="axdf-m">⏭</span><span class="axdf-n" style="white-space:normal">${esc(corto(l.replace(/^(⚠️?|⏭)\s*/, '')))}</span></li>`);
-      for (const l of (R.log || []).slice(-12).reverse()) lista.push(`<li class="axdf-antes"><span class="axdf-n" style="white-space:normal">${esc(l)}</span></li>`);
-      if (R.fuera) lista.unshift(`<li class="axdf-mal"><span class="axdf-m">🧭</span><span class="axdf-n" style="white-space:normal">Te he dejado fuera de ${esc(R.fuera)}: vuelve desde «Viajar a otra región».</span></li>`);
-      set('.axdf-mas summary', `Lo que ha hecho (${(R.log || []).length})`);
-      const ul = c.querySelector('.axdf-lista'), html = lista.join('');
-      if (ul.dataset.h !== html) { ul.dataset.h = html; ul.innerHTML = html; }
+      set('.axdf-tiles', tiles, true);
+      // desplegable: las diarias una a una, o lo que ha hecho
+      let mas = '';
+      if (abierto === 'diarias' && ld.length) {
+        const ICO = { ya: '✔', ok: '✅', mal: '⚠️', salto: '⏭', ahora: '<span class="axdf-rueda"></span>', luego: '○' };
+        mas = `<div class="axdf-chips">${ld.map(x => `<span class="axdf-chip axdf-c-${x.e}"${x.m ? ` title="${esc(x.m)}"` : ''}>${ICO[x.e] || ''} ${esc(String(x.n).replace(/^[^\p{L}¿]+/u, ''))}</span>`).join('')}</div>`;
+      } else if (abierto === 'log') {
+        const l = [...(R.log || [])].slice(-15).reverse();
+        mas = `<ul class="axdf-log">${R.fuera ? `<li>🧭 Te he dejado fuera de ${esc(R.fuera)}.</li>` : ''}${l.map(x => `<li>${esc(x)}</li>`).join('') || '<li>Aún nada.</li>'}</ul>`;
+      }
+      set('.axdf-mas', mas, true);
       set('.axdf-pie', on ? '' : `<button type="button" data-a="cerrar">Cerrar</button><button type="button" data-a="seguir" class="axdf-prim">▶ Seguir</button>`, true);
     },
   };
