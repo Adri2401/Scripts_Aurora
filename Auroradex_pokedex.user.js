@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Cazador de Pokédex
 // @namespace    auroradex-pokedex
-// @version      1.1.0
+// @version      1.2.0
 // @description  «🎯 Ir a por…» (en el mapa y en la Pokédex): toca un Pokémon que te falta, o añade cualquiera a tu lista (p. ej. Rayquaza), y te lleva a su región y al tramo donde más sale (con el «Donde aparece» de la Pokédex del juego). En el mapa (/mapa): «🔎 Qué me falta y dónde» abre la fauna de cada tramo de la región (sin viajar), junta las especies que te faltan con su % de salir y su nivel, y te dice a qué tramos ir (los que más te faltan, primero) con un botón para viajar allí (es gratis). También dice qué especies de la Pokédex no salen en ningún tramo (evolución, huevo o evento). Lo recuerda por región.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -235,10 +235,10 @@
         const hoja = [...document.querySelectorAll('div.fixed')].find(d => /donde aparece/i.test(texto(d)));
         if (!hoja) {
           // la región en los filtros de arriba y, en la lista, la tarjeta de la especie
-          const chip = $$('main button').find(x => texto(x).startsWith(ir.region));
+          const chip = $$('main button').find(x => !x.closest('#axp-ir-panel') && texto(x).startsWith(ir.region));
           if (chip && !ir.chip) { ir.chip = 1; ssW(SS_IR, ir); chip.click(); await sleep(1200); }
           const re = new RegExp('#0*' + ir.num + '(?!\\d)');
-          const card = $$('main button').find(x => re.test(texto(x)));
+          const card = $$('main button').find(x => !x.closest('#axp-ir-panel') && re.test(texto(x)));
           if (!card) { ir.buscando = (ir.buscando || 0) + 1; ssW(SS_IR, ir); if (ir.buscando > 12) { ssW(SS_IR, null); aviso(`⚠ No encuentro a ${ir.nombre} en la Pokédex.`, 'mal'); } return; }
           card.scrollIntoView({ block: 'center' }); card.click(); await sleep(1500); return;
         }
@@ -293,51 +293,53 @@
   const faltanTodas = () => { const d = lsGet(LS_DEX, {}); return REGIONES.flatMap(([g]) => d[g] || []); };
 
   // Panel «🎯 Ir a por…» (en el mapa y en la Pokédex): lo que te falta y tu lista, y un buscador para añadir cualquiera
+  // Usa las clases de la propia Pokédex (tarjeta, buscador, pastillas) para que encaje con el tema de la página
   const IR_CSS = `
-    #axp-ir-panel{background:#131A2B;border:2px solid #2E3B57;color:#C9D3E3;border-radius:20px;padding:10px 12px;font-size:12px;line-height:1.4;margin:0 0 12px}
-    #axp-ir-panel .t{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-    #axp-ir-panel .t b{flex:1;font-size:13px}
-    #axp-ir-panel .bus{display:flex;gap:6px}
-    #axp-ir-panel input{flex:1;min-width:0;background:#0C1120;border:1.5px solid #2E3B57;border-radius:12px;color:#fff;padding:6px 10px;font:700 12px system-ui,sans-serif;outline:none}
-    #axp-ir-panel input:focus{border-color:#5B8DEF}
-    #axp-ir-panel button.p{background:#2E3B57;color:#fff;border:0;border-radius:12px;padding:5px 10px;font-weight:800;cursor:pointer}
-    #axp-ir-panel .sec{margin:8px 0 0;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;color:#6b7a93}
-    #axp-ir-panel .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
-    #axp-ir-panel .ch{display:inline-flex;align-items:center;gap:4px;padding:2px 6px 2px 2px;border-radius:999px;background:#1E2840;border:1.5px solid #2E3B57;color:#E6ECF7;font-weight:800;font-size:11px;cursor:pointer}
-    #axp-ir-panel .ch:hover{border-color:#5B8DEF}
-    #axp-ir-panel .ch img{width:26px;height:26px;image-rendering:pixelated}
-    #axp-ir-panel .ch small{color:#8FA3C2;font-weight:700}
-    #axp-ir-panel .ch .x{margin-left:2px;width:16px;height:16px;border-radius:999px;display:grid;place-items:center;font-size:9px;background:#2E3B57;color:#C9D3E3}
-    #axp-ir-panel .nada{color:#6b7a93}`;
-  const chipHTML = (n, quitar) => `<span class="ch" data-ir="${n}" title="Llévame a donde más sale ${esc(NOMBRES[n] || '#' + n)} (${regionDe(n)})"><img src="/sprites/${n}.png" alt="" loading="lazy">${esc(NOMBRES[n] || '#' + n)} <small>${regionDe(n)}</small>${quitar ? `<span class="x" data-quitar="${n}" title="Quitar de tu lista">✕</span>` : ''}</span>`;
+    #axp-ir-panel{margin:12px 0 0!important}
+    #axp-ir-panel .t{display:flex;align-items:center;gap:8px}
+    #axp-ir-panel .t h2{flex:1;margin:0}
+    #axp-ir-panel .bus{display:flex;gap:8px}
+    #axp-ir-panel .bus input{outline:none}
+    #axp-ir-panel .sec{margin:12px 0 6px;text-transform:uppercase;letter-spacing:.06em}
+    #axp-ir-panel .chips{display:flex;flex-wrap:wrap;gap:8px}
+    #axp-ir-panel .ch{display:inline-flex;align-items:center;gap:4px;padding:2px 10px 2px 3px;cursor:pointer}
+    #axp-ir-panel .ch img{width:28px;height:28px;image-rendering:pixelated}
+    #axp-ir-panel .ch small{opacity:.65;font-weight:700}
+    #axp-ir-panel .ch .x{margin-left:2px;width:18px;height:18px;border-radius:999px;display:grid;place-items:center;font-size:10px;background:rgba(127,127,127,.25)}
+    #axp-ir-panel .yendo{color:#7BC96F;font-weight:800;margin:10px 0 0}`;
+  const CL = { pill: 'pastilla border-2 transition border-lienzo bg-lienzo text-tinta-500 shadow-suave', rojo: 'pastilla border-2 transition border-rojo-500 bg-rojo-500 text-white', sub: 'text-xs font-bold text-tinta-400' };
+  const chipHTML = (n, quitar) => `<span class="ch ${CL.pill}" data-ir="${n}" title="Llévame a donde más sale ${esc(NOMBRES[n] || '#' + n)} (${regionDe(n)})"><img src="/sprites/${n}.png" alt="" loading="lazy">${esc(NOMBRES[n] || '#' + n)} <small>${regionDe(n)}</small>${quitar ? `<span class="x" data-quitar="${n}" title="Quitar de tu lista">✕</span>` : ''}</span>`;
   function pintarIr() {
     const p = document.getElementById('axp-ir-panel'); if (!p) return;
     const ir = ssJ(SS_IR), faltan = faltanTodas(), seguir = lsGet(LS_SEGUIR, []);
-    const html = `${ir ? `<p style="color:#8FD08F;font-weight:800;margin:4px 0 0">🧭 Yendo a por ${esc(ir.nombre)}${ir.zona ? ' → ' + esc(ir.zona) : ''}…</p>` : ''}
-      <p class="sec">Te faltan${faltan.length ? ` (${faltan.length})` : ''}</p>
-      <div class="chips">${faltan.length ? faltan.map(n => chipHTML(n)).join('') : `<span class="nada">${lsGet(LS_DEX, null) ? '¡Nada! Las tienes todas.' : 'Abre la Pokédex una vez y lo apunto.'}</span>`}</div>
-      <p class="sec">Tu lista</p>
-      <div class="chips">${seguir.length ? seguir.map(n => chipHTML(n, true)).join('') : '<span class="nada">Añade cualquier Pokémon con el buscador (p. ej. Rayquaza) y tócalo para ir.</span>'}</div>`;
+    const html = `${ir ? `<p class="yendo">🧭 Yendo a por ${esc(ir.nombre)}${ir.zona ? ' → ' + esc(ir.zona) : ''}…</p>` : ''}
+      <p class="sec ${CL.sub}">Te faltan${faltan.length ? ` (${faltan.length})` : ''}</p>
+      <div class="chips">${faltan.length ? faltan.map(n => chipHTML(n)).join('') : `<span class="nada ${CL.sub}">${lsGet(LS_DEX, null) ? '¡Nada! Las tienes todas.' : 'Abre la Pokédex una vez y lo apunto.'}</span>`}</div>
+      <p class="sec ${CL.sub}">Tu lista</p>
+      <div class="chips">${seguir.length ? seguir.map(n => chipHTML(n, true)).join('') : `<span class="nada ${CL.sub}">Añade cualquier Pokémon con el buscador (p. ej. Rayquaza) y tócalo para ir.</span>`}</div>`;
     const out = p.querySelector('.out');
     if (out.dataset.h !== html) { out.dataset.h = html; out.innerHTML = html; }
   }
   function montarIr() {
-    const path = location.pathname.replace(/\/+$/, '');
-    if (!['/mapa', '/pokedex'].includes(path) || document.getElementById('axp-ir-panel')) return;
-    const main = document.querySelector('main');
-    let ancla = path === '/mapa' ? document.getElementById(PANEL_ID) : null;
-    if (path === '/pokedex') {                                       // justo debajo de la cabecera «Pokédex de …»
-      let e = document.querySelector('main input[placeholder*="Buscar"]');
-      while (e && e.parentElement && e.parentElement !== main && !/Pokédex de/.test(e.textContent)) e = e.parentElement;
-      ancla = e && /Pokédex de/.test(e.textContent) ? e : main && main.firstElementChild;
-    }
-    if (!ancla) return;
+    if (location.pathname.replace(/\/+$/, '') !== '/pokedex' || document.getElementById('axp-ir-panel')) return;
+    const main = document.querySelector('main'), buscador = main && main.querySelector('input[placeholder*="Buscar"]');
+    // justo debajo de la cabecera «Pokédex de …»
+    let cab = buscador;
+    while (cab && cab.parentElement && cab.parentElement !== main && !/Pokédex de/.test(cab.textContent)) cab = cab.parentElement;
+    if (!cab || !/Pokédex de/.test(cab.textContent)) return;
+    // copia las clases reales de la página por si cambian de nombre o de tema
+    const h1 = cab.querySelector('h1'), btns = $$('button', cab);
+    const pill = btns.find(x => !/rojo/.test(x.className)), rojo = btns.find(x => /rojo/.test(x.className)), sub = cab.querySelector('p');
+    if (pill) CL.pill = pill.className.replace(/\bflex-1\b/, '');
+    if (rojo) CL.rojo = rojo.className.replace(/\bflex-1\b/, '');
+    if (sub) CL.sub = sub.className;
     if (!document.getElementById('axp-ir-css')) { const st = document.createElement('style'); st.id = 'axp-ir-css'; st.textContent = IR_CSS; document.head.appendChild(st); }
     const p = document.createElement('section');
     p.id = 'axp-ir-panel'; p.setAttribute('data-ax-ignore', '');
+    p.className = cab.className;
     const lista = Object.entries(NOMBRES).filter(([k]) => +k <= 649).map(([k, v]) => `<option value="${esc(v)}">#${k}</option>`).join('');
-    p.innerHTML = `<div class="t"><b>🎯 Ir a por…</b>${path === '/pokedex' ? '<button type="button" class="p axp-mirar" title="Mira qué te falta en cada región">🔄</button>' : ''}</div>
-      <div class="bus"><input class="axp-q" list="axp-nombres" placeholder="Un Pokémon (Rayquaza, #384…)" autocomplete="off"><button type="button" class="p axp-ir">Ir</button><button type="button" class="p axp-add" title="Añadir a tu lista">➕</button></div>
+    p.innerHTML = `<div class="t"><h2 class="${h1 ? esc(h1.className.replace(/text-xl/, 'text-lg')) : ''}">🎯 Ir a por…</h2><button type="button" class="${CL.pill} axp-mirar" title="Mira qué te falta en cada región">🔄 Mirar</button></div>
+      <div class="bus"><input class="axp-q ${buscador ? esc(buscador.className) : ''}" list="axp-nombres" placeholder="Un Pokémon (Rayquaza, #384…)" autocomplete="off"><button type="button" class="${CL.rojo} axp-ir">Ir</button><button type="button" class="${CL.pill} axp-add" title="Añadir a tu lista">➕</button></div>
       <datalist id="axp-nombres">${lista}</datalist>
       <div class="out"></div>`;
     const q = p.querySelector('.axp-q');
@@ -345,15 +347,15 @@
     p.querySelector('.axp-ir').addEventListener('click', () => { const n = elegido(); if (n) irA(n); });
     p.querySelector('.axp-add').addEventListener('click', () => { const n = elegido(); if (!n) return; const s = lsGet(LS_SEGUIR, []); if (!s.includes(n)) s.push(n); lsPut(LS_SEGUIR, s); q.value = ''; pintarIr(); });
     q.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const n = elegido(); if (n) irA(n); } });
-    const mir = p.querySelector('.axp-mirar'); if (mir) mir.addEventListener('click', () => mirarDex());
+    p.querySelector('.axp-mirar').addEventListener('click', () => mirarDex());
     p.querySelector('.out').addEventListener('click', e => {
       const x = e.target.closest('[data-quitar]');
       if (x) { e.stopPropagation(); lsPut(LS_SEGUIR, lsGet(LS_SEGUIR, []).filter(n => n !== +x.dataset.quitar)); pintarIr(); return; }
       const c = e.target.closest('[data-ir]'); if (c) irA(+c.dataset.ir);
     });
-    if (path === '/mapa') ancla.insertAdjacentElement('beforebegin', p); else ancla.insertAdjacentElement('afterend', p);
+    cab.insertAdjacentElement('afterend', p);
     pintarIr();
-    if (path === '/pokedex' && !(lsGet(LS_DEX, {}).t > Date.now() - 6 * 3600000)) setTimeout(mirarDex, 1500);
+    if (!(lsGet(LS_DEX, {}).t > Date.now() - 6 * 3600000)) setTimeout(mirarDex, 1500);
   }
 
   esperarHidratacion().then(() => {
