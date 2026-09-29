@@ -70,7 +70,7 @@ async function pulsarCuandoSalga(p, sel, noSiTexto, maxS = 60) {
 /* ── Las tareas: cada una devuelve una línea (o varias) para el resumen ── */
 const TAREAS = {
   async diarias(p) {
-    await p.goto('https://auroradex.es/menu?diarias=todas', { waitUntil: 'domcontentloaded' });
+    await p.goto('https://auroradex.es/menu?diarias=todas&forzar=1', { waitUntil: 'domcontentloaded' });
     await espera(15000);
     const r = await esperarFin(p, () => (location.pathname === '/menu' && !sessionStorage.getItem('axd-ruta') ? (document.querySelector('#axd-menu .axd-log') || {}).textContent : ''),
       /Ruta terminada|ya están hechas|Hoy ya se lanzó/, +(process.env.AURORA_MAX_MIN || 90));
