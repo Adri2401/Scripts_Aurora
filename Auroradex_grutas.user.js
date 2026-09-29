@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Grutas del Subsuelo (todas las vetas)
 // @namespace    auroradex-grutas
-// @version      0.7.0
+// @version      0.7.1
 // @description  Solo en /subsuelo. «🧭 Explorar y picar»: recorre el mapa deprisa y pica cada veta (y Poké Ball) que ve de los tipos elegidos. «⛏️ Picarlas todas»: el camino más corto por todas las que conoce (el mínimo de pasos, que es lo que cuesta energía al andar; con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa del servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar y el ritmo (humano por defecto). Dibuja el camino y se para si no llega la energía; sigue donde lo dejó. Antes de andar se pone las Botas de Andar del Huerto (con su script). /subsuelo?explorar=1 empieza solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -13,6 +13,8 @@
 
 (() => {
   'use strict';
+  // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
+  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
 
   /* ── Espera a que Next.js/React termine de hidratar ─────────────────────────
    * Si se mete algo en el DOM antes, React da un error de hidratación (#418/#423),
@@ -299,7 +301,7 @@
    *  AJUSTES Y MEMORIA
    * ------------------------------------------------------------------ */
   const PANEL_ID = 'axsub-panel', U = '#' + PANEL_ID, DIBUJO_ID = 'axsub-dibujo';
-  const VERSION = '0.7.0';
+  const VERSION = '0.7.1';
   const LS_CFG = 'axsub-cfg', LS_MEM = 'axsub-mem-v1';
   const H12 = 12 * 3600e3, H24 = 24 * 3600e3;
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));

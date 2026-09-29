@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Cazador de Manadas
 // @namespace    aurora-dex-manadas
-// @version      1.4.0
+// @version      1.4.1
 // @description  Lee las pistas del Canal Manadas, cambia de región solo, recorre el mapa buscando el tramo que cuadra y para en cuanto encuentra la manada. «🐾 Manadas gratis»: en cada región busca la manada y hace sus 3 encuentros gratis con la macro de Capturar y Guardería (a ⚡ 0), y sigue con la siguiente; /manadas?gratis=1 lo empieza solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -13,6 +13,8 @@
 
 (() => {
   'use strict';
+  // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
+  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
 
   /* ── Espera a que Next.js/React termine de hidratar ─────────────────────────
    * Si se mete algo en el DOM antes, React da un error de hidratación (#418/#423),

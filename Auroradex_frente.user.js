@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Frente Batalla (automático)
 // @namespace    auroradex-frente
-// @version      0.5.0
+// @version      0.5.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @description  En cada edificio del Frente Batalla (/frontera/…): marca solos a los mejores para esa regla de los Pokémon que haya (en cuanto abres la pantalla de elegir) (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Seguir» hasta el final. Si sale una pantalla que aún no conoce, se para, avisa y deja copiar su HTML. En la Cúpula, antes de cada combate, pone a los tuyos en el mejor orden contra los tres que te esperan. Si ganas una tanda empieza sola la siguiente; se para si pierdes o al llevar 3 ganadas. Y recomienda lo mejor de toda la Pokédex (1ª a 5ª generación, sin legendarios) para cada edificio: 3 Pokémon en la Arena (1 contra 1) y 3 equipos de 3 en los demás.
@@ -13,6 +13,8 @@
 
 (() => {
   'use strict';
+  // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
+  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
 
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo

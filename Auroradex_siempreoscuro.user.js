@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Siempre modo oscuro
 // @namespace    auroradex-siempre-oscuro
-// @version      1.0.0
+// @version      1.0.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_siempreoscuro.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_siempreoscuro.user.js
 // @description  Mantiene Aurora Dex en modo oscuro aunque React vuelva a pintar la página o algo quite la clase «oscuro».
@@ -13,6 +13,8 @@
 
 (() => {
   'use strict';
+  // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
+  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
 
   // Misma tabla que usa la web en su <head> para saber si un tema de color es de superficie clara u oscura
   const SUPERFICIE = {

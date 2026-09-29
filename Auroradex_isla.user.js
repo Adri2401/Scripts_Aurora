@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.3.0
+// @version      2.3.1
 // @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura a todos (también los repetidos), ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -14,6 +14,8 @@
 
 (function () {
   'use strict';
+  // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
+  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
 
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo

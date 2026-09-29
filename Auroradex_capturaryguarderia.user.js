@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.15.0
+// @version      2.15.1
 // @description  Auto-explora y captura; ante shiny/legendario lo captura solo con la bola que elijas (Master o Ultra) sin parar la macro y avisa, o para y te avisa. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -13,6 +13,8 @@
 
 (() => {
   'use strict';
+  // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
+  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
 
   /* ── Espera a que Next.js/React termine de hidratar ─────────────────────────
    * Si se mete algo en el DOM antes, React da un error de hidratación (#418/#423),

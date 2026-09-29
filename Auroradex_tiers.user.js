@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.31.0
+// @version      1.31.1
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier o por estadística (botón «📊 Stat»: cada toque pasa a PS, Ataque, Defensa, Especial, Velocidad y Total; pone el valor en cada uno, corona al mejor 👑 y dice quién la tiene más alta en el equipo y en la Caja), tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -14,6 +14,8 @@
 
 (function () {
   'use strict';
+  // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
+  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
 
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Metro Batalla (pelear en bucle y ventaja de tipos)
 // @namespace    auroradex-metro
-// @version      1.4.1
+// @version      1.4.2
 // @description  Solo en /metro. Al elegir equipo analiza tus seis (debilidades, estadísticas, flojos) y recomienda el mejor orden (lo pones tú); en cada parada predice el combate. Pulsa «Pelear» en bucle con tope de paradas o de racha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -14,6 +14,8 @@
 
 (function () {
   'use strict';
+  // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
+  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
 
   /* ── Espera a que Next.js/React termine de hidratar (si no, modo claro y errores #418/#423) ── */
   function esperarHidratacion(maxMs = 20000) {
