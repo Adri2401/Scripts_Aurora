@@ -1,5 +1,6 @@
 *
 !.gitignore
 !*.user.js
+!CLAUDE.md
 !bot/
 !bot/*
