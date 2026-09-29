@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.3.1
+// @version      2.4.0
 // @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura a todos (también los repetidos), ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -14,8 +14,10 @@
 
 (function () {
   'use strict';
-  // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
-  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
+  // En la ventana oculta de las diarias en segundo plano (script Diarias) juega con sus propias claves: la pestaña y esa
+  // ventana comparten el sessionStorage, y así lo que se pone solo allí no se pone solo aquí (ni al revés)
+  const EN_FONDO_AX = (() => { try { return window.top !== window && window.name === 'axd-fondo'; } catch { return false; } })();
+  try { if (window.top !== window && !EN_FONDO_AX && /^ax[a-z]-fondo$/.test(window.name)) return; } catch { /* nada */ }
 
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
@@ -559,7 +561,7 @@
    *  🗺️ FAUNA POR ZONA: se apunta cada Pokémon que sale en cada zona (de la exploración que lo trajo), cuántas veces,
    *  a qué nivel y si ya lo tienes. Se guarda por isla y semana, y se enseña debajo de las zonas.
    * ------------------------------------------------------------------ */
-  const LS_FAUNA = 'axi-fauna', SS_ZONA = 'axi-ultima-zona', SS_AUTO = 'axi-auto', LS_AUTO_ULT = 'axi-auto-ultimo';
+  const LS_FAUNA = 'axi-fauna', SS_ZONA = 'axi-ultima-zona', SS_AUTO = EN_FONDO_AX ? 'axi-auto-fondo' : 'axi-auto', LS_AUTO_ULT = 'axi-auto-ultimo';
   const claveSemana = est => `${est.isla && est.isla.id}|${est.temporada && est.temporada.id}`;
   function fauna(est) { const t = lsGet(LS_FAUNA, {}); return t[claveSemana(est)] || { zonas: {}, stats: {} }; }
   function guardarFauna(est, fz) {
@@ -638,8 +640,8 @@
   const autoOn = () => ssGet(SS_AUTO) === '1';
   let autoPaso = false, autoMsg = '', ultimoOrden = 0, reordenar = true;
   // el registro sobrevive a las recargas de la pestaña
-  const autoLog = (() => { try { return JSON.parse(sessionStorage.getItem('axi-auto-log') || '[]'); } catch { return []; } })();
-  const alog = t => { autoLog.push(t); if (autoLog.length > 30) autoLog.shift(); ssPut('axi-auto-log', JSON.stringify(autoLog)); console.log('[axi] ' + t); pintarAuto(); };
+  const autoLog = (() => { try { return JSON.parse(sessionStorage.getItem((EN_FONDO_AX ? 'axi-auto-log-fondo' : 'axi-auto-log')) || '[]'); } catch { return []; } })();
+  const alog = t => { autoLog.push(t); if (autoLog.length > 30) autoLog.shift(); ssPut((EN_FONDO_AX ? 'axi-auto-log-fondo' : 'axi-auto-log'), JSON.stringify(autoLog)); console.log('[axi] ' + t); pintarAuto(); };
   const espera = ms => new Promise(r => setTimeout(r, ms));
   const botonTexto = re => $$('main button, div.fixed button').find(b => !b.closest('#axi-auto, #axi-panel') && !b.disabled && re.test((b.textContent || '').trim()));
   function zonaElegida(est) {

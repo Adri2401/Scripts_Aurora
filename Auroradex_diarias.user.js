@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.12.0
-// @description  Juega solo las diarias. «🤖 Todas las diarias» (icono de Accesos directos o botón del Menú): las juega todas en segundo plano, en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
+// @version      1.13.0
+// @description  Juega solo las diarias. «🤖 Todas las diarias» (icono de Accesos directos o botón del Menú): las juega todas en segundo plano (también Isla, Misiones, Máquina de Fichas, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_diarias.user.js
@@ -15,7 +15,7 @@
   'use strict';
   // Pokédex nacional (1-1025): nombre en español y, si cambia, el inglés detrás de «/»
   const NOMBRES_DATOS = 'Bulbasaur|Ivysaur|Venusaur|Charmander|Charmeleon|Charizard|Squirtle|Wartortle|Blastoise|Caterpie|Metapod|Butterfree|Weedle|Kakuna|Beedrill|Pidgey|Pidgeotto|Pidgeot|Rattata|Raticate|Spearow|Fearow|Ekans|Arbok|Pikachu|Raichu|Sandshrew|Sandslash|Nidoran♀|Nidorina|Nidoqueen|Nidoran♂|Nidorino|Nidoking|Clefairy|Clefable|Vulpix|Ninetales|Jigglypuff|Wigglytuff|Zubat|Golbat|Oddish|Gloom|Vileplume|Paras|Parasect|Venonat|Venomoth|Diglett|Dugtrio|Meowth|Persian|Psyduck|Golduck|Mankey|Primeape|Growlithe|Arcanine|Poliwag|Poliwhirl|Poliwrath|Abra|Kadabra|Alakazam|Machop|Machoke|Machamp|Bellsprout|Weepinbell|Victreebel|Tentacool|Tentacruel|Geodude|Graveler|Golem|Ponyta|Rapidash|Slowpoke|Slowbro|Magnemite|Magneton|Farfetch’d|Doduo|Dodrio|Seel|Dewgong|Grimer|Muk|Shellder|Cloyster|Gastly|Haunter|Gengar|Onix|Drowzee|Hypno|Krabby|Kingler|Voltorb|Electrode|Exeggcute|Exeggutor|Cubone|Marowak|Hitmonlee|Hitmonchan|Lickitung|Koffing|Weezing|Rhyhorn|Rhydon|Chansey|Tangela|Kangaskhan|Horsea|Seadra|Goldeen|Seaking|Staryu|Starmie|Mr. Mime|Scyther|Jynx|Electabuzz|Magmar|Pinsir|Tauros|Magikarp|Gyarados|Lapras|Ditto|Eevee|Vaporeon|Jolteon|Flareon|Porygon|Omanyte|Omastar|Kabuto|Kabutops|Aerodactyl|Snorlax|Articuno|Zapdos|Moltres|Dratini|Dragonair|Dragonite|Mewtwo|Mew|Chikorita|Bayleef|Meganium|Cyndaquil|Quilava|Typhlosion|Totodile|Croconaw|Feraligatr|Sentret|Furret|Hoothoot|Noctowl|Ledyba|Ledian|Spinarak|Ariados|Crobat|Chinchou|Lanturn|Pichu|Cleffa|Igglybuff|Togepi|Togetic|Natu|Xatu|Mareep|Flaaffy|Ampharos|Bellossom|Marill|Azumarill|Sudowoodo|Politoed|Hoppip|Skiploom|Jumpluff|Aipom|Sunkern|Sunflora|Yanma|Wooper|Quagsire|Espeon|Umbreon|Murkrow|Slowking|Misdreavus|Unown|Wobbuffet|Girafarig|Pineco|Forretress|Dunsparce|Gligar|Steelix|Snubbull|Granbull|Qwilfish|Scizor|Shuckle|Heracross|Sneasel|Teddiursa|Ursaring|Slugma|Magcargo|Swinub|Piloswine|Corsola|Remoraid|Octillery|Delibird|Mantine|Skarmory|Houndour|Houndoom|Kingdra|Phanpy|Donphan|Porygon2|Stantler|Smeargle|Tyrogue|Hitmontop|Smoochum|Elekid|Magby|Miltank|Blissey|Raikou|Entei|Suicune|Larvitar|Pupitar|Tyranitar|Lugia|Ho-Oh|Celebi|Treecko|Grovyle|Sceptile|Torchic|Combusken|Blaziken|Mudkip|Marshtomp|Swampert|Poochyena|Mightyena|Zigzagoon|Linoone|Wurmple|Silcoon|Beautifly|Cascoon|Dustox|Lotad|Lombre|Ludicolo|Seedot|Nuzleaf|Shiftry|Taillow|Swellow|Wingull|Pelipper|Ralts|Kirlia|Gardevoir|Surskit|Masquerain|Shroomish|Breloom|Slakoth|Vigoroth|Slaking|Nincada|Ninjask|Shedinja|Whismur|Loudred|Exploud|Makuhita|Hariyama|Azurill|Nosepass|Skitty|Delcatty|Sableye|Mawile|Aron|Lairon|Aggron|Meditite|Medicham|Electrike|Manectric|Plusle|Minun|Volbeat|Illumise|Roselia|Gulpin|Swalot|Carvanha|Sharpedo|Wailmer|Wailord|Numel|Camerupt|Torkoal|Spoink|Grumpig|Spinda|Trapinch|Vibrava|Flygon|Cacnea|Cacturne|Swablu|Altaria|Zangoose|Seviper|Lunatone|Solrock|Barboach|Whiscash|Corphish|Crawdaunt|Baltoy|Claydol|Lileep|Cradily|Anorith|Armaldo|Feebas|Milotic|Castform|Kecleon|Shuppet|Banette|Duskull|Dusclops|Tropius|Chimecho|Absol|Wynaut|Snorunt|Glalie|Spheal|Sealeo|Walrein|Clamperl|Huntail|Gorebyss|Relicanth|Luvdisc|Bagon|Shelgon|Salamence|Beldum|Metang|Metagross|Regirock|Regice|Registeel|Latias|Latios|Kyogre|Groudon|Rayquaza|Jirachi|Deoxys|Turtwig|Grotle|Torterra|Chimchar|Monferno|Infernape|Piplup|Prinplup|Empoleon|Starly|Staravia|Staraptor|Bidoof|Bibarel|Kricketot|Kricketune|Shinx|Luxio|Luxray|Budew|Roserade|Cranidos|Rampardos|Shieldon|Bastiodon|Burmy|Wormadam|Mothim|Combee|Vespiquen|Pachirisu|Buizel|Floatzel|Cherubi|Cherrim|Shellos|Gastrodon|Ambipom|Drifloon|Drifblim|Buneary|Lopunny|Mismagius|Honchkrow|Glameow|Purugly|Chingling|Stunky|Skuntank|Bronzor|Bronzong|Bonsly|Mime Jr.|Happiny|Chatot|Spiritomb|Gible|Gabite|Garchomp|Munchlax|Riolu|Lucario|Hippopotas|Hippowdon|Skorupi|Drapion|Croagunk|Toxicroak|Carnivine|Finneon|Lumineon|Mantyke|Snover|Abomasnow|Weavile|Magnezone|Lickilicky|Rhyperior|Tangrowth|Electivire|Magmortar|Togekiss|Yanmega|Leafeon|Glaceon|Gliscor|Mamoswine|Porygon-Z|Gallade|Probopass|Dusknoir|Froslass|Rotom|Uxie|Mesprit|Azelf|Dialga|Palkia|Heatran|Regigigas|Giratina|Cresselia|Phione|Manaphy|Darkrai|Shaymin|Arceus|Victini|Snivy|Servine|Serperior|Tepig|Pignite|Emboar|Oshawott|Dewott|Samurott|Patrat|Watchog|Lillipup|Herdier|Stoutland|Purrloin|Liepard|Pansage|Simisage|Pansear|Simisear|Panpour|Simipour|Munna|Musharna|Pidove|Tranquill|Unfezant|Blitzle|Zebstrika|Roggenrola|Boldore|Gigalith|Woobat|Swoobat|Drilbur|Excadrill|Audino|Timburr|Gurdurr|Conkeldurr|Tympole|Palpitoad|Seismitoad|Throh|Sawk|Sewaddle|Swadloon|Leavanny|Venipede|Whirlipede|Scolipede|Cottonee|Whimsicott|Petilil|Lilligant|Basculin|Sandile|Krokorok|Krookodile|Darumaka|Darmanitan|Maractus|Dwebble|Crustle|Scraggy|Scrafty|Sigilyph|Yamask|Cofagrigus|Tirtouga|Carracosta|Archen|Archeops|Trubbish|Garbodor|Zorua|Zoroark|Minccino|Cinccino|Gothita|Gothorita|Gothitelle|Solosis|Duosion|Reuniclus|Ducklett|Swanna|Vanillite|Vanillish|Vanilluxe|Deerling|Sawsbuck|Emolga|Karrablast|Escavalier|Foongus|Amoonguss|Frillish|Jellicent|Alomomola|Joltik|Galvantula|Ferroseed|Ferrothorn|Klink|Klang|Klinklang|Tynamo|Eelektrik|Eelektross|Elgyem|Beheeyem|Litwick|Lampent|Chandelure|Axew|Fraxure|Haxorus|Cubchoo|Beartic|Cryogonal|Shelmet|Accelgor|Stunfisk|Mienfoo|Mienshao|Druddigon|Golett|Golurk|Pawniard|Bisharp|Bouffalant|Rufflet|Braviary|Vullaby|Mandibuzz|Heatmor|Durant|Deino|Zweilous|Hydreigon|Larvesta|Volcarona|Cobalion|Terrakion|Virizion|Tornadus|Thundurus|Reshiram|Zekrom|Landorus|Kyurem|Keldeo|Meloetta|Genesect|Chespin|Quilladin|Chesnaught|Fennekin|Braixen|Delphox|Froakie|Frogadier|Greninja|Bunnelby|Diggersby|Fletchling|Fletchinder|Talonflame|Scatterbug|Spewpa|Vivillon|Litleo|Pyroar|Flabébé|Floette|Florges|Skiddo|Gogoat|Pancham|Pangoro|Furfrou|Espurr|Meowstic|Honedge|Doublade|Aegislash|Spritzee|Aromatisse|Swirlix|Slurpuff|Inkay|Malamar|Binacle|Barbaracle|Skrelp|Dragalge|Clauncher|Clawitzer|Helioptile|Heliolisk|Tyrunt|Tyrantrum|Amaura|Aurorus|Sylveon|Hawlucha|Dedenne|Carbink|Goomy|Sliggoo|Goodra|Klefki|Phantump|Trevenant|Pumpkaboo|Gourgeist|Bergmite|Avalugg|Noibat|Noivern|Xerneas|Yveltal|Zygarde|Diancie|Hoopa|Volcanion|Rowlet|Dartrix|Decidueye|Litten|Torracat|Incineroar|Popplio|Brionne|Primarina|Pikipek|Trumbeak|Toucannon|Yungoos|Gumshoos|Grubbin|Charjabug|Vikavolt|Crabrawler|Crabominable|Oricorio|Cutiefly|Ribombee|Rockruff|Lycanroc|Wishiwashi|Mareanie|Toxapex|Mudbray|Mudsdale|Dewpider|Araquanid|Fomantis|Lurantis|Morelull|Shiinotic|Salandit|Salazzle|Stufful|Bewear|Bounsweet|Steenee|Tsareena|Comfey|Oranguru|Passimian|Wimpod|Golisopod|Sandygast|Palossand|Pyukumuku|Código Cero/Type: Null|Silvally|Minior|Komala|Turtonator|Togedemaru|Mimikyu|Bruxish|Drampa|Dhelmise|Jangmo-o|Hakamo-o|Kommo-o|Tapu Koko|Tapu Lele|Tapu Bulu|Tapu Fini|Cosmog|Cosmoem|Solgaleo|Lunala|Nihilego|Buzzwole|Pheromosa|Xurkitree|Celesteela|Kartana|Guzzlord|Necrozma|Magearna|Marshadow|Poipole|Naganadel|Stakataka|Blacephalon|Zeraora|Meltan|Melmetal|Grookey|Thwackey|Rillaboom|Scorbunny|Raboot|Cinderace|Sobble|Drizzile|Inteleon|Skwovet|Greedent|Rookidee|Corvisquire|Corviknight|Blipbug|Dottler|Orbeetle|Nickit|Thievul|Gossifleur|Eldegoss|Wooloo|Dubwool|Chewtle|Drednaw|Yamper|Boltund|Rolycoly|Carkol|Coalossal|Applin|Flapple|Appletun|Silicobra|Sandaconda|Cramorant|Arrokuda|Barraskewda|Toxel|Toxtricity|Sizzlipede|Centiskorch|Clobbopus|Grapploct|Sinistea|Polteageist|Hatenna|Hattrem|Hatterene|Impidimp|Morgrem|Grimmsnarl|Obstagoon|Perrserker|Cursola|Sirfetch’d|Mr. Rime|Runerigus|Milcery|Alcremie|Falinks|Pincurchin|Snom|Frosmoth|Stonjourner|Eiscue|Indeedee|Morpeko|Cufant|Copperajah|Dracozolt|Arctozolt|Dracovish|Arctovish|Duraludon|Dreepy|Drakloak|Dragapult|Zacian|Zamazenta|Eternatus|Kubfu|Urshifu|Zarude|Regieleki|Regidrago|Glastrier|Spectrier|Calyrex|Wyrdeer|Kleavor|Ursaluna|Basculegion|Sneasler|Overqwil|Enamorus|Sprigatito|Floragato|Meowscarada|Fuecoco|Crocalor|Skeledirge|Quaxly|Quaxwell|Quaquaval|Lechonk|Oinkologne|Tarountula|Spidops|Nymble|Lokix|Pawmi|Pawmo|Pawmot|Tandemaus|Maushold|Fidough|Dachsbun|Smoliv|Dolliv|Arboliva|Squawkabilly|Nacli|Naclstack|Garganacl|Charcadet|Armarouge|Ceruledge|Tadbulb|Bellibolt|Wattrel|Kilowattrel|Maschiff|Mabosstiff|Shroodle|Grafaiai|Bramblin|Brambleghast|Toedscool|Toedscruel|Klawf|Capsakid|Scovillain|Rellor|Rabsca|Flittle|Espathra|Tinkatink|Tinkatuff|Tinkaton|Wiglett|Wugtrio|Bombirdier|Finizen|Palafin|Varoom|Revavroom|Cyclizar|Orthworm|Glimmet|Glimmora|Greavard|Houndstone|Flamigo|Cetoddle|Cetitan|Veluza|Dondozo|Tatsugiri|Annihilape|Clodsire|Farigiraf|Dudunsparce|Kingambit|Colmilargo/Great Tusk|Colagrito/Scream Tail|Furioseta/Brute Bonnet|Melenaleteo/Flutter Mane|Reptalada/Slither Wing|Pelarena/Sandy Shocks|Ferrodada/Iron Treads|Ferrosaco/Iron Bundle|Ferropalmas/Iron Hands|Ferrocuello/Iron Jugulis|Ferropolilla/Iron Moth|Ferropúas/Iron Thorns|Frigibax|Arctibax|Baxcalibur|Gimmighoul|Gholdengo|Wo-Chien|Chien-Pao|Ting-Lu|Chi-Yu|Bramaluna/Roaring Moon|Ferropaladín/Iron Valiant|Koraidon|Miraidon|Ondulagua/Walking Wake|Ferroverdor/Iron Leaves|Dipplin|Poltchageist|Sinistcha|Okidogi|Munkidori|Fezandipiti|Ogerpon|Archaludon|Hydrapple|Flamariete/Gouging Fire|Electrofuria/Raging Bolt|Ferromole/Iron Boulder|Ferrotesta/Iron Crown|Terapagos|Pecharunt';
-  const VERSION = '1.12.0';
+  const VERSION = '1.13.0';
   // ¿Esta es la pestaña o la ventana oculta donde se juegan las diarias en segundo plano? (en otras ventanas, nada)
   const FONDO_NOMBRE = 'axd-fondo';
   let EN_FONDO = false;
@@ -832,7 +832,216 @@
     },
   };
 
-  const DIARIAS = [QUIEN, POKEATHLON, MUELLE, CARRERAS, BUCEO, TREN, SAFARI, VIAJE, CANTERA, ALBUM, TRETA, HUERTO, VALLE, SALON, JESSIE];
+
+  /* ══════════ Paradas nuevas: Misiones, Máquina de Fichas, Isla, Solar, Tronos y Torre ══════════ */
+  // una página del juego leída por detrás (sin ir a ella), para saber si hay algo que hacer
+  async function leerPagina(dir) {
+    const html = await (await fetch(dir, { credentials: 'include' })).text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return { doc, texto: (doc.body.textContent || '').replace(/\s+/g, ' ') };
+  }
+  const botonMain = re => $$('main button').find(b => !ajeno(b) && !b.disabled && visible(b) && re.test(texto(b)));
+
+  // Misiones: cobrar las que ya están cumplidas (energía y dinero)
+  const MISIONES = {
+    id: 'misiones', nombre: '🎯 Misiones', soloRuta: true, sinPanel: true,
+    detecta: () => ruta() === '/misiones' && $$('main h1, main h2')[0],
+    desde: 0,
+    boton: () => botonMain(/^(cobrar|recoger)$/i),
+    listo() { return !!this.desde && Date.now() - this.desde > 3000 && !this.boton(); },
+    async paso() {
+      if (!this.desde) this.desde = Date.now();
+      const b = this.boton();
+      if (!b) return false;
+      const fila = b.closest('li, div.tarjeta, section') || b.parentElement;
+      const que = (texto(fila).match(/^[^\d+·]{3,60}/) || [''])[0].replace(/cobrar|recoger/ig, '').trim();
+      return pulsar(b, `🎯 Cobro: ${que || 'una misión'}.`, [1500, 2500]);
+    },
+  };
+  async function misionesPendientes() {
+    try { const { doc } = await leerPagina('/misiones'); return [...doc.querySelectorAll('main button')].some(b => /^(cobrar|recoger)$/i.test(texto(b))); } catch { return false; }
+  }
+
+  // Máquina de Fichas: gira mientras queden fichas (salen del Subsuelo y del Valle; no valen para otra cosa)
+  const GACHA = {
+    id: 'gachapon', nombre: '🎰 Máquina de Fichas', soloRuta: true, sinPanel: true,
+    detecta: () => ruta() === '/gachapon' && document.querySelector('main'),
+    fichas() { const m = textoMain().match(/(\d+)\s*fichas/i); return m ? +m[1] : null; },
+    listo() { return this.fichas() === 0 || /no te quedan fichas/i.test(textoMain()); },
+    async paso() {
+      if (this.listo()) return false;
+      const b = botonMain(/girar/i);
+      if (b) return pulsar(b, `🎰 Giro la máquina (${this.fichas()} ficha${this.fichas() === 1 ? '' : 's'}).`, [2500, 3500]);
+      return pulsarSeguir();
+    },
+  };
+  async function fichasPendientes() {
+    try { const { texto: t } = await leerPagina('/gachapon'); const m = t.match(/(\d+)\s*fichas/i); return !!m && +m[1] > 0; } catch { return false; }
+  }
+
+  // Isla Espejismo: gastar la marea con el script de la Isla («Jugar la isla sola»)
+  const SS_ISLA = EN_FONDO ? 'axi-auto-fondo' : 'axi-auto';
+  const ISLA = {
+    id: 'isla', nombre: '🏝️ Isla Espejismo', soloRuta: true, sinPanel: true, maxMs: 25 * 60000,
+    detecta: () => ruta() === '/isla' && document.querySelector('main'),
+    desde: 0, arrancado: 0, dicho: false,
+    enMarcha: () => { try { return sessionStorage.getItem(SS_ISLA) === '1'; } catch { return false; } },
+    listo() { return (!!this.arrancado && Date.now() - this.arrancado > 4000 && !this.enMarcha()) || /no hay ninguna isla/i.test(textoMain()); },
+    async paso() {
+      if (/no hay ninguna isla/i.test(textoMain())) return false;
+      if (!this.arrancado) {
+        if (!document.getElementById('axi-auto')) {
+          if (!this.desde) this.desde = Date.now();
+          else if (Date.now() - this.desde > 15000) { this.desde = Date.now() + 1e12; log('⚠ 🏝️ No veo el script de la Isla Espejismo: instálalo para que gaste la marea.'); }
+          return false;
+        }
+        try { sessionStorage.setItem(SS_ISLA, '1'); } catch { /* nada */ }
+        this.arrancado = Date.now(); log('🏝️ Isla: a gastar la marea (captura a todos).');
+        return true;
+      }
+      if (this.enMarcha()) return true;
+      if (!this.dicho) {
+        this.dicho = true;
+        const u = lsGet('axi-auto-ultimo', null), l = u && u.t >= this.arrancado && (u.log || []).slice(-1)[0];
+        if (l) log('🏝️ ' + l.replace(/\s*Sube \+.*$/, ''));
+      }
+      return false;
+    },
+  };
+  async function islaAbierta() { try { const { texto: t } = await leerPagina('/isla'); return !/no hay ninguna isla/i.test(t); } catch { return false; } }
+
+  // Solar de los Sueños (Teselia): despertar al que duerme y dejar a otro (el de menos nivel que no esté en el equipo)
+  const LS_SOLAR = 'axd-solar-listo';
+  const SOLAR = {
+    id: 'solar', nombre: '🌙 Solar de los Sueños', soloRuta: true, sinPanel: true,
+    detecta: () => ruta() === '/solar' && document.querySelector('main'),
+    otraRegion: () => /desde aqu[ií] no llegas/i.test(textoMain()),
+    espera() {
+      const b = $$('main button').find(x => !ajeno(x) && /^vuelve en/i.test(texto(x)));
+      const t = b ? texto(b) : (textoMain().match(/le quedan[^.]{0,30}/i) || [''])[0];
+      if (!t) return null;
+      const h = +((t.match(/(\d+)\s*h/i) || [])[1] || 0), m = +((t.match(/(\d+)\s*min/i) || [])[1] || 0);
+      return h || m ? (h * 60 + m) * 60000 : 3600000;
+    },
+    dicho: false,
+    listo() {
+      const e = this.espera();
+      if (e && !botonMain(/^despertarlo$/i)) {
+        lsPut(LS_SOLAR, Date.now() + e);
+        if (!this.dicho) { this.dicho = true; const m = Math.round(e / 60000); log(`🌙 Solar: el que duerme vuelve en ${m >= 60 ? Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '') : m + ' min'}.`); }
+        return true;
+      }
+      return false;
+    },
+    async paso() {
+      const vale = $$('main button').find(b => !ajeno(b) && !b.disabled && /^vale$/i.test(texto(b)) && /ha vuelto/i.test(texto(b.closest('div'))));
+      if (vale) return pulsar(vale, '');
+      const desp = botonMain(/^despertarlo$/i);
+      if (desp) return pulsar(desp, '🌙 Solar: lo despierto y vuelve con su regalo.', [2000, 3000]);
+      if (/a qui[eé]n dejas/i.test(textoMain())) {
+        const cands = $$('main li > button').filter(b => !ajeno(b) && !b.disabled).map(b => {
+          const t = texto(b), nv = +((t.match(/Nv\.\s*(\d+)/i) || [])[1] || 0);
+          return { b, nv, equipo: /ahora en el equipo/i.test(t), nombre: texto(b.querySelector('span span')) || t.replace(/Nv\..*$/, '').trim() };
+        }).filter(c => !c.equipo).sort((a, b) => a.nv - b.nv);
+        if (!cands.length) { log('⏭ 🌙 Solar: solo podría dejar a uno de tu equipo; eso lo decides tú.'); lsPut(LS_SOLAR, Date.now() + 12 * 3600000); return false; }
+        return pulsar(cands[0].b, `🌙 Solar: dejo a ${cands[0].nombre} (Nv.${cands[0].nv}) durmiendo; vuelve con experiencia y un objeto.`, [2000, 3000]);
+      }
+      const dejar = botonMain(/^dejar a uno durmiendo$/i);
+      if (dejar) return pulsar(dejar, '');
+      return false;
+    },
+  };
+
+  // Los Tronos: si no tienes ninguno, reta con el mejor equipo al que más fácil se gana y, si pierde, al siguiente,
+  // hasta ganar uno o quedarte sin tronos que retar hoy (lo hace el script Tiers); si ya tienes uno, nada
+  const SS_TRONOS_AUTO = EN_FONDO ? 'axt-tronos-auto-fondo' : 'axt-tronos-auto';
+  const TRONOS = {
+    id: 'tronos', nombre: '👑 Los Tronos', soloRuta: true, sinPanel: true, maxMs: 45 * 60000,
+    detecta: () => ruta() === '/tronos' && document.querySelector('main'),
+    desde: 0, dicho: '',
+    msg: () => texto(document.querySelector('#axt-tronos-auto p')),
+    fin() { return /🏁|con (el|su) mejor equipo|No he podido calcular|No tengo equipo/i.test(this.msg()); },
+    listo() {
+      if (!this.fin()) return false;
+      try { sessionStorage.setItem(SS_TRONOS_AUTO, '0'); } catch { /* nada */ }
+      return true;
+    },
+    async paso() {
+      if (!document.getElementById('axt-tronos-auto')) {
+        if (!this.desde) this.desde = Date.now();
+        else if (Date.now() - this.desde > 20000 && this.desde > 0) { this.desde = -1; log('⚠ 👑 No veo el script Tiers: instálalo para que haga los Tronos.'); }
+        return false;
+      }
+      try { if (sessionStorage.getItem(SS_TRONOS_AUTO) !== '1') sessionStorage.setItem(SS_TRONOS_AUTO, '1'); } catch { /* nada */ }
+      // lo que va pasando, sin repetir (los cálculos no se cuentan)
+      const m = this.msg();
+      if (m && m !== this.dicho && /^(⚔️|❌|👑|🏁|⚠)/.test(m) && !/Retando al de/.test(m)) { this.dicho = m; log(m.length > 140 ? m.slice(0, 137) + '…' : m); }
+      return !this.fin();
+    },
+  };
+  async function sinTrono() { try { const { texto: t } = await leerPagina('/tronos'); return /tronos/i.test(t) && !/TUYO/.test(t); } catch { return false; } }
+
+  // Torre Desafío: las dos ligas, cinco retos al día en cada una (los hace el script Tiers, «Retar solo»). La Torre pide
+  // unos 15 min entre retos: mientras una liga espera se reta en la otra, y si esperan las dos se espera aquí.
+  const LIGAS_TORRE = { clasico: '🗼 Clásico', comunes: '🌱 Planta Baja' };
+  const SS_TORRE_AUTO = EN_FONDO ? 'axt-torre-auto-fondo' : 'axt-torre-auto';
+  const TORRE = {
+    id: 'torre', nombre: '🗼 Torre Desafío', soloRuta: true, sinPanel: true, maxMs: 3 * 3600000,
+    detecta: () => ruta() === '/torre' && document.querySelector('main'),
+    desde: 0,
+    ligas() { const r = ssGet(); return (r && r.actual && r.actual.ligas) || {}; },
+    listo() { const L = this.ligas(); return Object.keys(LIGAS_TORRE).every(l => L[l] && L[l].fin); },
+    async paso() {
+      const r = ssGet();
+      if (!r || !r.actual) return false;
+      const L = r.actual.ligas || (r.actual.ligas = {});
+      const liga = new URLSearchParams(location.search).get('liga');
+      const txt = textoMain();
+      if (!liga) {
+        // la portada dice cuántos retos quedan en cada liga
+        const ms = [...txt.matchAll(/(\d+)\s*retos hoy/gi)].map(m => +m[1]);
+        Object.keys(LIGAS_TORRE).forEach((l, i) => { if (ms[i] == null) return; L[l] = L[l] || {}; L[l].quedan = ms[i]; if (ms[i] === 0) L[l].fin = true; });
+      } else if (LIGAS_TORRE[liga]) {
+        const x = L[liga] || (L[liga] = {}), m = txt.match(/retos hoy\s*(\d+)/i);
+        if (m) {
+          const q = +m[1];
+          if (x.quedan != null && q < x.quedan) log(`${LIGAS_TORRE[liga]}: reto hecho, quedan ${q}.`);
+          x.quedan = q;
+          if (q === 0 && !x.fin) { x.fin = true; log(`✅ ${LIGAS_TORRE[liga]}: los retos de hoy, hechos.`); }
+        }
+        if (!document.getElementById('axt-auto') && !x.fin) {
+          if (!this.desde) this.desde = Date.now();
+          else if (Date.now() - this.desde > 25000) { log('⚠ 🗼 No veo el script Tiers: instálalo para que haga los retos de la Torre.'); Object.keys(LIGAS_TORRE).forEach(l => { L[l] = { ...(L[l] || {}), fin: true }; }); ssPut(r); return false; }
+        }
+        // «Espera N min» no cambia hasta recargar: se lee una vez por carga de la página
+        const esp = txt.match(/espera\s*(\d+)\s*min/i);
+        if (esp && !x.fin) {
+          if (this.esperaLeida !== liga) {
+            this.esperaLeida = liga;
+            const en = Date.now() + +esp[1] * 60000;
+            if (!x.listaEn || Math.abs(x.listaEn - en) > 120000) log(`⏳ ${LIGAS_TORRE[liga]}: el siguiente reto, en ${esp[1]} min.`);
+            x.listaEn = en;
+          }
+        } else if (x.listaEn && x.listaEn <= Date.now()) x.listaEn = 0;
+      }
+      ssPut(r);
+      const pend = Object.keys(LIGAS_TORRE).filter(l => !(L[l] && L[l].fin));
+      if (!pend.length) return false;
+      // Tiers reta solo en las que quedan
+      try { const o = JSON.parse(sessionStorage.getItem(SS_TORRE_AUTO) || '{}'); let cambio = false; for (const l of Object.keys(LIGAS_TORRE)) { const v = pend.includes(l); if (o[l] !== v) { o[l] = v; cambio = true; } } if (cambio) sessionStorage.setItem(SS_TORRE_AUTO, JSON.stringify(o)); } catch { /* nada */ }
+      const listas = pend.filter(l => !(L[l] && L[l].listaEn > Date.now()));
+      if (liga && listas.includes(liga)) return true;                       // aquí se puede retar: lo hace Tiers
+      const otra = listas.find(l => l !== liga);
+      const destino = otra || pend.slice().sort((a, b) => ((L[a] && L[a].listaEn) || 0) - ((L[b] && L[b].listaEn) || 0))[0];
+      if (destino !== liga) { await pausa(1200, 2200); location.assign('/torre?liga=' + destino); }
+      return true;                                                            // (esperando: Tiers recarga al pasar)
+    },
+  };
+  async function torrePendiente() {
+    try { const { texto: t } = await leerPagina('/torre'); return [...t.matchAll(/(\d+)\s*retos hoy/gi)].some(m => +m[1] > 0); } catch { return false; }
+  }
+
+  const DIARIAS = [QUIEN, POKEATHLON, MUELLE, CARRERAS, BUCEO, TREN, SAFARI, VIAJE, CANTERA, ALBUM, TRETA, HUERTO, VALLE, SALON, JESSIE, MISIONES, GACHA, ISLA, SOLAR, TRONOS, TORRE];
 
   /* ══════════ Ruta: jugar todas las diarias seguidas ══════════
    * Desde el menú se apuntan las diarias de «Para hoy» que aún no están hechas y que el script sabe jugar; se va a
@@ -849,7 +1058,7 @@
   // dirección → diaria que la juega
   const RUTAS = { '/jessie-y-james': JESSIE, '/siluetas': QUIEN, '/pokeathlon': POKEATHLON, '/pesca': MUELLE, '/carreras': CARRERAS, '/buceo': BUCEO, '/safari': SAFARI, '/cantera': CANTERA, '/album': ALBUM };
   // las que no salen en el menú (o no con su estado): Tren (Teselia) y Casa Treta (Hoenn)
-  const EXTRA = { '/tren': TREN, '/casa': TRETA, '/huerto': HUERTO, '/valle': VALLE, '/salon': SALON };
+  const EXTRA = { '/tren': TREN, '/casa': TRETA, '/huerto': HUERTO, '/valle': VALLE, '/salon': SALON, '/misiones': MISIONES, '/gachapon': GACHA, '/isla': ISLA, '/solar': SOLAR, '/tronos': TRONOS, '/torre': TORRE };
   // las que se hacen en casa en cada ruta (las juegan sus scripts): Huerto (Meloc/Latano), Valle («Hacerlo todo») y los
   // respiros del Salón (una vez al día; si el cupo ya está, su script para solo)
   const DE_CASA = () => [{ href: '/huerto' }, { href: '/valle' }, ...(lsGet('axd-salon-hecho', '') === hoy() ? [] : [{ href: '/salon' }])];
@@ -885,10 +1094,12 @@
     const menu = leerMenu();
     const cola = menu.filter(d => !d.hecha && d.sabe).map(d => ({ href: d.href }));
     pintarMenu(['Mirando qué queda…']);
-    const ct = await tretaPendiente();
+    // lo que no sale en «Para hoy» se mira por detrás, todo a la vez
+    const [ct, misionesP, fichasP, islaP, tronosP, torreP] = await Promise.all([tretaPendiente(), misionesPendientes(), fichasPendientes(), islaAbierta(), sinTrono(), torrePendiente()]);
+    const solarP = !(+lsGet(LS_SOLAR, 0) > Date.now());
     const trenHecho = lsGet('axd-tren-hecho', '') === hoy();
     // lo que hay que hacer en cada región además de su Safari
-    const extras = g => [...(g === 'Teselia' && !trenHecho ? [{ href: '/tren', region: g }] : []), ...(g === 'Hoenn' && treta ? [{ href: '/casa', region: g }] : [])];
+    const extras = g => [...(g === 'Teselia' && !trenHecho ? [{ href: '/tren', region: g }] : []), ...(g === 'Teselia' && solarP ? [{ href: '/solar', region: g }] : []), ...(g === 'Hoenn' && treta ? [{ href: '/casa', region: g }] : [])];
     const log0 = menu.filter(d => !d.hecha && !d.sabe).map(d => `⏭ ${d.nombre}: ${NO_SE[d.href]}, te la dejo.`);
     const yaHechas = menu.filter(d => d.hecha && d.sabe).map(d => d.nombre);
     // Safaris de las demás regiones (y el Tren, que está en Teselia): se viaja y al final se vuelve
@@ -899,6 +1110,8 @@
     const s = safarisHoy();
     if (casa) cola.push(...extras(casa));
     cola.push(...DE_CASA());
+    if (islaP) cola.push({ href: '/isla' });
+    if (fichasP) cola.push({ href: '/gachapon' });
     if (casa) {
       const sr0 = lsGet('axd-sin-reserva', {}), sinReserva = Object.keys(sr0).filter(g => Date.now() - sr0[g] < 7 * 864e5);
       const destinos = REGIONES.filter(g => norm(texto(ev)).includes(norm(g)));
@@ -910,6 +1123,10 @@
       }
       if (fuera.length) cola.push({ viaje: casa, vuelta: true });
     } else log0.push('⚠ No encuentro en el menú en qué región estás: solo juego las de aquí.');
+    // al final, ya en casa: los Tronos (si no tienes ninguno), la Torre (con sus esperas de 15 min) y cobrar las misiones
+    if (tronosP) cola.push({ href: '/tronos' });
+    if (torreP) cola.push({ href: '/torre' });
+    if (misionesP || torreP || tronosP) cola.push({ href: '/misiones' });
     if (!cola.length) {
       ssPut(null);
       pintarMenu([...log0, '✅ Las que sé jugar ya están hechas hoy.']);
@@ -1350,7 +1567,15 @@
       c.querySelector('.axdf-min').style.display = r ? '' : 'none';
       set('.axdf-stop', r ? '■' : '✕');
       // lo que está haciendo ahora mismo
-      const ahoraTxt = r && ahora && ahora.texto && Date.now() - ahora.t < 10 * 60000 ? corto(ahora.texto) : '';
+      let ahoraTxt = r && ahora && ahora.texto && Date.now() - ahora.t < 10 * 60000 ? corto(ahora.texto) : '';
+      // en la Torre: cómo va cada liga, con la cuenta atrás hasta el siguiente reto
+      if (r && r.actual && r.actual.href === '/torre' && r.actual.ligas) {
+        const mmss = ms => { const t = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+        ahoraTxt = Object.entries(LIGAS_TORRE).map(([l, nom]) => {
+          const x = r.actual.ligas[l] || {};
+          return x.fin ? `${nom} ✅` : x.listaEn > Date.now() ? `${nom} ⏳ ${mmss(x.listaEn - Date.now())}${x.quedan != null ? ` (quedan ${x.quedan})` : ''}` : `${nom} ⚔️ retando${x.quedan != null ? ` (quedan ${x.quedan})` : ''}`;
+        }).join(' · ');
+      }
       set('.axdf-ahora', r ? `<span class="axdf-rueda" style="margin-top:2px"></span><span><b>${esc(actual || (pasos.length ? 'Terminando…' : 'Preparando la ruta…'))}</b>${ahoraTxt && ahoraTxt !== actual ? `<small>${esc(ahoraTxt)}</small>` : ''}</span>` : '', true);
       // la lista de pasos: hechos, el de ahora y los que quedan
       const filas = [];

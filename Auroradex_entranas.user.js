@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.14.1
+// @version      1.15.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
-// @description  Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Bendiciones: nunca Veterano ni Reclutador, y las Afinidades de un tipo solo si ese tipo es mayoría en el equipo. Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
+// @description  «🔁 En segundo plano hasta gastar los pases»: hace la bajada gratis y luego una tras otra con los Pases del monte en una ventana oculta mientras juegas a otra cosa, con una tarjeta que dice por dónde va. Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Bendiciones: nunca Veterano ni Reclutador, y las Afinidades de un tipo solo si ese tipo es mayoría en el equipo. Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -14,8 +14,13 @@
 (() => {
   'use strict';
   // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
-  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
-  const VERSION = '1.14.1';
+  // (en segundo plano juega en su propia ventana oculta, «axe-fondo»; en cualquier otra ventana no corre)
+  const EN_FONDO_E = (() => { try { return window.top !== window && window.name === 'axe-fondo'; } catch { return false; } })();
+  try { if (window.top !== window && !EN_FONDO_E) return; } catch { return; }
+  const SSF = { on: 'axe-fondo-on', fin: 'axe-fondo-fin', bajadas: 'axe-fondo-bajadas', estado: 'axe-fondo-estado', t0: 'axe-fondo-t0' };
+  const ssJ = k => { try { return JSON.parse(sessionStorage.getItem(k) || 'null'); } catch { return null; } };
+  const ssW = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* nada */ } };
+  const VERSION = '1.15.0';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -352,7 +357,7 @@
   });
 
   /* ══════════ 2 · SABER (base de conocimiento) ══════════ */
-  const LS_KB = 'axe-kb2', LS_CONF = 'axe-conf2', SS_AUTO = 'axe-auto';
+  const LS_KB = 'axe-kb2', LS_CONF = 'axe-conf2', SS_AUTO = EN_FONDO_E ? 'axe-auto-fondo' : 'axe-auto';
   const ESQUEMA = 4;
   const kbNueva = () => ({ ...JSON.parse(JSON.stringify(SEMILLA)), v: ESQUEMA, creada: Date.now() });
   let kb = lsGet(LS_KB, null);
@@ -390,6 +395,8 @@
   //   (el prestado) esté al Nv.100 · Sanguijuela, lo que diga la IA (forzarla no cambia nada) · pensar a fondo · ordenar el equipo solo
   Object.assign(conf, { prioridad: 'progreso', eliteHasta: 'principal', sanguijuelas: 0, esfuerzo: 'alto', reordenar: true, velocidad: 'normal' });
   // 1.5: «progreso» pasa a ser lo de por defecto (lo que más rápido lleva hondo, según el laboratorio)
+  // en segundo plano: la bajada gratis y luego los Pases del monte, hasta que no quede ninguno (nunca energía)
+  if (EN_FONDO_E) Object.assign(conf, { empezarGratis: true, usarPases: true });
   if (!conf.v15) { if (conf.prioridad === 'equilibrio' || conf.prioridad === 'pisos') conf.prioridad = 'progreso'; conf.v15 = true; lsPut(LS_CONF, conf); }
   if (!conf.v12) { if (conf.prioridad === 'pisos') conf.prioridad = 'equilibrio'; conf.v12 = true; lsPut(LS_CONF, conf); }
   // Cuánto vale una esquirla frente a un piso, según la prioridad (en «pisos» de la bajada). En «equilibrio» pesa al
@@ -1626,6 +1633,7 @@
     kAviso({ tipo: 'fin', app: 'Entrañas', icono: '⛰️', titulo: `Piso ${piso} · ${esq} 💎`, texto: 'Bajada terminada.' });
     bajadaId = null; lsPut('axe-bajada', null); enBajada = false;
     guardaKb();
+    if (EN_FONDO_E) { const l = ssJ(SSF.bajadas) || []; l.push({ piso, esq, t: Date.now() }); ssW(SSF.bajadas, l); }
   }
   function grabar(P) {
     if (!P) return;
@@ -1735,8 +1743,14 @@
   /* ══════════ 8 · PILOTO ══════════ */
   let piloto = sessionStorage.getItem(SS_AUTO) === '1', pilotoEnMarcha = false, msg = '', arrastreFallos = 0;
   const VEL = { rapida: [250, 500], normal: [500, 900], tranquila: [1000, 1800] };
-  const setPiloto = v => { piloto = v; try { sessionStorage.setItem(SS_AUTO, v ? '1' : '0'); } catch { /* nada */ } pintar(); if (v) bucle(); };
-  const parar = (porque, tipo = 'aviso') => { setPiloto(false); msg = ''; if (porque) { log(porque); kAviso({ tipo, app: 'Entrañas', icono: '⛰️', titulo: 'Piloto parado', texto: porque }); } };
+  const setPiloto = v => {
+    if (v && !EN_FONDO_E && ssJ(SSF.on)) { alert('Las Entrañas se están jugando en segundo plano. Páralas en su tarjeta si quieres jugarlas tú.'); return; }
+    piloto = v; try { sessionStorage.setItem(SS_AUTO, v ? '1' : '0'); } catch { /* nada */ } pintar(); if (v) bucle(); };
+  const parar = (porque, tipo = 'aviso') => {
+    setPiloto(false); msg = '';
+    if (EN_FONDO_E) { ssW(SSF.fin, { t: Date.now(), motivo: porque || '', bajadas: ssJ(SSF.bajadas) || [], t0: +ssJ(SSF.t0) || Date.now() }); ssW(SSF.on, null); if (porque) log(porque); return; }
+    if (porque) { log(porque); kAviso({ tipo, app: 'Entrañas', icono: '⛰️', titulo: 'Piloto parado', texto: porque }); }
+  };
   async function pulsar(b, que) {
     if (!b || !b.isConnected || b.disabled || /retirarse/i.test(texto(b))) return false;
     await pausa(...(VEL[conf.velocidad] || VEL.normal));
@@ -1993,7 +2007,9 @@
     [data-axe-orden]::before{content:attr(data-axe-orden);position:absolute;left:-6px;top:-6px;background:#E8C35A;color:#0C1120;border-radius:99px;font-size:10px;font-weight:900;padding:0 5px;z-index:2}
     li[data-axe-orden]{position:relative}`;
   const registroLog = lsGet('axe-log', []);
+  let logN = 0;
   function log(t) {
+    logN++;
     const d = new Date(), h = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     registroLog.push(`${h}  ${t}`); while (registroLog.length > 80) registroLog.shift();
     lsPut('axe-log', registroLog);
@@ -2042,7 +2058,7 @@
       h += `<div class="caja"><p><b>⛰️ ${P.gratis ? 'Hoy bajar es gratis' : P.pases ? `Tienes ${P.pases} pases` : 'Bajar no es gratis hoy'}</b></p><p class="s">${b.length} bajadas apuntadas${mejor ? ` · la mejor, piso ${mejor}` : ''}. Abre «💎 Mejoras» del juego y mira la pestaña Mejoras de este panel.</p></div>`;
     }
     if (P && P.tipo === 'desconocida') h += '<div class="caja"><p class="s">Esta pantalla aún no la conozco: la he guardado para aprenderla.</p></div>';
-    return h + `<div class="fila" style="margin-top:8px"><button type="button" class="piloto ${piloto ? 'on' : 'pri'}" style="flex:2">${piloto ? '■ Parar' : '▶ Bajar solo'}</button><button type="button" class="pensar" style="flex:1">🧠 Recalcular</button></div>${msg ? `<p class="s" style="text-align:center;margin-top:4px">${kEsc(msg)}</p>` : ''}`;
+    return h + `<div class="fila" style="margin-top:8px"><button type="button" class="piloto ${piloto ? 'on' : 'pri'}" style="flex:2">${piloto ? '■ Parar' : '▶ Bajar solo'}</button><button type="button" class="pensar" style="flex:1">🧠 Recalcular</button></div>${EN_FONDO_E ? '' : `<div class="fila" style="margin-top:6px"><button type="button" class="fondo" style="flex:1" title="Juega la bajada gratis y luego una tras otra con los Pases del monte hasta gastarlos, en una ventana oculta: tú puedes seguir jugando a otra cosa">🔁 En segundo plano hasta gastar los pases</button></div>`}${msg ? `<p class="s" style="text-align:center;margin-top:4px">${kEsc(msg)}</p>` : ''}`;
   }
   function htmlSaber() {
     const esp = Object.values(kb.especies);
@@ -2130,6 +2146,7 @@
         e.preventDefault();
         if (b.dataset.t) { pestana = b.dataset.t; lsPut('axe-pestana', pestana); pintar(); return; }
         if (b.classList.contains('piloto')) { kPedirPermiso(); setPiloto(!piloto); }
+        if (b.classList.contains('fondo')) { kPedirPermiso(); fondoE.iniciar(); }
         if (b.classList.contains('pensar')) { decision.firma = ''; pred.clave = ''; actualizar(); }
         if (b.classList.contains('calc-mej')) { b.textContent = '⏳ Simulando…'; calcularMejoras(); }
         if (b.classList.contains('exp')) exportar();
@@ -2166,5 +2183,146 @@
     clearTimeout(tMontar); tMontar = setTimeout(montar, 250);
   }).observe(document.documentElement, { childList: true, subtree: true });
   setTimeout(montar, 900);
+  /* ══════════ EN SEGUNDO PLANO: bajadas seguidas hasta gastar los pases ══════════
+   * «🔁 En segundo plano» abre el juego en una ventana oculta de esta misma pestaña y allí el piloto hace la bajada gratis
+   * y luego una tras otra con los Pases del monte (nunca energía). Tú sigues jugando a otra cosa; una tarjeta abajo dice
+   * por dónde va. Si recargas la página, sigue. Se hablan por el sessionStorage de la pestaña, que comparten. */
+  if (EN_FONDO_E) {
+    // la ventana oculta: arranca el piloto si toca y cuenta cómo va
+    let pasesVistos = null, antesLobby = false;
+    setTimeout(() => { if (ssJ(SSF.on) && !piloto) setPiloto(true); }, 3500);
+    setInterval(() => {
+      const P = ultimoP;
+      if (P && P.tipo === 'lobby') { pasesVistos = P.gratis ? 'gratis' : P.pases; antesLobby = true; }
+      else if (P && antesLobby) { antesLobby = false; pasesVistos = typeof pasesVistos === 'number' ? Math.max(0, pasesVistos - 1) : null; }   // al bajar se gasta uno
+      ssW(SSF.estado, { t: Date.now(), piso: P && P.cab ? P.cab.piso : null, tipo: P && P.tipo, msg, pases: pasesVistos, ultimo: logN ? registroLog[registroLog.length - 1] || '' : '' });
+      if (ssJ(SSF.on) && !piloto && !pilotoEnMarcha && enEntranas()) setPiloto(true);
+    }, 1000);
+  }
+  const fondoE = {
+    reinicios: 0, vistaDesde: Date.now(),
+    iframe: () => document.querySelector('iframe[name="axe-fondo"]'),
+    crear() {
+      let f = this.iframe(); if (f) return f;
+      f = document.createElement('iframe'); f.name = 'axe-fondo'; f.title = 'Entrañas en segundo plano'; f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1;
+      f.style.cssText = 'position:fixed;left:-12000px;top:0;width:430px;height:932px;border:0;opacity:0;pointer-events:none;z-index:-1';
+      f.src = '/entranas'; document.body.appendChild(f); return f;
+    },
+    iniciar() {
+      if (EN_FONDO_E) return;
+      if (ssJ(SSF.on)) { this.ver(); return; }
+      if (piloto) setPiloto(false);
+      ssW(SSF.fin, null); ssW(SSF.bajadas, []); ssW(SSF.t0, Date.now()); ssW(SSF.estado, { t: Date.now(), ultimo: 'Abriendo las Entrañas…' });
+      ssW(SSF.on, 1); this.reinicios = 0;
+      try { localStorage.setItem('axe-fondo-mini', '0'); } catch { /* nada */ }
+      this.crear(); this.pintar();
+    },
+    parar() {
+      const f = this.iframe(); if (f) f.remove();
+      ssW(SSF.on, null);
+      ssW(SSF.fin, { t: Date.now(), t0: +ssJ(SSF.t0) || Date.now(), bajadas: ssJ(SSF.bajadas) || [], motivo: 'Parado por ti.', parada: true });
+      this.pintar();
+    },
+    ver() { try { localStorage.setItem('axe-fondo-mini', '0'); } catch { /* nada */ } this.pintar(); },
+    cerrar() { ssW(SSF.fin, null); const c = document.getElementById('axe-fondo-card'); if (c) c.remove(); },
+    vigilar() {
+      const on = ssJ(SSF.on), fin = ssJ(SSF.fin);
+      if (on) {
+        const f = this.iframe(), e = ssJ(SSF.estado);
+        if (!f) this.crear();
+        else if (document.visibilityState === 'visible' && Date.now() - this.vistaDesde > 90000 && (!e || Date.now() - e.t > 90000)) {
+          this.reinicios++;
+          if (this.reinicios > 3) { ssW(SSF.on, null); ssW(SSF.fin, { t: Date.now(), t0: +ssJ(SSF.t0) || Date.now(), bajadas: ssJ(SSF.bajadas) || [], motivo: '⚠ La ventana de las Entrañas no responde: paro.' }); f.remove(); }
+          else { f.src = '/entranas'; ssW(SSF.estado, { ...(e || {}), t: Date.now() }); }
+        }
+      } else if (fin && this.iframe()) {
+        this.iframe().remove();
+        if (!fin.avisado) {
+          fin.avisado = true; ssW(SSF.fin, fin);
+          if (!fin.parada) {
+            const b = fin.bajadas || [];
+            kAviso({ tipo: 'fin', app: 'Entrañas', icono: '⛰️', titulo: `${b.length} bajada${b.length === 1 ? '' : 's'} en segundo plano`, texto: fin.motivo, lineas: b.map((x, i) => `${i + 1}.ª: piso ${x.piso} · ${x.esq} 💎`) });
+          }
+        }
+      }
+      this.pintar();
+    },
+    pintar() {
+      if (EN_FONDO_E || !document.body) return;
+      const on = ssJ(SSF.on), fin = ssJ(SSF.fin);
+      let c = document.getElementById('axe-fondo-card');
+      if (!on && !fin) { if (c) c.remove(); return; }
+      if (!document.getElementById('axe-fondo-css')) {
+        const st = document.createElement('style'); st.id = 'axe-fondo-css';
+        st.textContent = `
+          #axe-fondo-card{position:fixed;left:50%;transform:translateX(-50%);z-index:2147482999;width:min(400px,calc(100vw - 20px));border-radius:20px;background:rgb(var(--lienzo,255 255 255));color:rgb(var(--tinta-800,33 36 29));border:2px solid color-mix(in srgb,var(--axef-c) 45%,rgb(var(--crema-200,232 226 210)));box-shadow:0 4px 0 0 rgba(0,0,0,.07),0 18px 36px -16px rgba(0,0,0,.5);overflow:hidden;font-family:inherit}
+          #axe-fondo-card .axef-cab{display:flex;align-items:center;gap:10px;padding:9px 10px}
+          #axe-fondo-card .axef-ico{width:40px;height:40px;flex-shrink:0;border-radius:13px;display:grid;place-items:center;font-size:21px;background:color-mix(in srgb,var(--axef-c) 16%,rgb(var(--lienzo,255 255 255)))}
+          #axe-fondo-card .axef-tit{margin:0;font-family:var(--font-display),system-ui,sans-serif;font-size:14.5px;font-weight:800;line-height:1.15}
+          #axe-fondo-card .axef-sub{margin:1px 0 0;font-size:11px;font-weight:800;color:rgb(var(--tinta-400,140 143 133));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+          #axe-fondo-card .axef-bt{width:30px;height:30px;flex-shrink:0;border:0;border-radius:999px;display:grid;place-items:center;cursor:pointer;font-size:13px;font-weight:900;background:rgb(var(--crema-100,244 239 226));color:rgb(var(--tinta-500,99 102 92))}
+          #axe-fondo-card .axef-stop{color:rgb(var(--rojo-600,200 60 50))}
+          #axe-fondo-card .axef-cuerpo{padding:0 12px 10px;font-size:11.5px;font-weight:700;line-height:1.4;color:rgb(var(--tinta-600,72 75 66))}
+          #axe-fondo-card .axef-cuerpo p{margin:3px 0 0}
+          #axe-fondo-card .axef-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+          #axe-fondo-card .axef-chips span{padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:900;background:color-mix(in srgb,var(--axef-c) 13%,rgb(var(--lienzo,255 255 255)));color:rgb(var(--tinta-700,50 53 45))}
+          #axe-fondo-card .axef-vale{margin-top:8px;width:100%;border:0;border-radius:999px;padding:7px;font-size:12px;font-weight:900;cursor:pointer;background:var(--axef-c);color:#fff}
+          #axe-fondo-card.axef-mini{width:auto}
+          #axe-fondo-card.axef-mini .axef-cab{padding:5px 8px 5px 5px;cursor:pointer}
+          #axe-fondo-card.axef-mini .axef-ico{width:32px;height:32px;font-size:17px;border-radius:999px}
+          #axe-fondo-card.axef-mini .axef-sub,#axe-fondo-card.axef-mini .axef-cuerpo,#axe-fondo-card.axef-mini .axef-stop{display:none}
+          #axe-fondo-card[data-s="on"] .axef-ico span{display:inline-block;animation:axef-bota 1.4s ease-in-out infinite}
+          @keyframes axef-bota{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+          @media (prefers-reduced-motion:reduce){#axe-fondo-card *{animation:none!important}}`;
+        document.head.appendChild(st);
+      }
+      if (!c) {
+        c = document.createElement('div'); c.id = 'axe-fondo-card'; c.setAttribute('data-ax-ignore', '1'); c.setAttribute('role', 'status');
+        c.innerHTML = `<div class="axef-cab"><div class="axef-ico"><span>⛰️</span></div><div style="flex:1;min-width:0"><p class="axef-tit"></p><p class="axef-sub"></p></div>
+          <button type="button" class="axef-bt axef-min" title="Minimizar">–</button><button type="button" class="axef-bt axef-stop" title="Parar">■</button></div><div class="axef-cuerpo"></div>`;
+        c.querySelector('.axef-min').addEventListener('click', e => { e.stopPropagation(); const m = !c.classList.contains('axef-mini'); try { localStorage.setItem('axe-fondo-mini', m ? '1' : '0'); } catch { /* nada */ } this.pintar(); });
+        c.querySelector('.axef-stop').addEventListener('click', e => { e.stopPropagation(); if (ssJ(SSF.on)) { if (confirm('¿Parar las Entrañas en segundo plano?\\n\\nSi estás a mitad de una bajada, se queda donde está: puedes seguirla tú o volver a lanzarla.')) this.parar(); } else this.cerrar(); });
+        c.querySelector('.axef-cab').addEventListener('click', () => { if (c.classList.contains('axef-mini')) this.ver(); });
+        c.querySelector('.axef-cuerpo').addEventListener('click', e => { if (e.target.closest('.axef-vale')) this.cerrar(); });
+        document.body.appendChild(c);
+      }
+      let mini = false; try { mini = localStorage.getItem('axe-fondo-mini') === '1'; } catch { /* nada */ }
+      c.classList.toggle('axef-mini', !!on && mini);
+      // encima de la tarjeta de las diarias si también está
+      const d = document.getElementById('axd-fondo-card');
+      c.style.bottom = `calc(env(safe-area-inset-bottom,0px) + ${84 + (d ? d.offsetHeight + 8 : 0)}px)`;
+      const bajadas = (on ? ssJ(SSF.bajadas) : fin.bajadas) || [];
+      const t0 = +ssJ(SSF.t0) || Date.now(), dur = m => { const x = Math.max(0, Math.round(m / 60000)); return x < 60 ? `${x} min` : `${Math.floor(x / 60)} h ${x % 60} min`; };
+      const chips = bajadas.map((x, i) => `<span>${i + 1}.ª · piso ${x.piso} · ${x.esq} 💎</span>`).join('');
+      let tit, sub, cuerpo, color = '#8B5CF6', s = 'on';
+      if (on) {
+        const e = ssJ(SSF.estado) || {};
+        const pases = e.pases === 'gratis' ? 'la gratis del día' : e.pases != null ? `🎟️ quedan ${e.pases} pase${e.pases === 1 ? '' : 's'}` : '';
+        tit = mini ? `${bajadas.length + (e.piso ? 1 : 0)}.ª · ${e.piso ? 'piso ' + e.piso : '…'}` : `Entrañas en segundo plano${e.piso ? ` · piso ${e.piso}` : ''}`;
+        sub = [`${bajadas.length} bajada${bajadas.length === 1 ? '' : 's'} hecha${bajadas.length === 1 ? '' : 's'}`, pases, dur(Date.now() - t0)].filter(Boolean).join(' · ');
+        const u = String(e.msg || e.ultimo || '').replace(/^\d\d:\d\d\s+/, '');
+        cuerpo = `${u ? `<p>${kEsc(u.length > 150 ? u.slice(0, 147) + '…' : u)}</p>` : ''}${chips ? `<div class="axef-chips">${chips}</div>` : ''}`;
+      } else {
+        const b = bajadas.length, sinPases = /energ|pases/i.test(fin.motivo || '');
+        color = fin.parada ? '#8C8F85' : /⚠/.test(fin.motivo || '') ? '#E0A000' : '#2FA84F'; s = 'fin';
+        tit = fin.parada ? 'Entrañas paradas' : sinPases ? '¡Pases gastados!' : 'Entrañas: se ha parado';
+        sub = `${b} bajada${b === 1 ? '' : 's'}${b ? ` · la más honda, piso ${Math.max(...bajadas.map(x => x.piso || 0))}` : ''} · ${dur((fin.t || Date.now()) - (fin.t0 || t0))}`;
+        cuerpo = `${fin.motivo && !sinPases ? `<p>${kEsc(fin.motivo)}</p>` : ''}${chips ? `<div class="axef-chips">${chips}</div>` : ''}<button type="button" class="axef-vale">Vale</button>`;
+      }
+      c.style.setProperty('--axef-c', color); c.dataset.s = s;
+      const set = (sel, v, html) => { const el = c.querySelector(sel); if (html) { if (el.dataset.h !== v) { el.dataset.h = v; el.innerHTML = v; } } else if (el.textContent !== v) el.textContent = v; };
+      set('.axef-tit', tit); set('.axef-sub', sub); set('.axef-cuerpo', cuerpo, true);
+      set('.axef-ico span', on ? '⛰️' : fin.parada ? '⏹' : '🏁');
+      set('.axef-stop', on ? '■' : '✕');
+      c.querySelector('.axef-min').style.display = on ? '' : 'none';
+    },
+  };
+  if (!EN_FONDO_E) {
+    document.addEventListener('axe-fondo', e => { const a = e && e.detail; if (a === 'iniciar') fondoE.iniciar(); else if (a === 'parar') fondoE.parar(); else if (a === 'ver') fondoE.ver(); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') fondoE.vistaDesde = Date.now(); });
+    const vig = () => { fondoE.vigilar(); setInterval(() => fondoE.vigilar(), 1000); };
+    if (document.body) vig(); else addEventListener('DOMContentLoaded', vig);
+  }
+
   window.__axEntranas = { ponerOrden, equipoLeido, combate, luchadorDe, especie, hinchar, hinchaRival, efectosActivos, rivalesDe, nivelRival, kLado, multMio, pantalla, decidir, estadoActual, valorar, kb: () => kb, calcularMejoras, prediccion, ordenRecomendado, exportar, reaprender, efectoDe, reglasBioma, bajadaEntera, rodar, clonar, rngDe, techo, modeloMio, pendMio, puntuar, calidad, politica, recorrer, estadoEquipo, valorRapidoBend, aplicarBendicion, mejAhora, jugarPuerta, puertasDe, politicaRapida, darBendicion, conf, AJ, danoBase, luchadorDeNombre, tramoK };
 })();
