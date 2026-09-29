@@ -34,7 +34,7 @@ function Programar-Siguiente {
   } catch { Log "No he podido programar '$Nombre': $($_.Exception.Message) Vuelve a ejecutar el instalador (irm ... | iex) para arreglarlo." }
 }
 # El Huerto: se despierta el PC solo cuando hay cosecha, y no si otra tarea lo va a despertar en la hora y media
-# siguiente ni de madrugada (02:00-07:30: ya lo hara la manana)
+# siguiente ni de madrugada (00:00-06:00: ya lo hara la manana)
 function Programar-Huerto {
   $t = Get-ScheduledTask -TaskPath '\AuroraDex\' -TaskName 'huerto' -ErrorAction SilentlyContinue
   $f = Join-Path $bot 'proximo.json'
@@ -44,11 +44,11 @@ function Programar-Huerto {
   if (-not $j.huerto -or [int64]$j.huerto -le 0) { & $apagar 'no hay nada creciendo, no lo programo.'; return }
   $cuando = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$j.huerto).LocalDateTime.AddMinutes(2)
   if ($cuando -lt (Get-Date).AddMinutes(5)) { & $apagar 'ha quedado algo por hacer: lo hara la siguiente tarea.'; return }
-  foreach ($n in 'manana', 'tarde', 'noche') {
+  foreach ($n in 'manana', 'tarde', 'semanal') {
     $i = Get-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $n -ErrorAction SilentlyContinue | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
     if ($i -and $i.NextRunTime -and $i.NextRunTime -ge $cuando.AddMinutes(-5) -and $i.NextRunTime -le $cuando.AddMinutes(90)) { & $apagar "cosecha a las $($cuando.ToString('HH:mm')): la hara '$n' ($($i.NextRunTime.ToString('HH:mm')))."; return }
   }
-  if ($cuando.TimeOfDay -ge [TimeSpan]'02:00' -and $cuando.TimeOfDay -lt [TimeSpan]'07:30') { & $apagar "cosecha de madrugada ($($cuando.ToString('HH:mm'))): la hara la manana."; return }
+  if ($cuando.TimeOfDay -lt [TimeSpan]'06:00') { & $apagar "cosecha de madrugada ($($cuando.ToString('HH:mm'))): la hara la manana."; return }
   try {
     Set-ScheduledTask -TaskPath '\AuroraDex\' -TaskName 'huerto' -Trigger (New-ScheduledTaskTrigger -Once -At $cuando) -ErrorAction Stop | Out-Null
     Enable-ScheduledTask -TaskPath '\AuroraDex\' -TaskName 'huerto' -ErrorAction Stop | Out-Null

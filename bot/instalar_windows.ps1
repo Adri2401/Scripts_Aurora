@@ -56,27 +56,31 @@ $ajustes = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowSta
 $quien = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
 # Pocas veces al dia, cada una con varias cosas seguidas (para despertar el PC lo menos posible). Las de franja (v)
 # cambian de hora cada dia: al jugar, se vuelven a programar para el dia siguiente al azar dentro de ella.
-#   manana 08:00-12:00: diarias (Huerto, Valle, Salon), Manadas, Isla, Tronos y Torre
-#   tarde  22:30-23:30 (domingo 21:30-22:15, para acabar antes de las Galerias): Subsuelo, Entranas, Isla y Huerto
-#   noche  00:00-02:00 (lunes a las 00:01: primero Galerias hasta la planta 40): Subsuelo y Huerto
+#   manana  06:00-08:00: diarias (Huerto, Valle, Salon), Manadas, Tronos, Torre, Subsuelo e Isla
+#   tarde   18:00-20:00: Subsuelo, Entranas, Isla y Huerto
+#   semanal lunes a las 00:01 (recien empezada la semana): Galerias hasta la planta 40
 #   huerto: solo cuando hay cosecha lista y ninguna de las otras va a despertar el PC en la hora y media siguiente
 $provisional = New-ScheduledTaskTrigger -Once -At ([datetime]::Now.AddDays(1))
 $tareas = @(
-  @{ n = 'manana'; v = '08:00-12:00' },
-  @{ n = 'tarde';  v = '22:30-23:30'; dom = '21:30-22:15' },
-  @{ n = 'noche';  v = '00:00-02:00'; lun = '00:01' },
+  @{ n = 'manana'; v = '06:00-08:00' },
+  @{ n = 'tarde';  v = '18:00-20:00' },
+  @{ n = 'semanal'; lunes = '00:01' },
   @{ n = 'huerto' }
 )
 # las de antes (otra organizacion de horarios)
-foreach ($viejo in 'diario', 'subsuelo', 'subsuelo-tarde', 'subsuelo-noche', 'isla', 'entranas-pases') { Unregister-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $viejo -Confirm:$false -ErrorAction SilentlyContinue }
+foreach ($viejo in 'noche', 'diario', 'subsuelo', 'subsuelo-tarde', 'subsuelo-noche', 'isla', 'entranas-pases') { Unregister-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $viejo -Confirm:$false -ErrorAction SilentlyContinue }
 foreach ($x in $tareas) {
   $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ejecutar`" -Tarea $($x.n)"
   if ($x.v) { $arg += " -Nombre $($x.n) -Ventana $($x.v)" }
   if ($x.dom) { $arg += " -VentanaDomingo $($x.dom)" }
   if ($x.lun) { $arg += " -HoraLunes $($x.lun)" }
   $accion = New-ScheduledTaskAction -Execute $ps -Argument $arg -WorkingDirectory $bot
-  Register-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $x.n -Action $accion -Trigger $provisional -Settings $ajustes -Principal $quien -Force | Out-Null
-  if ($x.v) {
+  $disparo = if ($x.lunes) { New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At $x.lunes } else { $provisional }
+  Register-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $x.n -Action $accion -Trigger $disparo -Settings $ajustes -Principal $quien -Force | Out-Null
+  if ($x.lunes) {
+    $sig = (Get-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $x.n | Get-ScheduledTaskInfo).NextRunTime
+    Write-Host "  - $($x.n): todos los lunes a las $($x.lunes) (la proxima $($sig.ToString('ddd dd/MM HH:mm')))"
+  } elseif ($x.v) {
     $extra = @(); if ($x.dom) { $extra += @('-VentanaDomingo', $x.dom) }; if ($x.lun) { $extra += @('-HoraLunes', $x.lun) }
     & $ps -NoProfile -ExecutionPolicy Bypass -File $ejecutar -Nombre $x.n -Ventana $x.v @extra -SoloProgramar
     $sig = (Get-ScheduledTask -TaskPath '\AuroraDex\' -TaskName $x.n | Get-ScheduledTaskInfo).NextRunTime
@@ -106,7 +110,7 @@ if ($pedir) {
 }
 
 Paso 'Hecho'
-Write-Host 'Se despierta 3 veces al dia (manana 08-12, tarde 22:30-23:30, noche 00-02; lunes 00:01 con las Galerias) y alguna mas solo si el Huerto tiene cosecha.'
+Write-Host 'Se despierta 2 veces al dia (manana 06-08 y tarde 18-20), los lunes a las 00:01 para las Galerias y alguna vez mas solo si el Huerto tiene cosecha.'
 Write-Host 'Deja el PC en SUSPENSION (no apagado) y con tu usuario iniciado: se despierta, juega y vuelve a dormirse.'
 Write-Host "Probar ahora:   cd `"$bot`";  node aurora.js tronos"
 Write-Host "Ver que ha hecho:   Get-Content `"$(Join-Path $bot 'aurora.log')`" -Tail 40"

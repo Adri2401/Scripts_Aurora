@@ -2,9 +2,9 @@
 // Pensado para cron en un servidor (Oracle Cloud Free, una Raspberry…). Cada tarea hace una cosa y acaba:
 //
 //   Las que usa el horario (cada una junta varias para despertar el PC las menos veces posible):
-//   node aurora.js manana          → diarias (con Huerto, Valle y Salón), Manadas gratis, Isla, Tronos y Torre
+//   node aurora.js manana          → diarias (con Huerto, Valle y Salón), Manadas gratis, Tronos, Torre, Subsuelo e Isla
 //   node aurora.js tarde           → Subsuelo, Entrañas (bajada gratis y pases, nunca energía), Isla y Huerto
-//   node aurora.js noche           → (los lunes, primero Galerías hasta la planta 40) Subsuelo y Huerto
+//   node aurora.js semanal         → Galerías hasta la planta 40 (lunes a las 00:01)
 //   node aurora.js huerto          → cosecha, planta Meloc/Latano y riega (solo cuando hay cosecha lista)
 //   Sueltas: diarias, manadas, isla, entranas, entranas-pases, subsuelo, tronos, torre, galerias
 //   node aurora.js --sesion FICHERO → la primera vez: mete tu sesión (la cookie __Secure-next-auth.session-token)
@@ -160,9 +160,10 @@ TAREAS['entranas-pases'] = (p, ctx) => TAREAS.entranas(p, ctx, true);
 // Las del horario: varias seguidas en la misma vez que se despierta el PC
 const esLunes = () => new Date().toLocaleDateString('es-ES', { weekday: 'long', timeZone: 'Europe/Madrid' }) === 'lunes';
 const GRUPOS = {
-  manana: () => ['diarias', 'manadas', 'isla', 'tronos', 'torre'],
+  manana: () => ['diarias', 'manadas', 'tronos', 'torre', 'subsuelo', 'isla'],
   tarde: () => ['subsuelo', 'entranas-pases', 'isla', 'huerto'],
-  noche: () => [...(esLunes() ? ['galerias'] : []), 'subsuelo', 'huerto'],
+  semanal: () => ['galerias'],
+  noche: () => [...(esLunes() ? ['galerias'] : []), 'subsuelo', 'huerto'],   // la de antes (horario viejo)
 };
 GRUPOS.diario = GRUPOS.manana;                                  // el nombre de antes
 for (const [g, lista] of Object.entries(GRUPOS)) {
