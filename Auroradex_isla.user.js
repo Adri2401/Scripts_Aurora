@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.2.0
+// @version      2.3.0
 // @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura a todos (también los repetidos), ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -655,6 +655,74 @@
     return ops.sort((a, b) => nota(b) - nota(a))[0];
   }
   function fuerzaEquipo(est) { const tres = est.equipo.slice(0, 3); return tres.length ? tres.reduce((a, p) => a + p.nivel, 0) / tres.length : 0; }
+  /* ------------------------------------------------------------------ *
+   *  JEFE: pelean los 3 primeros, así que antes de luchar se ponen delante los 3 mejores contra él (nivel y tipos:
+   *  lo que le pega fuerte y lo que aguanta sus golpes). Los tipos del jefe y su escolta salen de PokéAPI (por el nº
+   *  del sprite) y se guardan. Después el equipo vuelve al orden de evolucionar.
+   * ------------------------------------------------------------------ */
+  const sinTilde = t => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const TABLA = (() => {
+    const t = {}, pon = (a, x, ds) => { for (const d of ds.split(' ')) (t[a] || (t[a] = {}))[d] = x; };
+    const fila = (a, dos, medio, cero) => { if (dos) pon(a, 2, dos); if (medio) pon(a, 0.5, medio); if (cero) pon(a, 0, cero); };
+    fila('normal', '', 'roca acero', 'fantasma');
+    fila('fuego', 'planta hielo bicho acero', 'fuego agua roca dragon');
+    fila('agua', 'fuego tierra roca', 'agua planta dragon');
+    fila('planta', 'agua tierra roca', 'fuego planta veneno volador bicho dragon acero');
+    fila('electrico', 'agua volador', 'electrico planta dragon', 'tierra');
+    fila('hielo', 'planta tierra volador dragon', 'fuego agua hielo acero');
+    fila('lucha', 'normal hielo roca siniestro acero', 'veneno volador psiquico bicho hada', 'fantasma');
+    fila('veneno', 'planta hada', 'veneno tierra roca fantasma', 'acero');
+    fila('tierra', 'fuego electrico veneno roca acero', 'planta bicho', 'volador');
+    fila('volador', 'planta lucha bicho', 'electrico roca acero');
+    fila('psiquico', 'lucha veneno', 'psiquico acero', 'siniestro');
+    fila('bicho', 'planta psiquico siniestro', 'fuego lucha veneno volador fantasma acero hada');
+    fila('roca', 'fuego hielo volador bicho', 'lucha tierra acero');
+    fila('fantasma', 'psiquico fantasma', 'siniestro', 'normal');
+    fila('dragon', 'dragon', 'acero', 'hada');
+    fila('siniestro', 'psiquico fantasma', 'lucha siniestro hada');
+    fila('acero', 'hielo roca hada', 'fuego agua electrico acero');
+    fila('hada', 'lucha dragon siniestro', 'fuego veneno acero');
+    return t;
+  })();
+  const EN_ES = { normal: 'normal', fire: 'fuego', water: 'agua', grass: 'planta', electric: 'electrico', ice: 'hielo', fighting: 'lucha', poison: 'veneno', ground: 'tierra', flying: 'volador', psychic: 'psiquico', bug: 'bicho', rock: 'roca', ghost: 'fantasma', dragon: 'dragon', dark: 'siniestro', steel: 'acero', fairy: 'hada' };
+  const eficacia = (atk, defs) => defs.reduce((m, d) => m * ((TABLA[atk] || {})[d] ?? 1), 1);
+  const tiposDe = p => [p.tipo1, p.tipo2].filter(Boolean).map(sinTilde);
+  const LS_TIPOS = 'axi-tipos';
+  const tiposEsp = lsGet(LS_TIPOS, {});     // { nº: ['agua', 'hielo'] } · [] = no se pudo saber
+  const pidiendoTipos = new Set();
+  async function pedirTipos(n) {
+    if (tiposEsp[n] || pidiendoTipos.has(n)) return;
+    pidiendoTipos.add(n);
+    try { const d = await pedirJSON('https://pokeapi.co/api/v2/pokemon/' + n + '/'); tiposEsp[n] = d.types.map(t => EN_ES[t.type.name]).filter(Boolean); }
+    catch (e) { console.warn('[axi] tipos de', n, e); tiposEsp[n] = []; }
+    lsPut(LS_TIPOS, Object.assign(lsGet(LS_TIPOS, {}), tiposEsp));
+  }
+  // null mientras falten los tipos de alguno (se piden y se espera al siguiente repaso)
+  function rivalesJefe(J) {
+    const out = (J.equipo || []).map(x => { const n = +((String(x.sprite || '').match(/(\d+)\.png/) || [])[1]); return { ...x, n, tipos: n ? tiposEsp[n] : [] }; });
+    const faltan = out.filter(x => x.n && !x.tipos);
+    faltan.forEach(x => pedirTipos(x.n));
+    return faltan.length ? null : out;
+  }
+  function notaContraJefe(p, riv) {
+    const mios = tiposDe(p);
+    if (!riv.length || !mios.length) return p.nivel;
+    const lg = x => Math.log2(Math.max(0.25, x));
+    let ofe = 0, def = 0;
+    for (const r of riv) {
+      if (!r.tipos.length) continue;
+      ofe += lg(Math.max(...mios.map(t => eficacia(t, r.tipos))));
+      def += lg(Math.max(...r.tipos.map(t => eficacia(t, mios))));
+    }
+    return p.nivel + (3 * ofe - 3 * def) / riv.length;
+  }
+  // los 3 que pelean contra el jefe, y detrás el resto del equipo de evolucionar (6 como mucho)
+  function equipoJefe(est, riv) {
+    const todos = [...est.equipo, ...est.caja];
+    const tres = todos.map(p => ({ p, v: notaContraJefe(p, riv) })).sort((a, b) => b.v - a.v || b.p.nivel - a.p.nivel).slice(0, 3).map(x => x.p);
+    const resto = (equipoPropuesto(est, analizar(est)) || est.equipo).filter(p => !tres.some(t => t.id === p.id));
+    return [...tres, ...resto].slice(0, Math.max(3, Math.min(6, est.equipo.length)));
+  }
   async function pasoAuto() {
     if (autoPaso || !autoOn() || !enIsla()) return;
     const est = estadoIsla();
@@ -700,22 +768,42 @@
         if (b) { alog(`🤝 Elijo a ${nombre} de compañero.`); b.click(); await espera(2500); }
         return;
       }
+      // jefe: cuando está, queda marea y el equipo llega (media de los 3 mejores contra él a 3 niveles o menos del
+      // jefe; 2 intentos al día). Primero se ponen delante esos 3 y luego se lucha.
+      const J = est.jefe;
+      const intentosHoy = lsGet('axi-jefe-hoy', {}), hoyK = new Date().toLocaleDateString('sv');
+      if (J && J.abierto && !J.vencido && est.marea >= (J.costeMarea || 3) && (intentosHoy[hoyK] || 0) < 2 && est.equipo.length) {
+        const riv = rivalesJefe(J);
+        if (!riv) return;       // esperando a saber sus tipos
+        const nivelJefe = Math.max(...riv.map(x => x.nivel || 0));
+        const prop = equipoJefe(est, riv), tres = prop.slice(0, 3);
+        // (o, si ya no pueden subir más hoy porque están al tope del día, se intenta igual: perder solo cuesta marea)
+        const media = tres.reduce((a, p) => a + p.nivel, 0) / tres.length;
+        if (media >= nivelJefe - 3 || tres.every(p => p.nivel >= est.topeNivel) || est.dia >= est.dias) {
+          if (prop.map(p => p.id).join() !== est.equipo.map(p => p.id).join()) {
+            const fn = guardarEquipoFn();
+            if (fn && Date.now() - ultimoOrden > 5000) {
+              ultimoOrden = Date.now();
+              fn(prop.map(p => p.id), 'Equipo listo para el jefe.');
+              alog(`🔀 Contra el jefe pelean: ${tres.map(p => `${p.nombre} Nv.${p.nivel}`).join(', ')}.`);
+              await espera(2500); return;
+            }
+            if (fn) return;
+          }
+          const b = botonTexto(/^Luchar\s*·/);
+          if (b) {
+            intentosHoy[hoyK] = (intentosHoy[hoyK] || 0) + 1; lsPut('axi-jefe-hoy', { [hoyK]: intentosHoy[hoyK] }); ssPut(SS_ZONA, 'jefe');
+            alog(`👑 Contra el jefe (${J.nombre.split(',')[0]}, intento ${intentosHoy[hoyK]} de hoy).`);
+            reordenar = true; ultimoOrden = 0;      // luego, al orden de evolucionar
+            b.click(); await espera(2500); return;
+          }
+        }
+      }
       // equipo: para evolucionar a especies nuevas (el 1.º se queda)
       if (reordenar && Date.now() - ultimoOrden > 15000 && est.equipo.length) {
         ultimoOrden = Date.now(); reordenar = false;
         const prop = equipoPropuesto(est, analizar(est));
         if (prop && prop.map(p => p.id).join() !== est.equipo.map(p => p.id).join()) { await ordenarEquipo(); alog('🔀 Equipo ordenado: ' + prop.map(p => p.nombre).join(', ') + '.'); await espera(2000); return; }
-      }
-      // jefe: cuando está y el equipo llega (media de los 3 que pelean a 3 niveles o menos del jefe)
-      const J = est.jefe;
-      if (J && J.abierto && !J.vencido && est.marea >= (J.costeMarea || 3)) {
-        const nivelJefe = Math.max(...(J.equipo || []).map(x => x.nivel || 0));
-        const intentosHoy = lsGet('axi-jefe-hoy', {});
-        const hoyK = new Date().toLocaleDateString('sv');
-        if (fuerzaEquipo(est) >= nivelJefe - 3 && (intentosHoy[hoyK] || 0) < 2) {
-          const b = botonTexto(/^Luchar\s*·/);
-          if (b) { intentosHoy[hoyK] = (intentosHoy[hoyK] || 0) + 1; lsPut('axi-jefe-hoy', { [hoyK]: intentosHoy[hoyK] }); ssPut(SS_ZONA, 'jefe'); alog(`👑 Contra el jefe (${J.nombre.split(',')[0]}).`); b.click(); await espera(2500); return; }
-        }
       }
       // explorar
       if (est.marea < est.costeExplorar) {
