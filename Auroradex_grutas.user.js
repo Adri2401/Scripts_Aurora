@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Grutas del Subsuelo (todas las vetas)
 // @namespace    auroradex-grutas
-// @version      0.7.1
+// @version      0.8.0
 // @description  Solo en /subsuelo. «🧭 Explorar y picar»: recorre el mapa deprisa y pica cada veta (y Poké Ball) que ve de los tipos elegidos. «⛏️ Picarlas todas»: el camino más corto por todas las que conoce (el mínimo de pasos, que es lo que cuesta energía al andar; con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa del servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar y el ritmo (humano por defecto). Dibuja el camino y se para si no llega la energía; sigue donde lo dejó. Antes de andar se pone las Botas de Andar del Huerto (con su script). /subsuelo?explorar=1 empieza solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -13,8 +13,8 @@
 
 (() => {
   'use strict';
-  // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
-  try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
+  // En la ventana oculta del robot de Diarias sí corre (lo usa para el Subsuelo); en otras ventanas, no
+  try { if (window.top !== window && window.name !== 'axd-fondo') return; } catch { return; }
 
   /* ── Espera a que Next.js/React termine de hidratar ─────────────────────────
    * Si se mete algo en el DOM antes, React da un error de hidratación (#418/#423),
@@ -301,7 +301,7 @@
    *  AJUSTES Y MEMORIA
    * ------------------------------------------------------------------ */
   const PANEL_ID = 'axsub-panel', U = '#' + PANEL_ID, DIBUJO_ID = 'axsub-dibujo';
-  const VERSION = '0.7.1';
+  const VERSION = '0.8.0';
   const LS_CFG = 'axsub-cfg', LS_MEM = 'axsub-mem-v1';
   const H12 = 12 * 3600e3, H24 = 24 * 3600e3;
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -1645,8 +1645,28 @@
    *  EL RECORRIDO
    * ------------------------------------------------------------------ */
   let corriendo = false, plan = null, ultimoError = '';
+  // Resumen para el robot de Diarias (y cualquiera que lo quiera leer): cuántas vetas del mapa están picadas (y así
+  // vacías, doce horas) sobre cuántas conoces, y cuándo vuelve a llenarse la primera
+  function resumenVetas() {
+    try {
+      const m = mem(); if (!m) return null;
+      const ahora = Date.now(), nodos = m.nodos || {};
+      let total = 0, picadas = 0, proxima = 0;
+      for (const [k, n] of Object.entries(nodos)) {
+        total++;
+        const mv = (m.vetas || {})[k];
+        if (mv && mv.picada && mv.picada >= (n.visto || 0) - 5000 && ahora - mv.picada < H12) { picadas++; const vuelve = mv.picada + H12; if (!proxima || vuelve < proxima) proxima = vuelve; }
+      }
+      const r = { total, picadas, proxima, t: ahora };
+      lsPon('axsub-resumen', r);
+      return r;
+    } catch { return null; }
+  }
+  let resumenT = 0;
   function parar(motivo, tipo = 'info') {
     corriendo = false;
+    resumenVetas();
+    lsPon('axsub-fin', { t: Date.now(), motivo: motivo || '', picadas });
     if (motivo) { log((tipo === 'aviso' || tipo === 'error' ? '⚠️ ' : '') + motivo); kAviso({ tipo, app: 'Grutas', icono: '⛏️', titulo: motivo.length < 60 ? motivo : 'Grutas: me he parado', texto: motivo.length < 60 ? '' : motivo }); }
     pintar();
   }
@@ -2126,5 +2146,5 @@
     if (!corriendo) iniciar(m);
   }
 
-  esperarHidratacion().then(() => { tick(); setInterval(tick, 1500); arranqueDesdeEnlace(); });
+  esperarHidratacion().then(() => { tick(); setInterval(() => { tick(); if (corriendo && Date.now() - resumenT > 20000) { resumenT = Date.now(); resumenVetas(); } }, 1500); arranqueDesdeEnlace(); });
 })();

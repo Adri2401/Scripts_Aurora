@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.13.0
+// @version      1.14.0
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -345,6 +345,7 @@
       { href: '/jessie-y-james', icon: '🎈', label: 'Jessie y James' },
       { href: '/salon',          icon: '🎴', label: 'Salón' },
       { href: '/casa',           icon: '🚪', label: 'Casa Treta', region: 'hoenn', regionLabel: 'Hoenn' },
+      { href: '/subsuelo',       icon: '⛏️', label: 'Subsuelo' },
       SAFARI('kanto', 'Kanto'), SAFARI('johto', 'Johto'), SAFARI('hoenn', 'Hoenn'), SAFARI('sinnoh', 'Sinnoh'), SAFARI('teselia', 'Teselia'),
     ] },
     { id: 'extra', titulo: 'Extra', icono: '🧰', items: [
@@ -359,7 +360,6 @@
       { href: '/casino',     icon: '🎰', label: 'Casino' },
       { href: '/hielo',      icon: '❄️', label: 'Suelo Helado' },
       { href: '/fondo',      icon: '🏮', label: 'Fondo Comunitario' },
-      { href: '/subsuelo',   icon: '⛏️', label: 'Grutas del Subsuelo' },
       { href: '/base',       icon: '🏠', label: 'Base Secreta' },
       { href: '/equipos',    icon: '🌊', label: 'Los equipos' },
       { href: '/exclusivos', icon: '🎨', label: 'Exclusivos' },
@@ -374,7 +374,7 @@
   ];
   // Bloques antiguos (guardados por versiones anteriores) → bloques actuales; y accesos que se fuerzan a un bloque
   const ALIAS_BLOQUE = { diario: 'pve', minijuegos: 'extra', base: 'extra', demas: 'extra' };
-  const FORZAR_BLOQUE = { '/miel': 'extra', '/concurso': 'extra', '/subsuelo': 'extra', '/evento-comunidad': 'extra' };
+  const FORZAR_BLOQUE = { '/miel': 'extra', '/concurso': 'extra', '/subsuelo': 'pve', '/evento-comunidad': 'extra' };
 
   const lsJSON = (k, def) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } };
   const lsPut = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin storage */ } };
@@ -1480,28 +1480,31 @@
       a.href = '/menu';
       a.className = 'ax-item ax-todas tarjeta';
       const pintarTodas = () => {
-        const r = ssJ('axd-ruta-fondo') || ssJ('axd-ruta');
+        const r = ssJ('axd-ruta-fondo') || ssJ('axd-ruta'), robot = ssJ('axd-robot');
+        const on = !!r || !!(robot && robot.on);
         const n = r && r.pasos ? r.pasos.length + (r.actual ? 1 : 0) : 0, total = r && r.cola ? n + r.cola.length : 0;
-        const firma = r ? `on|${n}|${total}` : 'off';
+        const diarias = r && (r.robot === 'diarias' || !r.robot);
+        const tag = !on ? '' : r ? (diarias && total ? `${n}/${total}` : '▶') : '💤';
+        const firma = `${on}|${tag}`;
         if (a.dataset.f === firma) return;
         a.dataset.f = firma;
-        a.classList.toggle('ax-aqui', !!r);
-        a.title = r ? 'Jugando todas las diarias en segundo plano (tócalo para ver cómo va)' : 'Jugar todas las diarias en segundo plano (necesita el script «Aurora Dex · Diarias»)';
+        a.classList.toggle('ax-aqui', on);
+        a.title = on ? 'El robot de diarias está encendido (tócalo para ver su tarjeta)' : 'Encender el robot de diarias: hace las diarias y se queda esperando lo que va por horas (necesita el script «Aurora Dex · Diarias»)';
         a.innerHTML = `
-          ${r ? `<span class="ax-tag pastilla border-2 border-hoja-300 bg-hoja-50 text-hoja-700">${total ? `${n}/${total}` : '…'}</span>` : ''}
-          <span class="ax-ico" aria-hidden="true">${r ? '⏳' : '🤖'}</span>
-          <span class="ax-lbl">${r ? 'Jugando…' : 'Todas las diarias'}</span>`;
+          ${tag ? `<span class="ax-tag pastilla border-2 border-hoja-300 bg-hoja-50 text-hoja-700">${tag}</span>` : ''}
+          <span class="ax-ico" aria-hidden="true">${!on ? '🤖' : r ? '⏳' : '💤'}</span>
+          <span class="ax-lbl">${!on ? 'Robot de diarias' : r ? 'Jugando…' : 'Robot en espera'}</span>`;
       };
       pintarTodas();
       const vigia = setInterval(() => { if (!a.isConnected) { clearInterval(vigia); return; } pintarTodas(); }, 1000);
       a.addEventListener('click', ev => {
         if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
         ev.preventDefault();
-        const enMarcha = !!ssJ('axd-ruta-fondo');
+        const enMarcha = !!ssJ('axd-ruta-fondo') || !!(ssJ('axd-robot') || {}).on;
         document.dispatchEvent(new CustomEvent('axd-fondo', { detail: enMarcha ? 'ver' : 'iniciar' }));
         if (enMarcha) return;
         // sin el script de Diarias no pasa nada: se avisa
-        setTimeout(() => { if (!ssJ('axd-ruta-fondo') && !ssJ('axd-fondo-fin')) alert('Para jugar todas las diarias solas hace falta el script «Aurora Dex · Diarias» en Tampermonkey.'); else pintarTodas(); }, 1500);
+        setTimeout(() => { if (!ssJ('axd-ruta-fondo') && !ssJ('axd-robot')) alert('Para jugar todas las diarias solas hace falta el script «Aurora Dex · Diarias» en Tampermonkey.'); else pintarTodas(); }, 1500);
       });
       li.appendChild(a);
       ul.appendChild(li);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.15.2
+// @version      1.16.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  «🔁 En segundo plano hasta gastar los pases»: hace la bajada gratis y luego una tras otra con los Pases del monte en una ventana oculta mientras juegas a otra cosa, con una tarjeta que dice por dónde va. Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Bendiciones: nunca Veterano ni Reclutador, y las Afinidades de un tipo solo si ese tipo es mayoría en el equipo. Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -15,12 +15,14 @@
   'use strict';
   // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
   // (en segundo plano juega en su propia ventana oculta, «axe-fondo»; en cualquier otra ventana no corre)
-  const EN_FONDO_E = (() => { try { return window.top !== window && window.name === 'axe-fondo'; } catch { return false; } })();
+  // (también en la del robot de Diarias, «axd-fondo», que la usa para las Entrañas: allí con sus propias claves)
+  const EN_FONDO_E = (() => { try { return window.top !== window && ['axe-fondo', 'axd-fondo'].includes(window.name); } catch { return false; } })();
   try { if (window.top !== window && !EN_FONDO_E) return; } catch { return; }
-  const SSF = { on: 'axe-fondo-on', fin: 'axe-fondo-fin', bajadas: 'axe-fondo-bajadas', estado: 'axe-fondo-estado', t0: 'axe-fondo-t0' };
+  const PRE_F = (() => { try { return window.name === 'axd-fondo' ? 'axe-dfondo-' : 'axe-fondo-'; } catch { return 'axe-fondo-'; } })();
+  const SSF = { on: PRE_F + 'on', fin: PRE_F + 'fin', bajadas: PRE_F + 'bajadas', estado: PRE_F + 'estado', t0: PRE_F + 't0', una: PRE_F + 'una' };
   const ssJ = k => { try { return JSON.parse(sessionStorage.getItem(k) || 'null'); } catch { return null; } };
   const ssW = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* nada */ } };
-  const VERSION = '1.15.2';
+  const VERSION = '1.16.0';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -1633,7 +1635,11 @@
     kAviso({ tipo: 'fin', app: 'Entrañas', icono: '⛰️', titulo: `Piso ${piso} · ${esq} 💎`, texto: 'Bajada terminada.' });
     bajadaId = null; lsPut('axe-bajada', null); enBajada = false;
     guardaKb();
-    if (EN_FONDO_E) { const l = ssJ(SSF.bajadas) || []; l.push({ piso, esq, t: Date.now() }); ssW(SSF.bajadas, l); }
+    if (EN_FONDO_E) {
+      const l = ssJ(SSF.bajadas) || []; l.push({ piso, esq, t: Date.now() }); ssW(SSF.bajadas, l);
+      // el robot de Diarias pide de una en una (entre bajada y bajada hace otras cosas que tocan)
+      if (ssJ(SSF.una)) { ssW(SSF.fin, { t: Date.now(), motivo: 'una', bajadas: l }); ssW(SSF.on, null); piloto = false; try { sessionStorage.setItem(SS_AUTO, '0'); } catch { /* nada */ } }
+    }
   }
   function grabar(P) {
     if (!P) return;
@@ -2197,6 +2203,7 @@
       else if (P && antesLobby) { antesLobby = false; pasesVistos = typeof pasesVistos === 'number' ? Math.max(0, pasesVistos - 1) : null; }   // al bajar se gasta uno
       ssW(SSF.estado, { t: Date.now(), piso: P && P.cab ? P.cab.piso : null, tipo: P && P.tipo, msg, pases: pasesVistos, ultimo: logN ? registroLog[registroLog.length - 1] || '' : '' });
       if (ssJ(SSF.on) && !piloto && !pilotoEnMarcha && enEntranas()) setPiloto(true);
+      else if (!ssJ(SSF.on) && piloto) setPiloto(false);
     }, 1000);
   }
   const fondoE = {
