@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.15.0
+// @version      1.15.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  «🔁 En segundo plano hasta gastar los pases»: hace la bajada gratis y luego una tras otra con los Pases del monte en una ventana oculta mientras juegas a otra cosa, con una tarjeta que dice por dónde va. Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Bendiciones: nunca Veterano ni Reclutador, y las Afinidades de un tipo solo si ese tipo es mayoría en el equipo. Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -20,7 +20,7 @@
   const SSF = { on: 'axe-fondo-on', fin: 'axe-fondo-fin', bajadas: 'axe-fondo-bajadas', estado: 'axe-fondo-estado', t0: 'axe-fondo-t0' };
   const ssJ = k => { try { return JSON.parse(sessionStorage.getItem(k) || 'null'); } catch { return null; } };
   const ssW = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* nada */ } };
-  const VERSION = '1.15.0';
+  const VERSION = '1.15.1';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -1356,7 +1356,7 @@
         const nota = puntuar(S0, S);
         x.suma += nota; x.notas.push(nota); x.fin += S.piso; x.vivos += S.vivo ? 1 : 0; x.n++;
       }
-      if (r % 4 === 3) await sleep(0);
+      if (EN_FONDO_E || r % 4 === 3) await sleep(0);   // (en segundo plano cede cada vuelta: comparte el hilo con la pestaña)
       if (res.length < 2 || (r >= 15 && r % 8 === 7 && claro())) break;
     }
     const out = res.map(x => ({ o: x.o, v: x.suma / x.n, techo: x.fin / x.n, vivo: x.vivos / x.n, pierde: x.pierde / x.n, n: x.n }));
@@ -1583,7 +1583,7 @@
   async function calcularMejoras() {
     const N = 160;
     const fotos = [];
-    const correr = async extra => { const out = []; for (let r = 0; r < N; r++) { const S = bajadaEntera(extra, rngDe(313 + r * 101)); out.push([S.esq, S.piso]); if (!extra && S.foto && fotos.length < 16) fotos.push(S.foto); if (r % 4 === 3) await sleep(0); } return out; };
+    const correr = async extra => { const out = []; for (let r = 0; r < N; r++) { const S = bajadaEntera(extra, rngDe(313 + r * 101)); out.push([S.esq, S.piso]); if (!extra && S.foto && fotos.length < 16) fotos.push(S.foto); if (EN_FONDO_E || r % 4 === 3) await sleep(0); } return out; };
     const b0 = await correr(null);
     // Techo: con los equipos que llegan al piso 41, cuánto más hondo aguantan con un nivel más de la mejora
     const M = modeloMio(), techoBase = fotos.map(F => techo(F, { R: 8 }).exacto);
