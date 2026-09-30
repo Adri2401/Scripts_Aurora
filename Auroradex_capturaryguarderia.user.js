@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.18.0
+// @version      2.19.0
 // @description  Auto-explora y captura; ante shiny/legendario lo captura solo con la bola que elijas (Master o Ultra) sin parar la macro y avisa, o para y te avisa. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -493,6 +493,9 @@
       ${U} .adx-seg4{grid-template-columns:repeat(4,1fr)!important}
       ${U} .adx-seg button.adx-en{height:46px;padding:0;justify-content:center;gap:0}
       ${U} .adx-en-n{font-family:var(--font-display),system-ui,sans-serif;font-size:22px!important;font-weight:800;line-height:1}
+      ${U} .adx-en-num{width:100%;max-width:72px;background:transparent;border:0;outline:none;text-align:center;color:inherit;font-family:var(--font-display),system-ui,sans-serif;font-size:22px;font-weight:800;line-height:1;padding:0;-moz-appearance:textfield}
+      ${U} .adx-en-num::-webkit-outer-spin-button,${U} .adx-en-num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+      ${U} .adx-en-num:focus{text-decoration:underline;text-underline-offset:4px}
       ${U} .adx-en-i{font-size:22px!important;line-height:1;font-family:'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif}
       ${U} .adx-chips button{flex:1;padding:4px 0;font-size:11px;font-weight:800}
       ${U} .adx-seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
@@ -612,7 +615,7 @@
           </div>
           <div class="adx-seg adx-seg4" role="radiogroup" aria-label="Energía a gastar">
             <button type="button" class="adx-en" data-q="0" role="radio" aria-label="Nada: solo lo gratis" title="Nada: solo lo gratis (los encuentros de la manada)"><span class="adx-en-n">0</span></button>
-            <button type="button" class="adx-en" data-q="7" role="radio" aria-label="Hasta 7 de energía" title="Hasta 7 de energía"><span class="adx-en-n">7</span></button>
+            <button type="button" class="adx-en" data-q="n" role="radio" aria-label="Hasta esta cantidad de energía" title="Hasta esta cantidad de energía: toca el número para cambiarlo"><input class="adx-en-num" type="number" inputmode="numeric" min="1" max="999" step="1" aria-label="Energía a gastar"></button>
             <button type="button" class="adx-en" data-q="verde" role="radio" aria-label="Toda la energía verde" title="Toda la energía verde (🌿) y ninguna amarilla: solo explora donde cuesta 🌿"><span class="adx-en-i">🌿️</span></button>
             <button type="button" class="adx-en" data-q="" role="radio" aria-label="Toda la energía, verde y amarilla" title="Toda la energía: la verde (🌿) y la amarilla (⚡)"><span class="adx-en-i">⚡️</span></button>
           </div>
@@ -700,7 +703,17 @@
     inP2.value = getPartner();
 
     const setEnergy = v => { lsSet(CONFIG.ENERGY_KEY, v == null ? '' : String(v)); renderUI(); };
-    for (const b of $$('[data-q]', card)) b.addEventListener('click', () => setEnergy(b.dataset.q));
+    // la cantidad a mano: el número se toca y se escribe (se recuerda aunque elijas otra opción)
+    const LS_N = 'adx_macro_energy_n';
+    const numIn = $('.adx-en-num', card);
+    const cantidad = () => { const n = parseInt(numIn.value, 10); return Number.isFinite(n) && n > 0 ? Math.min(999, n) : null; };
+    numIn.value = String(lsGet(LS_N) || 7);
+    const ponCantidad = () => { const n = cantidad(); if (n) { lsSet(LS_N, n); setEnergy(n); } };
+    numIn.addEventListener('input', ponCantidad);
+    numIn.addEventListener('focus', () => { ponCantidad(); numIn.select(); });
+    numIn.addEventListener('blur', () => { if (!cantidad()) numIn.value = String(lsGet(LS_N) || 7); });
+    numIn.addEventListener('click', e => e.stopPropagation());
+    for (const b of $$('[data-q]', card)) b.addEventListener('click', () => { if (b.dataset.q === 'n') { numIn.focus(); ponCantidad(); } else setEnergy(b.dataset.q); });
     for (const b of $$('[data-mode]', card)) b.addEventListener('click', () => { lsSet(CONFIG.MODE_KEY, b.dataset.mode); renderUI(); });
     for (const b of $$('[data-raro]', card)) b.addEventListener('click', () => { lsSet(CONFIG.RAROS_KEY, b.dataset.raro); renderUI(); });
     const rap = $('.adx-fast', card);
@@ -828,9 +841,10 @@
     setText($('.adx-have', card), en ? `tienes ⚡ ${en.normal}${en.vet ? ' · 🌿 ' + en.vet : ''}` : '');
     const eq = String(lsGet(CONFIG.ENERGY_KEY) ?? '').trim();
     for (const b of $$('[data-q]', card)) {
-      // (un número viejo que no sea 0 ni 7 cuenta como «toda»)
-      const on = b.dataset.q === eq || (b.dataset.q === '' && !['0', '7', 'verde'].includes(eq));
-      const cls = on ? SEG_ON : SEG_OFF;
+      const esN = /^\d+$/.test(eq) && +eq > 0;
+      const on = b.dataset.q === 'n' ? esN : b.dataset.q === eq || (b.dataset.q === '' && eq !== '0' && eq !== 'verde' && !esN);
+      if (b.dataset.q === 'n' && esN) { const ni = $('.adx-en-num', b); if (ni && document.activeElement !== ni && ni.value !== eq) ni.value = eq; }
+      const cls = (on ? SEG_ON : SEG_OFF) + ' adx-en';
       if (b.className !== cls) b.className = cls;
       b.setAttribute('aria-checked', String(on));
     }
