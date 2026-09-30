@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Valle Aurora (todo en un botón)
 // @namespace    auroradex-valle
-// @version      1.2.0
-// @description  Solo en /valle. Un botón que lo hace todo de la forma más rentable: recoge (con Tónico cuando compensa y con el almacén a la mitad o más, que es lo que cuenta en la Feria), cobra los encargos, coloca a los mejores (y reorganiza cuando cambia el tipo en racha) y gasta el Brillo en lo que más producción da por cada Brillo (edificios, con sus hitos ×2 y huecos nuevos, Monumento y residentes). Opcional: Horas extra y repetirlo solo cada 30 min.
+// @version      1.3.0
+// @description  Solo en /valle. Un botón que lo hace todo de la forma más rentable: recoge cuando toca (la primera del día con el almacén casi lleno, para aprovechar el ×2 de la Hora punta, con Tónico si compensa), cobra los encargos, coloca a los mejores (y reorganiza cuando cambia el tipo en racha), compra Silos, gasta los puntos de investigación (Planos → Contratos → Ojo de Oak…), echa las 3 manos del día en otros valles y gasta el Brillo en lo que más producción da por cada Brillo (edificios con sus hitos ×2 vistos con antelación, huecos nuevos, Monumento y residentes; ahorra en vez de gastar en algo mucho peor). Dice cuándo volver (lo usa el robot de Diarias). Opcional: Horas extra y repetirlo solo cada 30 min.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_valle.user.js
@@ -329,19 +329,44 @@
     a.r = (a.r * a.n + r) / (a.n + 1); a.n = Math.min(a.n + 1, 20);
     g[id] = a; lsPut(LS_APRENDE, g);
   }
+  // Cuánto crece el coste de un edificio por nivel (≈ ×1,17): se afina con lo que se ve al comprar
+  const LS_CRECE = 'axv-crece';
+  const crece = () => { const g = lsGet(LS_CRECE, null); return g && g.n >= 2 ? Math.min(1.5, Math.max(1.05, g.r)) : 1.17; };
+  function apuntarCrece(antes, despues) {
+    if (!(antes > 0) || !(despues > 0)) return;
+    const r = despues / antes; if (r < 1.03 || r > 1.6) return;
+    const g = lsGet(LS_CRECE, { r: 1.17, n: 0 });
+    g.r = (g.r * g.n + r) / (g.n + 1); g.n = Math.min(g.n + 1, 30); lsPut(LS_CRECE, g);
+  }
   function opciones(x) {
     const ops = [];
     const encNiv = (x.hoy && x.hoy.encargos || []).find(e => /niveles/.test(e.id) && !e.cobrado && e.progreso < e.meta);
-    const premioNivel = encNiv ? encNiv.brillo / (encNiv.meta - encNiv.progreso) : 0;
+    const restEnc = encNiv ? encNiv.meta - encNiv.progreso : 0;
+    const premioNivel = encNiv ? encNiv.brillo / Math.max(1, restEnc) : 0;
+    const R = crece();
     for (const e of x.edificios) {
       if (!e.abierto || !e.coste || e.candado) continue;
-      const n = e.nivel, bh = e.brilloHora || 0;
+      const n = e.nivel, bh = e.brilloHora || 0, c = e.coste.brillo;
       if (n < 1) continue;                                          // construir uno nuevo lo decides tú
-      let d = bh * ((n + 1) / n * (HITOS.includes(n + 1) ? 2 : 1) - 1);
-      if (e.siguienteHueco === n + 1 && e.trabajadores.length) d += bh / e.trabajadores.length;
-      d *= factorAprendido(e.id);
-      const coste = e.coste.brillo, costeEf = Math.max(1, coste - premioNivel);
-      ops.push({ tipo: 'edificio', id: e.id, nombre: `${e.nombre} → Nv ${n + 1}${HITOS.includes(n + 1) ? ' (×2)' : ''}`, coste, dinero: e.coste.dinero || 0, d, roi: d / costeEf, bh });
+      const f = factorAprendido(e.id), trab = (e.trabajadores || []).length;
+      // lo que rinde subir k niveles seguidos (con los hitos ×2 del camino y el hueco nuevo, si se abre) por lo que cuestan
+      // todos ellos: así se ve venir un hito (p. ej. del 48 al 50, ×2) aunque el primer escalón, solo, parezca poco
+      let plan = null, costeK = 0;
+      for (let k = 1; k <= 12; k++) {
+        costeK += c * Math.pow(R, k - 1);
+        const T = n + k, hitos = HITOS.filter(h => h > n && h <= T).length;
+        let d = bh * (T / n * Math.pow(2, hitos) - 1);
+        if (e.siguienteHueco > n && e.siguienteHueco <= T && trab) d += bh / trab;
+        d *= f;
+        const roi = d / Math.max(1, costeK - premioNivel * Math.min(k, restEnc));
+        if (!plan || roi > plan.roi * 1.0001) plan = { k, roi, d, coste: costeK, hito: hitos > 0 };
+      }
+      // el escalón que se compra ahora (para apuntarlo y para lo que se dice)
+      let d1 = bh * ((n + 1) / n * (HITOS.includes(n + 1) ? 2 : 1) - 1);
+      if (e.siguienteHueco === n + 1 && trab) d1 += bh / trab;
+      d1 *= f;
+      const rumbo = plan.k > 1 ? ` (rumbo a Nv ${n + plan.k}${plan.hito ? ' ×2' : ''})` : '';
+      ops.push({ tipo: 'edificio', id: e.id, nombre: `${e.nombre} → Nv ${n + 1}${HITOS.includes(n + 1) ? ' (×2)' : ''}${rumbo}`, coste: c, dinero: e.coste.dinero || 0, d: d1, dPlan: plan.d, costePlan: plan.coste, roi: plan.roi, bh });
     }
     if (x.monumento && x.monumento.coste) {
       const d = (x.brilloHora || 0) * 0.02 / (1 + (x.monumento.bonus || 0));
@@ -355,6 +380,72 @@
       ops.push({ tipo: 'residente', id: r.speciesId, nombre: `Dar de comer a ${r.nombre}`, coste: r.coste, dinero: 0, d, roi: d / r.coste });
     }
     return ops.sort((a, b) => b.roi - a.roi);
+  }
+  // Qué comprar ahora: lo que más rinde si llega; si lo mejor aún no llega pero llega pronto (menos de 3 h de producción)
+  // y lo que sí llega rinde mucho menos, se ahorra en vez de gastarlo en algo malo
+  function elegirCompra(x, ops = opciones(x)) {
+    const top = ops[0];
+    const asequible = ops.find(o => o.coste <= x.brillo && o.dinero <= (x.dinero || 0));
+    if (!top || !asequible) return { op: null, ahorro: null };
+    if (asequible !== top && top.coste - x.brillo <= 3 * (x.brilloHora || 0) && asequible.roi < 0.5 * top.roi) return { op: null, ahorro: top };
+    return { op: asequible, ahorro: null };
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  CUÁNDO RECOGER. La Hora punta (nodo de investigación) da el DOBLE a la primera recogida del día: cuanto más lleno
+   *  esté el almacén en ese momento, mejor (con el Tónico, más aún). Así que esa se hace con el almacén casi lleno (≥ 90%,
+   *  o en la última media hora del día, para no perder el ×2). Las demás valen igual pronto que tarde (recoger no pierde
+   *  nada): con recoger un poco ya cuentan para «Recoge N veces» y para las visitas; y ese encargo se asegura antes de que
+   *  acabe el día.
+   * ------------------------------------------------------------------ */
+  const H = 3600e3, MIN = 60e3;
+  const medianoche = (ahora = Date.now()) => { const d = new Date(ahora); d.setHours(24, 0, 0, 0); return d.getTime(); };
+  const cdRecoger = () => Math.min(90 * MIN, Math.max(5 * MIN, +lsGet('axv-cd', 35 * MIN)));
+  function decidirRecoger(x, ahora, o, cd = 35 * MIN) {
+    const lleno = x.lleno || 0, horas = x.horas || 12, hastaLleno = Math.max(0, x.llenoEn || 0);
+    const finDia = medianoche(ahora) - ahora;
+    const hasta = t => Math.max(0, hastaLleno - (1 - t) * horas * H);            // ms hasta llegar a esa fracción del almacén
+    const tonico = (x.tonicos || 0) > 0 && o.tonico && ((x.tonicos || 0) >= (x.maxTonicos || 6) || lleno >= 0.8 || !!x.horaPunta);
+    if (o.punta && x.horaPunta) {
+      const limite = finDia - 40 * MIN;
+      const tObj = hasta(0.9);
+      if (tObj <= 0) return { ya: true, motivo: 'almacén casi lleno: hora punta ×2', tonico, punta: true };
+      if (limite <= 0) return { ya: true, motivo: 'última hora del día: no dejo pasar el ×2 de la hora punta', tonico, punta: true };
+      return { ya: false, motivo: 'espero al almacén casi lleno para la hora punta ×2', volver: ahora + Math.min(tObj, limite) + MIN, tonico, punta: true };
+    }
+    const enc = (x.hoy && x.hoy.encargos || []).find(e => /recog/i.test(e.texto || '') && !e.cobrado && e.progreso < e.meta);
+    const faltan = enc ? enc.meta - enc.progreso : 0;
+    const feriaRec = !!(x.hoy && x.hoy.feria && /recog|cosech/i.test(x.hoy.feria.unidad || ''));
+    const minimo = o.mitad && feriaRec ? 0.5 : 0.25;
+    // para «Recoge N veces» hacen falta N recogidas antes de que acabe el día (cada una, con su espera)
+    const apuro = faltan > 0 && finDia - 15 * MIN <= faltan * cd + 30 * MIN;
+    if (lleno >= minimo) return { ya: true, motivo: lleno >= 0.9 ? 'almacén lleno' : `almacén al ${Math.round(lleno * 100)}%`, tonico };
+    if (apuro) return { ya: true, motivo: `«Recoge ${enc.meta} veces»: que dé tiempo antes de que acabe el día`, tonico: false };
+    const t = [ahora + hasta(minimo) + MIN];
+    if (faltan > 0) t.push(ahora + finDia - (faltan * cd + 45 * MIN));
+    return { ya: false, motivo: `almacén al ${Math.round(lleno * 100)}%: espero`, volver: Math.max(ahora + MIN, Math.min(...t)), tonico };
+  }
+  // Cuándo tiene sentido volver a mirar el valle (lo lee el robot de Diarias): la recogida, los puntos de investigación
+  // para el siguiente nodo, y el día nuevo (encargos, manos y hora punta vuelven a estar)
+  const LS_PROXIMA = 'axv-proxima';
+  function calcularProxima(x) {
+    if (!x) return null;
+    const ahora = Date.now(), d = decidirRecoger(x, ahora, opc, cdRecoger());
+    const enfria = x.recogerEn ? Date.parse(x.recogerEn) : 0;
+    const c = [];
+    let que = '';
+    if (d.ya) { c.push(Math.max(ahora + 2 * MIN, enfria + 30e3)); que = 'recoger'; }
+    else if (d.volver) { c.push(d.volver); que = d.punta ? 'recoger con la hora punta ×2' : 'recoger'; }
+    if (opc.investigar && x.funciones && x.funciones.investigar && x.piHora > 0 && x.pi < x.costeCasilla) {
+      const t = ahora + (x.costeCasilla - x.pi) / x.piHora * H + 5 * MIN;
+      if (!c.length || t < Math.min(...c)) que = 'investigar';
+      c.push(t);
+    }
+    const t = Math.min(...c, medianoche(ahora) + 3 * MIN);
+    if (t === medianoche(ahora) + 3 * MIN && !c.some(v => v <= t)) que = 'el día nuevo';
+    const r = { t, que, info: `${que} a las ${new Date(t).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`, hecho: ahora };
+    lsPut(LS_PROXIMA, r);
+    return r;
   }
 
   /* ------------------------------------------------------------------ *
@@ -389,10 +480,97 @@
   }
 
   /* ------------------------------------------------------------------ *
+   *  SILOS: +2 h de almacén cada uno (hasta 24 h en total: más no sirve, la hora punta es una al día). Cuestan poco.
+   * ------------------------------------------------------------------ */
+  const bSilo = () => botones().find(b => /^\+\s*2\s*h/.test(texto(b)));
+  async function comprarSilos() {
+    let n = 0;
+    for (let i = 0; i < 6; i++) {
+      const x = estadoValle();
+      if (!x || !x.silo || x.silo.coste == null || (x.horas || 0) >= 24) break;
+      if (x.silo.coste > x.brillo || x.silo.coste > 6 * (x.brilloHora || 0)) break;
+      const b = bSilo(); if (!libre(b)) break;
+      await pulsar(b);
+      const x2 = estadoValle(); if (!x2 || x2 === x) break;
+      n++; log(`🏚️ Silo nuevo: el almacén pasa de ${x.horas} a ${x2.horas} h (✦ ${fmt(x.silo.coste)}).`);
+    }
+    return n;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  INVESTIGAR: gasta los puntos del Observatorio en lo que más da, para siempre (no se pierde al migrar). Primero
+   *  «Planos» (−5% al coste de subir edificios), que abre «Contratos» (+1 hueco en TODOS los edificios), luego el resto.
+   * ------------------------------------------------------------------ */
+  const PRIO_NODOS = ['planos', 'contratos', 'oak', 'especialistas', 'red', 'buenOjo', 'veta', 'regateo', 'maestro', 'turnoNoche'];
+  const esInvestigar = b => /^Investigar\s*·/.test(texto(b)) && !b.closest('#axv-panel');
+  const botonNodo = nd => {
+    for (const b of $$('main button').filter(esInvestigar)) {
+      let c = b.parentElement;
+      for (let i = 0; c && i < 4; i++, c = c.parentElement) if (texto(c).includes(nd.nombre) && $$('button', c).filter(esInvestigar).length === 1) return b;
+    }
+    return null;
+  };
+  async function investigar() {
+    let x = estadoValle(), n = 0;
+    if (!x || !x.funciones || !x.funciones.investigar) return 0;
+    for (let i = 0; i < 8; i++) {
+      x = estadoValle();
+      if (!x || !(x.pi >= x.costeCasilla)) break;
+      const cand = PRIO_NODOS.map(id => (x.nodos || []).find(nn => nn.id === id)).find(nn => nn && nn.nivel < nn.max && !nn.bloqueado);
+      if (!cand) break;
+      if (!n) {
+        const tab = pestana(/Investigar/); if (!tab) break;
+        tab.click();
+        for (let k = 0; k < 24 && !botonNodo(cand); k++) await espera(250);
+      }
+      const b = botonNodo(cand); if (!libre(b)) break;
+      await pulsar(b);
+      const x2 = estadoValle(); if (!x2 || x2 === x) break;
+      n++; log(`🔭 Investigado «${cand.nombre}» (nivel ${cand.nivel + 1} de ${cand.max}): ${cand.texto}.`);
+    }
+    if (n) await volverValle();
+    return n;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  MANOS: «Echar una mano» en el valle de otro jugador (ganáis los dos media hora de vuestra producción; hasta 3 al
+   *  día; además cuenta para el encargo de las manos y la Feria). Se visita uno al azar y se le echa la mano.
+   * ------------------------------------------------------------------ */
+  async function echarManos() {
+    let x = estadoValle(), hechas = 0;
+    if (!x || !x.ayudas || x.ayudas.dadas >= x.ayudas.max) return 0;
+    const tab = pestana(/Feria/); if (!tab) return 0;
+    tab.click();
+    let fallos = 0;
+    for (let i = 0; i < 10 && fallos < 4; i++) {
+      x = estadoValle(); if (!x || x.ayudas.dadas >= x.ayudas.max) break;
+      let b = null;
+      for (let k = 0; k < 24 && !b; k++) { b = $$('main button').find(y => /Visitar un valle al azar/i.test(texto(y)) && !y.disabled); if (!b) await espera(250); }
+      if (!b) break;
+      b.click();
+      let dlg = null;
+      for (let k = 0; k < 28 && !dlg; k++) { await espera(250); dlg = $$('[role="dialog"]').find(d => /^El valle de/i.test(d.getAttribute('aria-label') || '')); }
+      if (!dlg) { fallos++; continue; }
+      const quien = (dlg.getAttribute('aria-label') || '').replace(/^El valle de\s*/i, '');
+      const cerrar = () => { const c = $$('button[aria-label="Cerrar"]', dlg)[0] || $$('button', dlg).find(y => /^✕$/.test(texto(y))); if (c) c.click(); };
+      const mano = $$('button', dlg).find(y => /Echar una mano/i.test(texto(y)) && !y.disabled);
+      if (!mano) { fallos++; cerrar(); await espera(500); continue; }
+      const antes = x.ayudas.dadas;
+      mano.click();
+      for (let k = 0; k < 28; k++) { await espera(250); const y2 = estadoValle(); if (y2 && y2.ayudas.dadas > antes) break; }
+      const y3 = estadoValle();
+      if (y3 && y3.ayudas.dadas > antes) { hechas++; log(`🤝 Mano echada en el valle de ${quien} (${y3.ayudas.dadas}/${y3.ayudas.max} hoy).`); } else fallos++;
+      cerrar(); await espera(600);
+    }
+    await volverValle();
+    return hechas;
+  }
+
+  /* ------------------------------------------------------------------ *
    *  HACER TODO
    * ------------------------------------------------------------------ */
   const LS_OPC = 'axv-opciones', LS_RACHA = 'axv-racha';
-  const opc = Object.assign({ tonico: true, mitad: true, reorganizar: true, horasExtra: false, repetir: false, expedicion: true }, lsGet(LS_OPC, {}));
+  const opc = Object.assign({ tonico: true, mitad: true, reorganizar: true, horasExtra: false, repetir: false, expedicion: true, punta: true, silos: true, investigar: true, manos: true }, lsGet(LS_OPC, {}));
   let enMarcha = false, repetirT = null;
   const log = t => kLog(document.querySelector('#axv-panel .axv-log'), t);
   let hecho = false;
@@ -404,18 +582,22 @@
       let x = estadoValle();
       if (!x) { log('⚠ No encuentro el estado del valle (¿estás en la pestaña «Valle»?).'); return; }
 
-      // 1) Recoger: con el almacén a la mitad o más (es lo que cuenta para la Feria) y con Tónico si hay
-      const lleno = x.lleno || 0;
+      // 1) Recoger, cuando toca (ver «CUÁNDO RECOGER»): la primera del día, con el almacén casi lleno (×2 de la hora punta)
       const rec = bRecoger();
-      if (libre(rec) && (!opc.mitad || lleno >= 0.5)) {
+      const dec = decidirRecoger(x, Date.now(), opc, cdRecoger());
+      if (libre(rec) && dec.ya) {
         const t = document.getElementById('valle-tonico');
-        const quiero = opc.tonico && x.tonicos > 0;
+        const quiero = !!dec.tonico;
         if (t && t.checked !== quiero) { t.click(); await espera(200); }
-        const antes = x.brillo;
+        const antes = x.brillo, t0 = Date.now();
         await pulsar(bRecoger());
         x = estadoValle() || x;
-        log(`✦ Recogido ${fmt(Math.max(0, x.brillo - antes))}${quiero ? ' (con Tónico)' : ''}.`);
-      } else if (libre(rec)) log(`Almacén al ${Math.round(lleno * 100)}%: espero a la mitad para recoger (cuenta para la Feria).`);
+        if (x.recogerEn) { const cd = Date.parse(x.recogerEn) - t0; if (cd > MIN && cd < 3 * H) lsPut('axv-cd', cd); }
+        log(`✦ Recogido ${fmt(Math.max(0, x.brillo - antes))}${dec.punta ? ' (hora punta ×2)' : ''}${quiero ? ' (con Tónico)' : ''}: ${dec.motivo}.`);
+      } else if (libre(rec)) log(`⏳ ${dec.motivo}${dec.volver ? `: vuelvo a las ${new Date(dec.volver).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : ''}.`);
+      else if (x.recogerEn && Date.parse(x.recogerEn) > Date.now()) log(`Recoger aún no se puede: en ${Math.ceil((Date.parse(x.recogerEn) - Date.now()) / MIN)} min.`);
+      x = estadoValle() || x;
+      if (x.hoy && x.hoy.visita) log(`🚪 Te espera una visita («${x.hoy.visita.titulo || 'visita'}»): elige tú qué hacer, que cada opción es distinta.`);
 
       // 2) Trabajadores: reorganizar cuando cambia el tipo en racha; si no, llenar huecos
       const racha = x.hoy && x.hoy.tipoRacha ? x.hoy.tipoRacha.tipo : null;
@@ -439,12 +621,15 @@
       // 4) Encargos listos
       for (let i = 0; i < 5; i++) { const b = bEncargos()[0]; if (!b) break; await pulsar(b); log('📜 Encargo cobrado.'); }
 
-      // 5) Gastar el Brillo en lo que más rinde
-      let compras = 0;
+      // 5) Silos, investigación y gastar el Brillo en lo que más rinde
+      if (opc.silos) { try { await comprarSilos(); } catch (e) { console.warn('[axv silos]', e); } }
+      if (opc.investigar) { try { await investigar(); } catch (e) { console.warn('[axv investigar]', e); log('⚠️ Investigar: ' + (e && e.message)); } }
+      let compras = 0, ahorro = null;
       for (let paso = 0; paso < 80; paso++) {
         x = estadoValle();
         if (!x) break;
-        const op = opciones(x).find(o => o.coste <= x.brillo && o.dinero <= (x.dinero || 0));
+        const ch = elegirCompra(x);
+        const op = ch.op; ahorro = ch.ahorro;
         if (!op) break;
         const b = op.tipo === 'edificio' ? bSubir(op.id) : op.tipo === 'monumento' ? bMonumento() : bComer();
         if (!libre(b)) break;
@@ -453,19 +638,24 @@
         const x2 = estadoValle();
         if (!x2 || x2 === x) { log(`⚠️ No pude: ${op.nombre}.`); break; }
         if (op.tipo === 'edificio') {
-          const desp = (x2.edificios.find(e => e.id === op.id) || {}).brilloHora;
-          apuntarSubida(op.id, op.d / factorAprendido(op.id), (desp || 0) - (antes || 0));
+          const e2 = x2.edificios.find(e => e.id === op.id) || {};
+          apuntarSubida(op.id, op.d / factorAprendido(op.id), (e2.brilloHora || 0) - (antes || 0));
+          apuntarCrece(op.coste, e2.coste && e2.coste.brillo);
         }
         compras++;
         log(`⬆️ ${op.nombre} · ✦ ${fmt(op.coste)} → +${fmt(op.d)}/h (se paga en ${Math.max(1, Math.round(op.coste / Math.max(op.d, 1)))} h)`);
       }
-      // 6) La expedición gratis del día (con los tres más fuertes de la caja)
+      if (ahorro) log(`💰 Ahorro para «${ahorro.nombre}» (✦ ${fmt(ahorro.coste)}, se paga en ${Math.max(1, Math.round((ahorro.costePlan || ahorro.coste) / Math.max(ahorro.dPlan || ahorro.d, 1)))} h) en vez de gastar en algo que rinde mucho menos.`);
+      // 6) Las manos del día y la expedición gratis
+      if (opc.manos) { try { await echarManos(); } catch (e) { console.warn('[axv manos]', e); log('⚠️ Manos: ' + (e && e.message)); } }
+      // 6b) La expedición gratis del día (con los tres más fuertes de la caja)
       if (opc.expedicion) { try { await expedicionGratis(); } catch (e) { console.warn('[axv expedición]', e); log('⚠️ Expedición: ' + (e && e.message)); } }
       // encargos que se hayan cumplido comprando (o con la expedición)
       for (let i = 0; i < 5; i++) { const b = bEncargos()[0]; if (!b) break; await pulsar(b); log('📜 Encargo cobrado.'); }
       x = estadoValle() || x;
       const sig = opciones(x)[0];
-      log(`✅ Hecho${compras ? ` (${compras} mejora${compras > 1 ? 's' : ''})` : ''}. Producción: ${fmt(x.brilloHora || 0)}/h.${sig ? ` Lo siguiente que más rinde: ${sig.nombre} (✦ ${fmt(sig.coste)}).` : ''}`);
+      const prox = calcularProxima(x);
+      log(`✅ Hecho${compras ? ` (${compras} mejora${compras > 1 ? 's' : ''})` : ''}. Producción: ${fmt(x.brilloHora || 0)}/h.${sig ? ` Lo siguiente que más rinde: ${sig.nombre} (✦ ${fmt(sig.coste)}).` : ''}${prox ? ` Vuelvo a mirar: ${prox.info}.` : ''}`);
       hecho = true;
       pintarCifras(x);
     } catch (e) {
@@ -554,6 +744,20 @@
     if (bar) { bar.style.width = Math.min(100, Math.round((x.lleno || 0) * 100)) + '%'; bar.style.backgroundColor = (x.lleno || 0) >= 0.5 ? '#2FA84F' : '#F2B632'; }
     const sig = opciones(x)[0];
     kSet(p.querySelector('.k-sub'), sig ? `Lo que más rinde: ${sig.nombre} (✦ ${fmt(sig.coste)})` : 'Todo al día');
+    pintarPlan(x);
+  }
+  // Qué va a pasar con la recogida y la investigación (se ve sin darle a nada)
+  function pintarPlan(x) {
+    const p = document.getElementById('axv-panel'); if (!p || !x) return;
+    const el = p.querySelector('.axv-plan'); if (!el) return;
+    const hh = t => new Date(t).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    const d = decidirRecoger(x, Date.now(), opc, cdRecoger());
+    const l = [];
+    l.push(d.ya ? `✦ Recoger ya: ${d.motivo}${d.tonico ? ' (con Tónico)' : ''}.` : `⏳ ${d.motivo}${d.volver ? ` · a las ${hh(d.volver)}` : ''}.`);
+    if (x.horaPunta) l.push('🌅 La hora punta (×2) de hoy sigue sin usar.'); else if ((x.nodos || []).some(n => n.id === 'horaPunta' && n.nivel > 0)) l.push('🌅 Hora punta de hoy: ya usada.');
+    if (opc.investigar && x.funciones && x.funciones.investigar) l.push(x.pi >= x.costeCasilla ? `🔭 Puntos para investigar: ${fmt(x.pi)} (hacen falta ${fmt(x.costeCasilla)}).` : `🔭 Investigación: ${fmt(x.pi)} de ${fmt(x.costeCasilla)} puntos (+${(x.piHora || 0).toFixed(1)}/h).`);
+    if (x.ayudas) l.push(`🤝 Manos hoy: ${x.ayudas.dadas}/${x.ayudas.max}.`);
+    const t = l.join('\n'); if (el.dataset.h !== t) { el.dataset.h = t; el.style.whiteSpace = 'pre-line'; el.textContent = t; }
   }
   function programarRepeticion() {
     clearInterval(repetirT);
@@ -579,9 +783,14 @@
       </div>
       <div class="${K_BAR}"><span class="axv-bar" style="width:0%;background-color:#F2B632"></span></div>
       <button type="button" class="axv-todo boton-principal w-full !py-2.5 text-sm">🤖 Hacerlo todo</button>
+      <p class="axv-plan rounded-card border-2 border-crema-200 bg-crema-50 p-2 text-[11px] font-bold leading-snug text-tinta-600"></p>
       <div class="space-y-2">
-        ${casilla('mitad', 'Recoger solo con el almacén a la mitad o más (cuenta para la Feria)')}
-        ${casilla('tonico', 'Usar Tónico al recoger si hay')}
+        ${casilla('punta', 'Hora punta ×2: la primera recogida del día, con el almacén casi lleno (o en la última media hora)')}
+        ${casilla('tonico', 'Usar Tónico en las recogidas grandes (la de la hora punta, o con el almacén al 80%+)')}
+        ${casilla('mitad', 'Si la Feria cuenta recogidas, recoger solo con el almacén a la mitad o más')}
+        ${casilla('silos', 'Comprar Silos (+2 h de almacén cada uno, hasta 24 h)')}
+        ${casilla('investigar', 'Gastar los puntos de investigación (Planos → Contratos → Ojo de Oak…)')}
+        ${casilla('manos', 'Echar las 3 manos del día en otros valles (ganáis los dos)')}
         ${casilla('reorganizar', 'Reorganizar trabajadores cuando cambia el tipo en racha')}
         ${casilla('expedicion', 'La expedición gratis del día (nunca gasta energía)')}
         ${casilla('horasExtra', 'Una tanda de Horas extra al día (gasta energía)')}
@@ -603,4 +812,5 @@
   new MutationObserver(() => { clearTimeout(t); t = setTimeout(montar, 400); }).observe(document.documentElement, { childList: true, subtree: true });
   setTimeout(montar, 2000);
   programarRepeticion();
+  setInterval(() => { if (enValle() && document.getElementById('axv-panel') && !enMarcha) { const x = estadoValle(); if (x) { pintarCifras(x); calcularProxima(x); } } }, 60000);
 })();
