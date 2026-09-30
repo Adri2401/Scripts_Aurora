@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.28.1
+// @version      0.29.0
 // @description  Solo en /castillo. /castillo?hasta=40: baja desde el sello más hondo derecho hasta la 40 y la termina (altar de Volcarona y salir con todo el botín). Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y a un variocolor o legendario le lanza la Master Ball (y avisa).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -956,7 +956,8 @@
   const atenderPantallas = async () => (await atenderCaptura()) || (await despedirse()) || (await atenderPuerta()) || (await atenderCombate());
 
   /* ------------------------------------------------------------------ *
-   *  ANTORCHA: cuando quedan pocos pasos, Frasco de aceite; sin aceite, Cuerda. El agua no se usa.
+   *  ANTORCHA: cuando quedan pocos pasos, Frasco de aceite; sin aceite, Cuerda.
+   *  AGUA: cuando el primer Pokémon del equipo (el que pelea) baja de la mitad de la vida.
    * ------------------------------------------------------------------ */
   const LS_LUZ = 'axg_luz_min';
   const umbralLuz = () => { const n = parseInt((() => { try { return localStorage.getItem(LS_LUZ); } catch { return ''; } })(), 10); return Number.isFinite(n) && n >= 0 ? n : 15; };
@@ -1006,6 +1007,29 @@
       return true;
     }
     return false;
+  }
+
+  // 💧 Agua: con el primero del equipo (el primero que sigue en pie) por debajo de la mitad de la vida. Tras usarla se
+  // espera a que se note; si dos seguidas no le cambian la vida, se deja de insistir en esa planta.
+  let aguaUlt = { t: 0, hp: null, ref: '', fallos: 0, planta: '' };
+  async function gestionarAgua() {
+    const e = leerExp();
+    if (!e || !Array.isArray(e.equipo) || !e.equipo.length) return false;
+    const p = e.equipo.find(x => (+x.hp || 0) > 0);
+    if (!p || !(+p.hpMax > 0) || p.hp / p.hpMax >= 0.5) return false;
+    if (e.bolsa && +e.bolsa.agua < 1) return false;
+    const b = botonesVisibles().find(x => /(^|[^a-z])agua([^a-z]|$)/.test(norm(x.textContent)) && x.closest('main'));
+    if (!b || b.disabled) return false;
+    if (Date.now() - aguaUlt.t < 2500) return false;
+    const planta = plantaActual();
+    if (aguaUlt.planta === planta && aguaUlt.ref === p.refId && aguaUlt.hp === p.hp) { if (aguaUlt.fallos >= 2) return false; aguaUlt.fallos++; }
+    else aguaUlt.fallos = 0;
+    aguaUlt = { ...aguaUlt, t: Date.now(), hp: p.hp, ref: p.refId, planta };
+    msg = `💧 ${p.nombre} a ${p.hp}/${p.hpMax} PS (menos de la mitad): uso Agua${e.bolsa ? ` (quedan ${Math.max(0, e.bolsa.agua - 1)})` : ''}.`; pintar();
+    console.log('[axg] ' + msg);
+    b.click();
+    await sleep(700);
+    return true;
   }
 
   // Ir por una ruta: el juego no lleva andando por encima de nadie (remolino, entrenador…). Si la ruta pasa por uno, se
@@ -1159,6 +1183,7 @@
   }
 
   let ultimaParada = '', modoExplorar = 'escalera';
+  let vueltas = { planta: '', recientes: [], sinNueva: 0, avisos: 0 };
   const memFallo = {};                           // planta → el camino recordado a la escalera no funciona: se explora normal
   // modo 'escalera': directo a la escalera (la recordada, aunque esté a oscuras) · 'todo': antes, todo lo oscuro
   async function explorar(modo = 'escalera') {
@@ -1198,6 +1223,24 @@
       }
       sinPantalla = 0;
       recordar(t);
+      // Vigilante: dando vueltas sin pisar casillas nuevas (p. ej. en una planta de cámara con la puerta que no se abre)
+      if (t.jugador) {
+        const pl = plantaActual(), pos = t.jugador.c + ',' + t.jugador.f;
+        if (vueltas.planta !== pl) vueltas = { planta: pl, recientes: [], sinNueva: 0, avisos: 0 };
+        // cuenta solo si repite casilla de sus últimos pasos (quieto u oscilando); volver por un pasillo ya visto no cuenta
+        if (vueltas.recientes.includes(pos)) vueltas.sinNueva++; else vueltas.sinNueva = 0;
+        vueltas.recientes = [...vueltas.recientes, pos].slice(-8);
+        if (vueltas.sinNueva > 35) {
+          vueltas.sinNueva = 0; vueltas.avisos++;
+          if (vueltas.avisos === 1) {
+            puertaFin[pl] = true; delete escFallo[pl]; delete memFallo[pl]; inalcanzables.clear();
+            msg = '🔁 Estaba dando vueltas sin avanzar: dejo la puerta y lo pendiente, y voy a la escalera.'; pintar(); console.log('[axg] ' + msg);
+          } else if (vueltas.avisos === 2) {
+            modoExplorar = 'escalera';
+            msg = '🔁 Sigo sin avanzar: solo busco la escalera.'; pintar(); console.log('[axg] ' + msg);
+          } else { msg = '⚠ Me he quedado dando vueltas en esta planta sin avanzar. Parado: mueve tú un poco y vuelve a darle.'; break; }
+        }
+      }
       // objetivo de planta (p. ej. la 40 los lunes): al llegar, se para ahí. La 40 hay que terminarla: llegar al altar
       // de Volcarona (pasando por sus guardianes) y salir por la escalera de detrás con todo el botín
       if (hasta >= 40 && (numPlanta() || 0) >= 40) {
@@ -1216,6 +1259,7 @@
         hasta = 0;
         break;
       }
+      if (await gestionarAgua()) continue;
       if (await gestionarVida()) continue;
       if (await gestionarLuz()) continue;
 

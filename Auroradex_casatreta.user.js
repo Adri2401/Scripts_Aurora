@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Casa Treta Auto-Solver
 // @namespace    auroradex-casatreta-autosolver
-// @version      1.2.1
+// @version      1.2.2
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_casatreta.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_casatreta.user.js
 // @description  Resuelve «La Casa Treta»: izquierda/derecha por búsqueda binaria y frío/caliente con la estrategia óptima. Panel con el estado de las 8 plantas.
@@ -296,6 +296,8 @@
   function kPedirPermiso() { try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* nada */ } }
 
   const SCRIPT_VERSION = '1.2.0';
+  // en la ventana oculta del robot de Diarias no hace falta ir a ritmo de persona
+  const EN_ROBOT = (() => { try { return window.top !== window && window.name === 'axd-fondo'; } catch { return false; } })();
   const CFG = {
     panelId: 'ct-embedded-panel',
     titleSelector: 'h1',
@@ -567,7 +569,7 @@
     if (!card) return;
     const salirBtn = findButtonByText(card, /^salir$/i);
     if (salirBtn) salirBtn.click();
-    await sleep(CFG.stepDelayMs);
+    await sleep(CFG.stepDelayMs * (EN_ROBOT ? 0.45 : 1));
     await esperarA(() => { const c = findFloorCard(floorNumber); return !c || !getDoors(c).length; }, 4000);
     await sleep(250);
   }

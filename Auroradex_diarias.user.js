@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.18.0
+// @version      1.19.0
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -25,7 +25,9 @@
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   // Las esperas entre acciones miran al volver si aún toca jugar: si se ha pulsado Parar, se corta ahí mismo
   const PARADO = new Error('parado');
-  const pausa = async (a, b) => { await sleep(a + Math.random() * (b - a)); if (!jugando()) throw PARADO; };
+  // en la ventana oculta del robot no hace falta ir a ritmo de persona: las pausas entre clics, a menos de la mitad
+  const VEL = () => (EN_FONDO ? 0.45 : 1);
+  const pausa = async (a, b) => { await sleep((a + Math.random() * (b - a)) * VEL()); if (!jugando()) throw PARADO; };
   const texto = el => (el && el.textContent || '').replace(/\s+/g, ' ').trim();
   const norm = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9♀♂]+/g, '');
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -1074,7 +1076,7 @@
     missingno: { nombre: '👾 MissingNo.', href: '/jefe', chequeo: () => missingnoPendiente() },
   };
   const ROBOT_DE = { '/huerto': 'huerto', '/torre': 'torre', '/tronos': 'tronos', '/entranas': 'entranas', '/subsuelo': 'subsuelo', '/jefe': 'missingno' };
-  const SS_EF = { on: 'axe-dfondo-on', fin: 'axe-dfondo-fin', una: 'axe-dfondo-una', estado: 'axe-dfondo-estado' };
+  const SS_EF = { on: 'axe-dfondo-on', fin: 'axe-dfondo-fin', una: 'axe-dfondo-una', estado: 'axe-dfondo-estado', bajadas: 'axe-dfondo-bajadas' };
   // al acabar una parada: cuándo toca la siguiente vez y cómo ha ido (se mira aquí, aún en su página)
   const ROBOT_FIN = {
     huerto() {
@@ -1097,8 +1099,8 @@
     entranas() {
       const f = ssLeer(SS_EF.fin), hoyK = hoy(), prev = rtGet('entranas');
       const bajadas = prev.dia === hoyK ? prev.bajadas || [] : [];
-      const b = f && f.bajadas && f.bajadas.length ? f.bajadas[f.bajadas.length - 1] : null;
-      if (f && f.motivo === 'una' && b && !bajadas.some(x => x.t === b.t)) bajadas.push(b);
+      // todas las bajadas de la tanda (el script de las Entrañas las va apuntando)
+      for (const x of [...(ssLeer(SS_EF.bajadas) || []), ...(f && f.bajadas ? f.bajadas : [])]) if (x && x.t && !bajadas.some(y => y.t === x.t)) bajadas.push(x);
       const res = bajadas.length ? `${bajadas.length} bajada${bajadas.length === 1 ? '' : 's'} hoy (la más honda, piso ${Math.max(...bajadas.map(x => x.piso || 0))})` : '';
       if (f && f.motivo === 'una') return { prox: Date.now(), dia: hoyK, bajadas, info: res || 'bajando' };
       if (f && /energ|pases|gratis/i.test(f.motivo || '')) return { prox: manana(), dia: hoyK, bajadas, info: `${res ? res + ' · ' : ''}sin pases hasta mañana` };
@@ -1133,7 +1135,7 @@
   // Entrañas: una bajada entera desde el piso 1 con el script de las Entrañas (la gratis y luego con pases, nunca
   // energía); entre bajada y bajada el robot hace lo demás que toque, y vuelve hasta gastar los pases
   const ENTRANAS = {
-    id: 'entranas', nombre: '⛰️ Entrañas', soloRuta: true, sinPanel: true, maxMs: 100 * 60000,
+    id: 'entranas', nombre: '⛰️ Entrañas', soloRuta: true, sinPanel: true, maxMs: 8 * 3600000,
     detecta: () => ruta() === '/entranas' && document.querySelector('main'),
     desde: 0, dicho: false,
     inicio() { const r = ssGet(); return (r && r.actual && r.actual.arrancado) || 0; },
@@ -1158,8 +1160,9 @@
           return false;
         }
         r.actual.arrancado = Date.now(); ssPut(r);
-        ssSet(SS_EF.fin, null); ssSet(SS_EF.una, 1); ssSet(SS_EF.on, 1);
-        log('⛰️ Entrañas: una bajada desde el piso 1 (la gratis o con un pase; nunca energía).');
+        // bajada tras bajada hasta gastar todos los pases (la gratis del día y luego los tickets; nunca energía)
+        ssSet(SS_EF.fin, null); ssSet(SS_EF.una, null); ssSet(SS_EF.bajadas, null); ssSet(SS_EF.on, 1);
+        log('⛰️ Entrañas: bajadas desde el piso 1 hasta gastar todos los pases (nunca energía).');
       }
       return true;
     },
@@ -1398,7 +1401,7 @@
     r.actual = x ? { ...x, desde: Date.now(), logDesde: r.log.length } : null;
     ssPut(r);
     etapaYendo(x ? (x.viaje ? `Abriendo el mapa de regiones para ir a ${x.viaje}` : `Entrando en ${nombrePaso(x, r.casa).replace(/^[^\p{L}¿]+/u, '')}`) : 'Cerrando la ruta', x ? '' : 'Apuntando lo hecho');
-    await sleep(1500 + Math.random() * 1300);
+    await sleep((1500 + Math.random() * 1300) * VEL());
     if (!ssGet()) return;                                    // lo han parado mientras
     // los viajes se empiezan desde el menú (el enlace a «Viajar a otra región» cambia según dónde estés)
     location.assign(!x || x.viaje ? '/menu' : x.href);
@@ -1441,10 +1444,11 @@
     const agotada = Date.now() - r.actual.desde > (d.maxMs || POR_DIARIA_MS);
     // antes de darla por perdida, se recarga una vez: a veces la página no se entera de que ya está hecha (p. ej. el
     // Safari tras salir) y al volver a cargarla lo dice
-    if (!r.actual.viaje && !cerrada && !agotada && quieto > 12000 && !r.actual.recargada) {
+    const esperaFin = EN_FONDO ? 7000 : 12000;               // sin nada que hacer tanto rato: se da por acabada
+    if (!r.actual.viaje && !cerrada && !agotada && quieto > esperaFin && !r.actual.recargada) {
       r.actual.recargada = true; ssPut(r); quietoDesde = 0; location.reload(); return;
     }
-    if (!r.actual.viaje && ((cerrada && quieto > 1500) || quieto > 12000 || agotada) || (r.actual.viaje && listo && quieto > 800)) {
+    if (!r.actual.viaje && ((cerrada && quieto > (EN_FONDO ? 700 : 1500)) || quieto > esperaFin || agotada) || (r.actual.viaje && listo && quieto > (EN_FONDO ? 400 : 800))) {
       const nom = r.actual.viaje ? `🧭 Viaje a ${r.actual.viaje}` : `${d.nombre}${r.actual.region ? ' ' + r.actual.region : ''}`;
       const msg = agotada ? `⚠ ${nom}: se me ha atascado, la dejo.` : cerrada ? `✅ ${nom}${r.actual.viaje ? '' : ': hecha'}.` : `⚠ ${nom}: no veo nada más que hacer (si no está hecha, pásame su HTML).`;
       if (r.actual.viaje && r.actual.vuelta && listo) r.fuera = false;
@@ -1607,7 +1611,11 @@
     const ult = sinHora((g.log || []).slice(-1)[0] || '');
     return { fase: `${g.actual ? g.actual + ' · ' : ''}región ${i || 1} de ${n || '?'} · ${QUE[g.fase] || g.fase}`, det: (g.fase === 'macro' && macro) || ult, pct: n ? h / n : null };
   };
-  ENTRANAS.etapa = function () { const e = ssLeer(SS_EF.estado) || {}; const pd = panelDice('#axe-panel'); return { fase: e.piso ? `Bajando · piso ${e.piso}` : 'En la entrada', det: e.msg || pd.ult || pd.sub || '' }; };
+  ENTRANAS.etapa = function () {
+    const e = ssLeer(SS_EF.estado) || {}, pd = panelDice('#axe-panel'), n = (ssLeer(SS_EF.bajadas) || []).length;
+    const pases = e.pases === 'gratis' ? 'la gratis del día' : e.pases != null ? `🎟️ quedan ${e.pases} pase${e.pases === 1 ? '' : 's'}` : '';
+    return { fase: `Bajada ${n + 1}${e.piso ? ` · piso ${e.piso}` : ' · en la entrada'}${pases ? ' · ' + pases : ''}`, det: e.msg || pd.ult || pd.sub || '' };
+  };
   SUBSUELO.etapa = function () { const s = lsGet('axsub-resumen', null), pd = panelDice('#axsub-panel'); return { fase: pd.ult || 'Picando vetas', det: s && s.total ? `⛏️ ${s.picadas} de ${s.total} vetas picadas` : pd.sub, pct: s && s.total ? s.picadas / s.total : null }; };
   TORRE.etapa = function () { return { det: fondo.detalle('torre') }; };
   let etapaUlt = null;
@@ -1832,7 +1840,7 @@
         if (ROBOT[id].chequeo && !t.listo) return false;
         if (id === 'entranas' && ssLeer('axe-fondo-on')) return false;        // ya las estás jugando en segundo plano
         return true;
-      }).sort((a, b) => (a === 'diarias' ? -1 : b === 'diarias' ? 1 : (rtGet(a).prox || 0) - (rtGet(b).prox || 0)));
+      }).sort((a, b) => (a === 'diarias' ? -1 : b === 'diarias' ? 1 : a === 'entranas' ? 1 : b === 'entranas' ? -1 : (rtGet(a).prox || 0) - (rtGet(b).prox || 0)));
     },
     // lo que se mira por detrás antes de abrir la ventana (los Tronos: si sigues teniendo uno; MissingNo.: si está)
     async chequeos() {
@@ -1853,7 +1861,7 @@
       } else {
         const casa = rtGet('diarias').casa || '';
         const cola = ids.map(id => ({ href: ROBOT[id].href, robot: id, otras: ROBOT[id].otras }));
-        ids.forEach(id => rtSet(id, { prox: Date.now() + (id === 'entranas' ? 100 : 30) * 60000, listo: false }));
+        ids.forEach(id => rtSet(id, { prox: Date.now() + (id === 'entranas' ? 8 * 60 : 30) * 60000, listo: false }));
         ssSet(SS_FONDO, { cola, hechas: [], log: [], actual: null, casa, pasos: [], yaHechas: [], avisos: [], t0: Date.now(), robot: 'agenda' });
         this.apuntar(`▶ ${ids.map(id => ROBOT[id].nombre).join(', ')}.`);
       }
@@ -2114,7 +2122,7 @@
 
   esperarHidratacion().then(() => {
     arranqueDesdeEnlace();
-    setInterval(tick, 800);
+    setInterval(tick, EN_FONDO ? 350 : 800);
     try { new MutationObserver(() => tick()).observe(document.body, { childList: true, subtree: true }); } catch { /* nada */ }
     tick();
   });

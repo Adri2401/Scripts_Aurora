@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Safari Auto
 // @namespace    http://tampermonkey.net/
-// @version      1.4.1
+// @version      1.5.0
 // @description  Panel integrado con dos modos: spam de Balls y estrategia óptima (programación dinámica con Cebo/Roca/Ball/Dejar marchar, aprendiendo de tus resultados y ajustando el precio de las Balls). Se para solo si la visita de hoy ya está hecha.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -326,7 +326,9 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const txt = (el) => (el && el.textContent ? el.textContent.replace(/\s+/g, ' ').trim() : '');
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const rndDelay = () => CFG.delayMin + Math.random() * (CFG.delayMax - CFG.delayMin);
+  // en la ventana oculta del robot de Diarias no hace falta ir a ritmo de persona
+  const EN_ROBOT = (() => { try { return window.top !== window && window.name === 'axd-fondo'; } catch { return false; } })();
+  const rndDelay = () => (CFG.delayMin + Math.random() * (CFG.delayMax - CFG.delayMin)) * (EN_ROBOT ? 0.45 : 1);
   const clampP = (x) => Math.min(0.97, Math.max(0.01, x));
 
   // Los botones son <button><span>Ball</span><span>quedan 31</span></button>.
