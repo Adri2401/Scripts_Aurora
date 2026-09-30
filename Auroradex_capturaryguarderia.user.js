@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.19.1
+// @version      2.19.2
 // @description  Auto-explora y captura; ante shiny/legendario lo captura solo con la bola que elijas (Master o Ultra) sin parar la macro y avisa, o para y te avisa. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -496,7 +496,11 @@
       ${U} .adx-en-n{font-family:var(--font-display),system-ui,sans-serif;font-size:22px!important;font-weight:800;line-height:1}
       ${U} .adx-en-num{width:100%;max-width:72px;height:100%;-webkit-appearance:none;appearance:none;-webkit-user-select:text;user-select:text;background:transparent;border:0;outline:none;text-align:center;color:inherit;font-family:var(--font-display),system-ui,sans-serif;font-size:22px;font-weight:800;line-height:1;padding:0;-moz-appearance:textfield}
       ${U} .adx-en-num::-webkit-outer-spin-button,${U} .adx-en-num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-      ${U} .adx-en-num:focus{text-decoration:underline;text-underline-offset:4px}
+      ${U} .adx-en-num{text-decoration:underline dotted;text-decoration-thickness:2px;text-underline-offset:5px}
+      ${U} .adx-en-num:focus{text-decoration:underline solid;text-decoration-thickness:2px}
+      ${U} div.adx-en{position:relative}
+      ${U} div.adx-en::after{content:"✎";position:absolute;top:3px;right:8px;font-size:11px;line-height:1;opacity:.55;pointer-events:none}
+      ${U} div.adx-en:focus-within::after{opacity:1}
       ${U} .adx-en-i{font-size:22px!important;line-height:1;font-family:'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif}
       ${U} .adx-chips button{flex:1;padding:4px 0;font-size:11px;font-weight:800}
       ${U} .adx-seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
