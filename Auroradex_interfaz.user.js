@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.15.0
+// @version      1.16.0
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1644,6 +1644,15 @@
     setInterval(() => { refrescarMenu(); refrescarGolf(); refrescarSolar(); refrescarHuerto(); refrescarMissingNo(); refrescarInfo(); if (document.visibilityState === 'visible') repintarPanel(); }, 60000);
     const alVolver = () => { menuIntento = golfIntento = solarIntento = huertoIntento = missingIntento = 0; infoIntento = {}; refrescarMenu(); refrescarGolf(); refrescarSolar(); refrescarSalon(); refrescarHuerto(); refrescarMissingNo(); refrescarInfo(); };
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') alVolver(); });
+    // Otros scripts piden ir a un sitio como si pulsaras su acceso (p. ej. el del Frente, para ir a la isla):
+    // document.dispatchEvent(new CustomEvent('adx-ir', { detail: { href: '/frontera' }, cancelable: true })) → false si se encarga
+    document.addEventListener('adx-ir', e => {
+      const href = e.detail && e.detail.href;
+      const it = BLOQUES.flatMap(x => x.items).find(x => x.href === href || x.destino === href);
+      if (!it) return;
+      e.preventDefault();
+      irAZona(it);
+    });
     window.addEventListener('online', alVolver);
     window.addEventListener('pageshow', e => { if (e.persisted) alVolver(); });
   });

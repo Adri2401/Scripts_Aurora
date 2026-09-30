@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Aurora Dex · Frente Batalla (automático)
 // @namespace    auroradex-frente
-// @version      0.5.2
+// @version      0.6.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
-// @description  En cada edificio del Frente Batalla (/frontera/…): marca solos a los mejores para esa regla de los Pokémon que haya (en cuanto abres la pantalla de elegir) (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Seguir» hasta el final. Si sale una pantalla que aún no conoce, se para, avisa y deja copiar su HTML. En la Cúpula, antes de cada combate, pone a los tuyos en el mejor orden contra los tres que te esperan. Si ganas una tanda empieza sola la siguiente; se para si pierdes o al llevar 3 ganadas. Y recomienda lo mejor de toda la Pokédex (1ª a 5ª generación, sin legendarios) para cada edificio: 3 Pokémon en la Arena (1 contra 1) y 3 equipos de 3 en los demás.
+// @description  Los siete edificios del Frente Batalla (/frontera/…) solos: marca a los mejores para la regla de cada edificio (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Siguiente combate», «Saltar al resultado» y «Seguir» hasta el final. En la Cúpula ordena a los tuyos contra los que te esperan; en la Senda elige puerta (y apunta qué sale detrás de cada una). Modos: 1 tanda, hasta el Oro o sin parar (con «si pierdo, sigo» y un tope de tandas; se para sin ⚡). Si no estás en la isla, te lleva (con Accesos Directos) y vuelve. En la plaza (/frontera): los siete de un vistazo (Plata, Oro, racha) y «A por los que faltan», que recorre solo cada edificio. Si tu equipo no vale (legendarios), te dice qué cambiar. Recomienda lo mejor de la Pokédex (1ª a 5ª gen., sin legendarios) para cada edificio.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -730,31 +730,25 @@
    * 1) La racha del edificio en los datos de la página (React): si sube, ganada; si estaba en 0 y sigue en 0, perdida.
    * 2) Si no se ve, los mensajes que han salido durante la tanda. Si no está claro, se da por no ganada (y se para). */
   const fibraDe = el => { if (!el) return null; const k = Object.keys(el).find(x => x.startsWith('__reactFiber$')); return k ? el[k] : null; };
-  function rachaDatos() {
+  // El estado de la sala tal como lo manda el juego: { sala:{id…}, racha, oro, simbolo, activa, abierta, motivo, paso, total,
+  // esElAs, elegibles… } (subiendo desde el contenido de la página hasta el componente que lo recibe)
+  function estadoSala() {
     const id = edificio();
-    const buscar = (v, prof, vistos) => {
-      if (!v || typeof v !== 'object' || prof > 4 || vistos.has(v) || v.$$typeof) return null;
-      vistos.add(v);
-      if (!Array.isArray(v) && typeof v.racha === 'number' && (v.id === id || v.zonaId === 'frontera-' + id || prof === 0)) return v.racha;
-      for (const k of Array.isArray(v) ? v.keys() : Object.keys(v)) {
-        if (k === 'children') continue;
-        const r = buscar(v[k], prof + 1, vistos);
-        if (r != null) return r;
-      }
-      return null;
-    };
-    for (const el of $$('main section').filter(x => !ajeno(x)).slice(0, 4)) {
-      for (let f = fibraDe(el), i = 0; f && i < 60; f = f.return, i++) {
-        const r = buscar(f.memoizedProps, 0, new Set());
-        if (r != null) return r;
+    if (!id) return null;
+    for (const el of [document.querySelector('main main'), ...$$('main section')].filter(x => x && !ajeno(x)).slice(0, 6)) {
+      for (let f = fibraDe(el), i = 0; f && i < 80; f = f.return, i++) {
+        const e = f.memoizedProps && f.memoizedProps.estado;
+        if (e && e.sala && e.sala.id === id && typeof e.racha === 'number') return e;
       }
     }
     return null;
   }
+  function rachaDatos() { const e = estadoSala(); return e ? e.racha : null; }
   const rachaAhora = () => { const d = rachaDatos(); if (d != null) return d; const m = rachaTexto().join(' ').match(/llevas (\d+) tanda/i); return m ? +m[1] : null; };
   const RE_PERDIDA = /(has perdido|derrota|te (ha|han) ganado|te ha tumbado|ca[ií]do|\bcaes\b|pierdes|fin de la racha|racha (rota|perdida|a cero)|tanda (perdida|gastada)|eliminad)/i;
   const RE_GANADA = /(tanda (completa|superada|ganada)|has ganado (la tanda|los 7|los siete)|\b7\s*\/\s*7\b|siete de siete|s[ií]mbolo[^.]*(es tuyo|conseguido|ganado)|enhorabuena|victoria)/i;
   async function veredicto(antes, textos) {
+    await sleep(600);
     let despues = rachaAhora();
     for (let i = 0; i < 20 && antes != null && despues === antes && !(antes === 0 && i >= 10); i++) { await sleep(250); despues = rachaAhora(); }   // lo que tarde en refrescarse
     if (antes != null && despues != null) {
@@ -777,7 +771,7 @@
     if (!eleccion() && (pantallaCupula() || botonAvance())) { antes = rachaAhora(); log('▶ Sigo la tanda donde está.'); }
     else {
       const R = await recomendacion();
-      if (!R || !R.eq) throw new Error(R ? `Solo ${R.validos.length} Pokémon valen aquí y hacen falta ${R.E.necesarios}.` : 'No veo dónde elegir.');
+      if (!R || !R.eq) throw new Error(R ? motivoSinEquipo(R) : 'No veo dónde elegir.');
       await marcar(R);
       // se deja al juego un momento para que apunte la elección antes de empezar
       await pausa(1200, 1800);
@@ -792,6 +786,7 @@
         log(`🏁 La tanda se ha jugado de golpe (⚡ ${arranque.antes} → ${arranque.despues}).${arranque.textos.length ? ' ' + arranque.textos.join(' · ') : ''}`);
         return veredicto(antes, arranque.textos);
       }
+      if (arranque.estado === 'no' && /est[aá] en la isla|coge el barco|embarca/i.test(arranque.textos.join(' '))) throw new Error('ISLA');
       if (arranque.estado === 'no') throw new Error(arranque.textos.length
         ? `El juego no ha empezado la tanda: «${arranque.textos.join(' · ')}».`
         : 'El juego no ha empezado la tanda: al pulsar «Empezar» no ha cambiado nada ni ha gastado ⚡. Pulsa tú «Empezar la tanda» y, si sale algún mensaje, pásamelo.');
@@ -805,9 +800,22 @@
       if (!edificio()) throw new Error('Has salido del edificio.');
       apunta();
       const E2 = eleccion();
+      if (ultimaPuerta && textos.length) apuntarPuerta(textos.slice(-6));
       if (E2 && E2.empezar && pulsados > 0) return veredicto(antes, textos);
       // Cúpula: antes de cada combate, los tuyos en el mejor orden contra los que te esperan
       if (pantallaCupula()) { await ordenarCupula(); if (parar) break; }
+      // Senda: tres puertas a ciegas (descanso, combate o algo peor): se elige una y se apunta qué había
+      const puertas = botonesPuerta();
+      if (puertas.length) {
+        const p = elegirPuerta(puertas);
+        await pausa(400, 700);
+        if (!p.isConnected || p.disabled) continue;
+        log(`🚪 Elijo «${texto(p)}».`);
+        ultimaPuerta = puertaId(texto(p));
+        p.click(); pulsados++; ultimo = ultimoBoton = Date.now();
+        await pausa(900, 1300);
+        continue;
+      }
       const b = botonAvance();
       if (b) {
         await pausa(500, 900);
@@ -834,35 +842,216 @@
     return 'parado';
   }
 
-  // Tandas seguidas: si ganas una, va solo a por la siguiente; si pierdes (o no está claro), se para; con 3 ganadas, también
-  const MAX_GANADAS = 3;
-  let ganadas = 0;
+  // Las puertas de la Senda («La de la izquierda», «La del centro», «La de la derecha»): a ciegas. Se apunta lo que sale
+  // detrás de cada una (por si el juego no las reparte al azar del todo) y se tira hacia la que mejor ha ido
+  const LS_PUERTAS = 'axf-puertas';
+  const puertaId = t => /izquierda/i.test(t) ? 'izquierda' : /centro/i.test(t) ? 'centro' : /derecha/i.test(t) ? 'derecha' : null;
+  const botonesPuerta = () => edificio() === 'senda' ? $$('main button').filter(b => !ajeno(b) && visible(b) && !b.disabled && puertaId(texto(b)) && /^\W*la de/i.test(texto(b).replace(/^🚪\s*/, ''))) : [];
+  let ultimaPuerta = null;
+  function elegirPuerta(bs) {
+    const st = lsGet(LS_PUERTAS, {});
+    // nota de cada puerta: descansos (bien), combates (normal), peores (mal); sin datos, al azar
+    const nota = b => { const s = st[puertaId(texto(b))] || {}; const n = (s.descanso || 0) + (s.combate || 0) + (s.peor || 0); return n < 6 ? Math.random() : ((s.descanso || 0) * 1 + (s.combate || 0) * 0.5) / n + Math.random() * 0.15; };
+    return bs.map(b => ({ b, n: nota(b) })).sort((a, b) => b.n - a.n)[0].b;
+  }
+  function apuntarPuerta(textos) {
+    if (!ultimaPuerta) return;
+    const t = textos.join(' ');
+    const que = /descans|te recuperas|cur(a|as|ado)|respir/i.test(t) ? 'descanso' : /peor|m[aá]s fuerte|emboscad|trampa|doble/i.test(t) ? 'peor' : 'combate';
+    const st = lsGet(LS_PUERTAS, {}); const s = st[ultimaPuerta] || (st[ultimaPuerta] = {}); s[que] = (s[que] || 0) + 1; lsPut(LS_PUERTAS, st);
+    ultimaPuerta = null;
+  }
+
+  // Por qué no se puede entrar: casi siempre, legendarios en el equipo (en el Frente no entran)
+  function motivoSinEquipo(R) {
+    const no = R.E.pokes.filter(p => !p.vale), leg = no.filter(p => /legendari/i.test(texto(p.b)));
+    return `Solo ${R.validos.length} de tu equipo valen aquí y hacen falta ${R.E.necesarios}.${leg.length ? ` ${leg.length} son legendarios (${leg.map(p => p.nombre).join(', ')}), y en el Frente no entran: pon en tu equipo ${R.E.necesarios - R.validos.length} que no lo sean (en «Equipo») y vuelve.` : ''}`;
+  }
+
+  // Tandas seguidas, según el modo elegido en el panel:
+  //   «1 tanda» · «hasta el Oro» (para al conseguirlo) · «sin parar» (hasta quedarse sin ⚡ o pulsar Parar)
+  // Si pierdes, para (o sigue, si lo marcas, con un tope de tandas para no gastar sin fin)
+  const LS_OPC = 'axf-opciones';
+  const opc = () => Object.assign({ modo: 'oro', seguirSiPierde: false, maxTandas: 10 }, lsGet(LS_OPC, {}));
+  const COSTE = 3;
+  let ganadas = 0, hechas = 0;
   async function hacerTanda() {
     if (corriendo) { parar = true; return; }
     while (marcando) await sleep(200);
-    corriendo = true; parar = false; desconocida = false; ganadas = 0;
+    corriendo = true; parar = false; desconocida = false; ganadas = 0; hechas = 0;
+    const O = opc(), MAX_GANADAS = O.modo === '1' ? 1 : Infinity;
+    { const en = energia(), E = estadoSala(); if (en != null && en < COSTE && !(E && E.activa)) { log(`🔋 Hace falta ${COSTE} ⚡ para una tanda y tienes ${en}.`); resultadoCola('energia'); corriendo = false; pintar(); return; } }
     kPedirPermiso();
     const aviso = (tipo, titulo, lineas = []) => kAviso({ tipo, app: 'Frente Batalla', icono: EDIFICIOS[edificio()] ? EDIFICIOS[edificio()].icono : '🏝️', titulo, lineas: [EDIFICIOS[edificio()] ? EDIFICIOS[edificio()].nombre : '', ...lineas, ...rachaTexto()].filter(Boolean) });
     try {
       for (;;) {
         const r = await unaTanda();
-        if (r === 'parado') { log('■ Parado.'); break; }
-        if (r === 'desconocida') break;
-        if (r === 'perdida') { log(`❌ Tanda perdida${ganadas ? ` (llevabas ${ganadas} ganada${ganadas > 1 ? 's' : ''})` : ''}: paro.`); aviso('error', 'Tanda perdida', ganadas ? [`Ganadas antes: ${ganadas}`] : []); break; }
-        if (r !== 'ganada') { log('⏹ Tanda terminada, pero no sé si la has ganado: paro por si acaso.'); aviso('aviso', 'Tanda terminada', ['No sé si se ha ganado: paro']); break; }
-        ganadas++;
-        if (ganadas >= MAX_GANADAS) { log(`🏆 ${ganadas} tandas ganadas seguidas: paro.`); aviso('fin', `${ganadas} tandas ganadas`, ['Paro aquí']); break; }
-        log(`✔ Tanda ganada (${ganadas}/${MAX_GANADAS}). Voy a por la siguiente.`);
-        msg = `Ganadas ${ganadas}/${MAX_GANADAS}: a por la siguiente…`; pintar();
+        if (r === 'parado') { log('■ Parado.'); resultadoCola('parado'); break; }
+        if (r === 'desconocida') { resultadoCola('desconocida'); break; }
+        hechas++;
+        const E0 = estadoSala();
+        if (r === 'perdida') {
+          ganadas = 0;
+          if (!O.seguirSiPierde || O.modo === '1') { log(`❌ Tanda perdida: paro.`); aviso('error', 'Tanda perdida', []); resultadoCola('perdida'); break; }
+          log(`❌ Tanda perdida: la racha vuelve a 0. Sigo (tanda ${hechas} de ${O.maxTandas} como mucho).`);
+        } else if (r !== 'ganada') { log('⏹ Tanda terminada, pero no sé si la has ganado: paro por si acaso.'); aviso('aviso', 'Tanda terminada', ['No sé si se ha ganado: paro']); resultadoCola('duda'); break; }
+        else { ganadas++; log(`✔ Tanda ganada${E0 ? ` (racha ${E0.racha})` : ''}.`); }
+        if (O.modo === 'oro' && E0 && E0.oro) { log(`🥇 ¡Oro de ${EDIFICIOS[edificio()].nombre}! Paro.`); aviso('fin', '¡Símbolo de Oro!', []); resultadoCola('oro'); break; }
+        if (ganadas >= MAX_GANADAS) { log('🏁 Hecha la tanda: paro.'); resultadoCola('hecha'); break; }
+        if (hechas >= (O.modo === 'sin' ? Infinity : O.maxTandas)) { log(`⏹ ${hechas} tandas hechas: es el tope que pusiste. Paro.`); aviso('aviso', `${hechas} tandas`, ['Tope alcanzado']); resultadoCola('tope'); break; }
+        const en = energia();
+        if (en != null && en < COSTE) { log(`🔋 Sin energía para otra tanda (hace falta ${COSTE} ⚡). Paro.`); aviso('aviso', 'Sin energía', []); resultadoCola('energia'); break; }
+        msg = `Tandas: ${hechas}${O.modo === 'sin' ? '' : `/${O.maxTandas}`} · ganadas seguidas ${ganadas}: a por la siguiente…`; pintar();
         await pausa(1500, 2500);
         if (!await (async () => { for (let i = 0; i < 40; i++) { if (parar || eleccion()) return true; await sleep(250); } return false; })()) throw new Error('No vuelve la pantalla de elegir para la siguiente tanda.');
         if (parar) { log('■ Parado.'); break; }
       }
     } catch (e) {
+      if (e && e.message === 'ISLA') { irALaIsla(); return; }
       log('⚠ ' + (e && e.message));
       kAviso({ tipo: 'error', app: 'Frente Batalla', titulo: 'Tanda parada', texto: String(e && e.message) });
+      resultadoCola('error', e && e.message);
     } finally { corriendo = false; parar = false; msg = ''; pintar(); }
   }
+  /* ─── Por los siete edificios: una cola (en la pestaña) con los que faltan; en cada uno se hace lo del modo elegido
+   * y, al acabar (Oro, perder, tope, sin energía…), se va solo al siguiente ─── */
+  const SS_COLA = 'axf-cola';
+  const colaLee = () => { try { return JSON.parse(sessionStorage.getItem(SS_COLA) || 'null'); } catch { return null; } };
+  const colaPon = c => { try { if (c) sessionStorage.setItem(SS_COLA, JSON.stringify(c)); else sessionStorage.removeItem(SS_COLA); } catch { /* nada */ } };
+  function resultadoCola(res, detalle) {
+    const c = colaLee(), id = edificio();
+    if (!c || c.cola[c.i] !== id) return;
+    c.res[id] = { res, detalle: detalle ? String(detalle).slice(0, 160) : '', t: Date.now() };
+    // sin ⚡, parado a mano o un error que no es de este edificio (p. ej. no estar en la isla): no se sigue con los demás
+    const deEsteEdificio = res !== 'error' || /de tu equipo valen/.test(detalle || '');
+    if (res === 'energia' || res === 'parado' || !deEsteEdificio) { c.fin = res; c.t = Date.now(); colaPon(null); lsPut('axf-cola-ultima', c); pintar(); return; }
+    c.i++; c.arrancado = '';
+    colaPon(c);
+    if (c.i < c.cola.length) { log(`➡ Siguiente: ${EDIFICIOS[c.cola[c.i]].nombre}.`); setTimeout(() => location.assign('/frontera/' + c.cola[c.i]), 2500); }
+    else { c.t = Date.now(); colaPon(null); lsPut('axf-cola-ultima', c); log('🏁 Hecho el recorrido por los edificios.'); kAviso({ tipo: 'fin', app: 'Frente Batalla', icono: '🏝️', titulo: 'Recorrido terminado', lineas: resumenCola(c) }); setTimeout(() => location.assign('/frontera'), 2500); }
+  }
+  const TXT_RES = { oro: '🥇 Oro', hecha: '✔ hecha', perdida: '❌ perdida', tope: '⏹ tope de tandas', energia: '🔋 sin energía', parado: '■ parado', duda: '❔ no se sabe', desconocida: '🧩 pantalla nueva', error: '⚠', cerrada: '🔒 cerrada' };
+  const resumenCola = c => c.cola.map(id => `${EDIFICIOS[id].icono} ${EDIFICIOS[id].nombre}: ${c.res[id] ? TXT_RES[c.res[id].res] + (c.res[id].detalle ? ' — ' + c.res[id].detalle : '') : '—'}`);
+  // en el edificio que toca, se arranca solo (una vez) en cuanto la pantalla está lista
+  async function seguirCola() {
+    const c = colaLee(), id = edificio();
+    if (!c || !id || c.cola[c.i] !== id || corriendo || c.arrancado === id) return;
+    const E = estadoSala();
+    if (!E) return;
+    if (!E.abierta) { log(`🔒 ${EDIFICIOS[id].nombre}: ${E.motivo || 'cerrada'}`); c.arrancado = id; colaPon(c); resultadoCola('cerrada', E.motivo); return; }
+    if (!E.activa && (!reco || reco.firma !== recoFirma)) return;          // aún calculando a quién sacar
+    c.arrancado = id; colaPon(c);
+    lsPut(LS_OPC, { ...opc(), modo: c.modo, seguirSiPierde: c.seguirSiPierde, maxTandas: c.maxTandas });
+    log(`🏝️ Recorrido: ${EDIFICIOS[id].nombre} (${c.i + 1} de ${c.cola.length}).`);
+    await sleep(800);
+    hacerTanda();
+  }
+
+  /* ─── A la isla: los edificios solo se juegan dentro («Esto está en la isla. Coge el barco en Ciudad Portual»). Se le
+   * pide al script de Accesos Directos que te lleve (Hoenn → Muelle del Frente → barco) y, ya dentro, se vuelve al
+   * edificio y se sigue (la tanda o el recorrido) ─── */
+  const SS_VOLVER = 'axf-volver';
+  function irALaIsla() {
+    const c = colaLee(); if (c) { c.arrancado = ''; colaPon(c); }
+    try { sessionStorage.setItem(SS_VOLVER, JSON.stringify({ href: location.pathname, t: Date.now(), auto: !c })); } catch { /* nada */ }
+    const pedido = !document.dispatchEvent(new CustomEvent('adx-ir', { detail: { href: '/frontera' }, cancelable: true }));
+    if (pedido) { log('⛵ Esto se juega en la isla: voy (Hoenn → Muelle del Frente → barco) y vuelvo aquí para seguir.'); msg = '⛵ Yendo a la isla…'; pintar(); }
+    else {
+      try { sessionStorage.removeItem(SS_VOLVER); } catch { /* nada */ }
+      log('⛵ Esto se juega en la isla: coge el barco en Ciudad Portual (o instala «Accesos Directos», que te lleva solo) y vuelve.');
+      kAviso({ tipo: 'aviso', app: 'Frente Batalla', icono: '⛵', titulo: 'Hay que estar en la isla', texto: 'Coge el barco en Ciudad Portual (Muelle del Frente). Con el script de Accesos Directos se va solo.' });
+      resultadoCola('error', 'hay que estar en la isla');
+    }
+  }
+  // ya en la isla (la plaza dice «dentro»): de vuelta al edificio
+  function volverDeLaIsla() {
+    let v = null; try { v = JSON.parse(sessionStorage.getItem(SS_VOLVER) || 'null'); } catch { v = null; }
+    if (!v) return;
+    if (Date.now() - v.t > 5 * 60000) { sessionStorage.removeItem(SS_VOLVER); return; }
+    if (location.pathname.replace(/\/+$/, '') !== '/frontera') return;
+    const pl = plazaProps();
+    if (!pl || !pl.dentro) return;
+    sessionStorage.removeItem(SS_VOLVER);
+    if (v.auto) try { sessionStorage.setItem('axf-auto', String(Date.now())); } catch { /* nada */ }
+    log('🏝️ Ya en la isla: vuelvo al edificio.');
+    location.assign(v.href);
+  }
+  // una tanda pedida antes de ir a la isla: se empieza sola al volver
+  function autoTrasIsla() {
+    let t = 0; try { t = +sessionStorage.getItem('axf-auto') || 0; } catch { /* nada */ }
+    if (!t || !edificio() || corriendo) return;
+    if (Date.now() - t > 3 * 60000) { sessionStorage.removeItem('axf-auto'); return; }
+    const E = estadoSala();
+    if (!E || (!E.activa && (!reco || reco.firma !== recoFirma))) return;
+    sessionStorage.removeItem('axf-auto');
+    hacerTanda();
+  }
+
+  /* ─── La plaza (/frontera): los siete de un vistazo y el botón para ir a por lo que falta ─── */
+  function plazaProps() {
+    for (const el of [document.querySelector('main main'), ...$$('main section')].filter(x => x && !ajeno(x)).slice(0, 6)) {
+      for (let f = fibraDe(el), i = 0; f && i < 80; f = f.return, i++) {
+        const p = f.memoizedProps;
+        if (p && Array.isArray(p.salas) && p.salas.length && p.salas[0].zonaId) return p;
+      }
+    }
+    return null;
+  }
+  const salasPlaza = () => { const p = plazaProps(); return p ? p.salas : null; };
+  function montarPlaza() {
+    let p = document.getElementById('axf-plaza');
+    if (location.pathname.replace(/\/+$/, '') !== '/frontera') { if (p) p.remove(); return; }
+    const salas = salasPlaza(), main = document.querySelector('main main') || document.querySelector('main');
+    if (!salas || !main) return;
+    if (!p) {
+      kStyle('axf-kit', '#axf-plaza', '#3D6EA8');
+      p = document.createElement('section');
+      p.id = 'axf-plaza'; p.className = 'tarjeta space-y-2 p-3'; p.setAttribute('data-ax-ignore', '1');
+      p.innerHTML = `${kHead('🏝️', 'Frente Batalla automático', 'Los siete edificios de un vistazo')}
+        <div class="axf-lista space-y-1"></div>
+        <div class="axf-opts"></div>
+        <button type="button" class="axf-todos boton-principal w-full !py-2.5 text-sm"></button>
+        <div class="axf-ultima text-[10px] font-semibold text-tinta-400"></div>`;
+      p.querySelector('.axf-todos').addEventListener('click', e => {
+        e.preventDefault();
+        if (colaLee()) { colaPon(null); pintarPlaza(); return; }
+        const O = opc(), ss = salasPlaza() || [];
+        const cola = ss.filter(x => O.modo === 'oro' ? !x.oro : O.modo === '1' ? !x.simbolo_conseguido : true).map(x => x.id).filter(id => EDIFICIOS[id]);
+        if (!cola.length) { kAviso({ tipo: 'fin', app: 'Frente Batalla', titulo: 'Nada que hacer', texto: O.modo === 'oro' ? 'Ya tienes el Oro de los siete.' : 'Ya tienes la Plata de los siete.' }); return; }
+        colaPon({ cola, i: 0, modo: O.modo, seguirSiPierde: O.seguirSiPierde, maxTandas: O.maxTandas, res: {}, t: Date.now(), arrancado: '' });
+        location.assign('/frontera/' + cola[0]);
+      });
+      main.insertBefore(p, main.firstElementChild);
+    }
+    pintarPlaza();
+  }
+  function pintarPlaza() {
+    const p = document.getElementById('axf-plaza'), salas = salasPlaza();
+    if (!p || !salas) return;
+    const O = opc();
+    const filas = salas.map(x => `<a href="/frontera/${kEsc(x.id)}" class="flex items-center gap-2 rounded-card border-2 border-crema-200 bg-crema-50 px-2 py-1 text-[12px] font-bold" style="text-decoration:none"><span>${kEsc(x.icono)}</span><span class="flex-1">${kEsc(x.nombre)}</span><span>${x.oro ? '🥇' : x.simbolo_conseguido ? '🥈' : '—'}</span><span class="text-[10px] text-tinta-400">racha ${x.racha}${x.mejor ? ` · mejor ${x.mejor}` : ''}${x.tocaElAs ? ' · ¡toca el As!' : ''}</span></a>`).join('');
+    const l = p.querySelector('.axf-lista'); if (l.dataset.h !== filas) { l.dataset.h = filas; l.innerHTML = filas; }
+    const o = p.querySelector('.axf-opts'); const ho = htmlOpciones(O); if (o.dataset.h !== ho) { o.dataset.h = ho; o.innerHTML = ho; engancharOpciones(o); }
+    const faltan = salas.filter(x => O.modo === 'oro' ? !x.oro : O.modo === '1' ? !x.simbolo_conseguido : true).length;
+    kSet(p.querySelector('.axf-todos'), colaLee() ? '■ Parar el recorrido' : `🤖 ${O.modo === 'oro' ? `A por los Oros que faltan (${faltan})` : O.modo === '1' ? `A por las Platas que faltan (${faltan})` : 'Tandas en los siete'}`);
+    const u = lsGet('axf-cola-ultima', null);
+    const hu = u ? `Último recorrido (${new Date(u.t).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}):<br>${resumenCola(u).map(kEsc).join('<br>')}` : '';
+    const pu = p.querySelector('.axf-ultima'); if (pu.dataset.h !== hu) { pu.dataset.h = hu; pu.innerHTML = hu; }
+  }
+  // Opciones del bucle (en la plaza y en cada edificio)
+  function htmlOpciones(O) {
+    const b = (m, t) => `<button type="button" data-modo="${m}" class="pastilla border-2 ${O.modo === m ? 'border-hoja-400 bg-hoja-50 text-hoja-700' : 'border-crema-200 bg-crema-50 text-tinta-500'}" style="flex:1;padding:4px 6px;font-size:11px">${t}</button>`;
+    return `<div class="flex gap-1">${b('1', '1 tanda')}${b('oro', 'Hasta el Oro')}${b('sin', 'Sin parar')}</div>
+      <label class="mt-1 flex items-center gap-2 text-[11px] font-bold text-tinta-500"><input type="checkbox" class="axf-sigue" ${O.seguirSiPierde ? 'checked' : ''}> Si pierdo, sigo</label>
+      <label class="mt-1 flex items-center gap-2 text-[11px] font-bold text-tinta-500">Como mucho <input type="number" min="1" max="99" class="axf-max w-14 rounded-card border-2 border-crema-200 bg-crema-50 px-1 text-center" value="${O.maxTandas}"> tandas por edificio (${COSTE} ⚡ cada una)</label>`;
+  }
+  function engancharOpciones(o) {
+    const guarda = cambio => { lsPut(LS_OPC, { ...opc(), ...cambio }); pintar(); pintarPlaza(); };
+    o.querySelectorAll('[data-modo]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); guarda({ modo: b.dataset.modo }); }));
+    o.querySelector('.axf-sigue').addEventListener('change', e => guarda({ seguirSiPierde: e.target.checked }));
+    o.querySelector('.axf-max').addEventListener('change', e => { const n = Math.max(1, Math.min(99, parseInt(e.target.value, 10) || 10)); guarda({ maxTandas: n }); });
+  }
+
   const rachaTexto = () => { const p = $$('main p').map(texto).find(t => /llevas \d+ tanda/i.test(t)); return p ? [p] : []; };
 
   /* ------------------------------------------------------------------ *
@@ -889,7 +1078,7 @@
     kBadge(p.querySelector('.k-badge'), corriendo ? 'on' : desconocida ? 'warn' : 'off', corriendo ? 'EN MARCHA' : desconocida ? 'TE TOCA' : 'LISTO');
     const r = p.querySelector('.axf-reco');
     const html = !reco ? '<p class="text-[11px] font-semibold text-tinta-400">Calculando los mejores…</p>'
-      : !reco.eq ? `<p class="text-[11px] font-semibold text-rojo-600">Solo ${reco.validos.length} de los tuyos valen aquí y hacen falta ${reco.E.necesarios}.</p>`
+      : !reco.eq ? `<p class="text-[11px] font-semibold text-rojo-600">${kEsc(motivoSinEquipo(reco))}</p>`
       : `<div class="flex flex-wrap justify-center gap-2">${reco.eq.map((x, i) => `<span class="axf-poke"><img src="/sprites/${x.p.num}.png" alt=""><b>${i + 1}. ${kEsc(x.p.nombre)}</b><small>${pct(x.n1)}</small></span>`).join('')}</div>
          <p class="text-center text-[10px] font-semibold text-tinta-400">Equipo: gana a ≈ ${pct(reco.nota)} de los rivales de referencia (todos los tipos, a Nv.50, sin objetos).</p>`;
     if (r.dataset.h !== html) { r.innerHTML = html; r.dataset.h = html; }
@@ -907,8 +1096,14 @@
     const b = p.querySelector('.axf-tanda');
     const aMitad = !eleccion() && (PC || botonAvance());
     b.disabled = !corriendo && !(reco && reco.eq && eleccion()) && !aMitad;
-    kSet(b, corriendo ? '■ Parar' : aMitad ? '🤖 Seguir la tanda' : `🤖 Elegir y hacer la tanda`);
-    kSet(p.querySelector('.axf-msg'), msg);
+    const O = opc();
+    const oh = p.querySelector('.axf-opts'), ho = htmlOpciones(O);
+    if (oh.dataset.h !== ho) { oh.dataset.h = ho; oh.innerHTML = ho; engancharOpciones(oh); }
+    const est = estadoSala();
+    kSet(b, corriendo ? '■ Parar' : aMitad ? '🤖 Seguir la tanda' : O.modo === '1' ? '🤖 Elegir y hacer la tanda' : O.modo === 'oro' ? (est && est.oro ? '🤖 Tandas (ya tienes el Oro)' : '🤖 Tandas hasta el Oro') : '🤖 Tandas sin parar');
+    const cl = colaLee();
+    if (cl) kSet(p.querySelector('.axf-msg'), msg || `🏝️ Recorrido: ${cl.i + 1} de ${cl.cola.length} (${cl.cola.map(x => EDIFICIOS[x].icono).join(' ')})`);
+    if (!colaLee()) kSet(p.querySelector('.axf-msg'), msg);
     p.querySelector('.axf-copiar').hidden = !desconocida;
   }
   const CSS = `
@@ -922,7 +1117,12 @@
     #axf-panel .axf-dex summary::-webkit-details-marker{display:none}
     #axf-panel .axf-dex summary::after{content:" ▼";font-size:9px;color:rgb(var(--tinta-400))}
     #axf-panel .axf-dex[open] summary::after{content:" ▲"}`;
+  // (nada se toca hasta que el juego ha terminado de montar la página: si no, React se queja y la vuelve a pintar)
+  const hidratada = () => { const m = document.querySelector('main'); return !!m && Object.keys(m).some(k => k.startsWith('__reactFiber$')); };
   function montar() {
+    if (!hidratada()) { clearTimeout(tMontar); tMontar = setTimeout(montar, 400); return; }
+    montarPlaza();
+    volverDeLaIsla();
     const id = edificio();
     let p = document.getElementById('axf-panel');
     if (!id) { if (p) p.remove(); return; }
@@ -943,8 +1143,9 @@
           <p class="mt-1 text-[10px] font-semibold text-tinta-400">1ª a 5ª generación, sin legendarios (aquí no valen), a Nv.50 y con la regla de este edificio. ✔ = lo tienes.</p>
           <div class="axf-dex-lista mt-2 space-y-2"></div>
         </details>
+        <div class="axf-opts"></div>
         <button type="button" class="axf-tanda boton-principal w-full !py-2.5 text-sm"></button>
-        <p class="text-[10px] font-semibold leading-snug text-tinta-400">Elige a los mejores (todas las combinaciones de los que valen aquí, contra rivales de todos los tipos), empieza la tanda (se pagan los ⚡ del botón del juego) y va pulsando «Seguir» / «Continuar» hasta el final. Si la ganas, empieza sola la siguiente; se para si pierdes o al llevar 3 ganadas. En la Cúpula, antes de cada combate ordena a los tuyos contra los que te esperan. Si sale algo que aún no sé hacer (las puertas de la Senda, rebuscar en la Pirámide…), se para y te avisa.</p>
+        <p class="text-[10px] font-semibold leading-snug text-tinta-400">Elige a los mejores (todas las combinaciones de los que valen aquí, contra rivales de todos los tipos), empieza la tanda (${COSTE} ⚡) y va pulsando «Siguiente combate», «Saltar al resultado» y «Seguir» hasta el final. En la Cúpula ordena a los tuyos contra los que te esperan; en la Senda elige puerta. «1 tanda», «Hasta el Oro» (se para al conseguirlo) o «Sin parar» (hasta quedarte sin ⚡); si pierdes, para salvo que marques «Si pierdo, sigo» (con el tope de tandas). En la plaza del Frente puedes hacer los siete de un tirón.</p>
         <p class="axf-msg text-center text-[11px] font-bold text-tinta-500"></p>
         <button type="button" class="axf-copiar boton-suave w-full !py-2 text-[11px]" hidden>📋 Copiar el HTML de esta pantalla</button>
         <div class="axf-log ${K_LOG}"></div>`;
@@ -967,6 +1168,7 @@
     marcarSolo();
     // en la Cúpula se ordena solo en cuanto se ve a los rivales (también si la tanda la llevas tú)
     if (id === 'cupula' && pantallaCupula()) ordenarCupula();
+    seguirCola();
   }
   let tMontar = null;
   new MutationObserver(ms => {
@@ -974,5 +1176,6 @@
     clearTimeout(tMontar); tMontar = setTimeout(montar, 300);
   }).observe(document.documentElement, { childList: true, subtree: true });
   setTimeout(montar, 1200);
-  window.__axFrente = { recomendacion, notaEquipo, ventaja, ventajaArena, BANCO };
+  setInterval(() => { if (colaLee() && edificio()) seguirCola(); autoTrasIsla(); volverDeLaIsla(); }, 2000);
+  window.__axFrente = { recomendacion, notaEquipo, ventaja, ventajaArena, BANCO, estadoSala, salasPlaza, hacerTanda, colaLee };
 })();
