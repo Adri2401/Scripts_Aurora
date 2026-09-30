@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.32.0
+// @version      1.33.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier o por estadística (botón «📊 Stat»: cada toque pasa a PS, Ataque, Defensa, Especial, Velocidad y Total; pone el valor en cada uno, corona al mejor 👑 y dice quién la tiene más alta en el equipo y en la Caja), tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -2391,6 +2391,21 @@
     return cacheNombre.get(k);
   }
   const equiposTrono = t => Object.values((lsGet(LS_TR_VISTOS, {})[t]) || {}).sort((a, b) => b.t - a.t);
+  // Lo guardado con el formato viejo: en las defensas estaban cambiados los equipos (tu equipo como el del retador) y el
+  // resultado podía ser de otro combate contra el mismo rival. Se pone del derecho y sin resultado; al volver a leer tus
+  // combates se sustituye por los de verdad.
+  (function migrarVistos() {
+    try {
+      const todos = lsGet(LS_TR_VISTOS, {});
+      let cambio = false;
+      for (const tt of Object.values(todos)) for (const e of Object.values(tt)) {
+        if (e.v === 2) continue;
+        if (e.rol === 'defensa') { const a = e.nombres; e.nombres = e.mios || []; e.mios = a; }
+        e.gane = null; e.v = 2; cambio = true;
+      }
+      if (cambio) lsPut(LS_TR_VISTOS, todos);
+    } catch (e) { console.warn('[axt tronos] migrar', e); }
+  })();
   const titularesTrono = () => lsGet(LS_TITULARES, {});
   const firmaTronosVistos = () => { try { return String((localStorage.getItem(LS_TR_VISTOS) || '').length); } catch { return '0'; } };
   function leerCombateTrono(doc = document) {
@@ -2447,15 +2462,25 @@
       if (e.crit) c.push(e.d / (b * CAL.k * Math.pow(CAL.se, sE) * Math.pow(CAL.nve, rE)));
       else g.push({ d: e.d, b: +b.toFixed(2), s: sE, r: rE });
     }
-    // el equipo del rival (y el tuyo) en ese combate
+    // los dos equipos de ese combate. «sale al paso de X» y «Relevas con…» son siempre del lado de abajo: el que reta.
+    // Si retas tú, eso eres tú; si te retan (defensa), eres el de arriba. Se guarda `nombres` = el equipo del OTRO jugador
+    // (el que defendía o el que vino a quitártelo) y `mios` = el tuyo.
     if (susN.length) {
-      const todos = lsGet(LS_TR_VISTOS, {}), tt = todos[C.tipo] || (todos[C.tipo] = {});
-      const clave = C.rol + '|' + C.rival, prev = tt[clave];
-      const nuevo = { t: prev && JSON.stringify(prev.nombres) === JSON.stringify(susN) && prev.gane === C.gane ? prev.t : Date.now(), rol: C.rol, rival: C.rival, nombres: susN, mios: misN, gane: C.gane };
-      if (!prev || prev.nombres.length < susN.length || JSON.stringify(prev.nombres) !== JSON.stringify(susN) || prev.gane !== C.gane) {
-        tt[clave] = nuevo;
-        for (const k of Object.keys(tt).sort((x, y) => tt[y].t - tt[x].t).slice(30)) delete tt[k];
-        lsPut(LS_TR_VISTOS, todos);
+      const otro = C.rol === 'reto' ? susN : misN, tuyo = C.rol === 'reto' ? misN : susN;
+      const golpes = C.ev.filter(x => !x.msg).slice(0, 10).map(x => x.d);
+      const fin = !!(doc.querySelector && $$('button', doc).find(b => /^\s*(↻\s*)?repasar\s*$|^\s*seguir\s*$/i.test(b.textContent || '')));
+      // un combate a medias (sin diez golpes leídos) aún no tiene identidad: se espera a que avance o acabe
+      if (golpes.length >= 10 || fin) {
+        const todos = lsGet(LS_TR_VISTOS, {}), tt = todos[C.tipo] || (todos[C.tipo] = {});
+        // cada combate es uno: el mismo rival puede haberte ganado y luego perdido, y no se pisan (antes se guardaba uno por rival)
+        const clave = `${C.rol}|${C.rival}|${C.gane}|${hash32(golpes.join(','))}`, prev = tt[clave];
+        if (!prev || prev.nombres.length < otro.length || prev.mios.length < tuyo.length) {
+          tt[clave] = { t: prev ? prev.t : Date.now(), rol: C.rol, rival: C.rival, nombres: otro, mios: tuyo, gane: C.gane, v: 2 };
+          // lo guardado con el formato viejo de ese mismo rival ya no vale (estaba sin resultado fiable)
+          for (const k of Object.keys(tt)) if (tt[k].v !== 2 && tt[k].rol === C.rol && tt[k].rival === C.rival) delete tt[k];
+          for (const k of Object.keys(tt).sort((x, y) => tt[y].t - tt[x].t).slice(40)) delete tt[k];
+          lsPut(LS_TR_VISTOS, todos);
+        }
       }
     }
     // los golpes, para afinar el modelo (junto con los de la Torre)
@@ -2484,11 +2509,14 @@
     const gane = /ganaste/i.test(det) ? true : /perdiste/i.test(det) ? false : null;
     return { rol, rival, tipo, gane };
   }
-  function combateConocido(li) {
+  // Cuántos combates de ese rival con ese resultado hay en la lista y cuántos se han aprendido ya: si se conocen todos, no se abre
+  const sigFila = f => `${f.tipo}|${f.rol}|${f.rival}|${f.gane}`;
+  function combateConocido(li, lista = [li]) {
     const f = infoFila(li);
     if (!f) return false;
-    const e = ((lsGet(LS_TR_VISTOS, {})[f.tipo]) || {})[f.rol + '|' + f.rival];
-    return !!(e && e.gane === f.gane && e.nombres && e.nombres.length);
+    const enLista = lista.filter(x => { const g = infoFila(x); return g && sigFila(g) === sigFila(f); }).length;
+    const leidos = Object.values((lsGet(LS_TR_VISTOS, {})[f.tipo]) || {}).filter(e => e.rol === f.rol && e.rival === f.rival && e.gane === f.gane && e.nombres && e.nombres.length).length;
+    return leidos >= enLista;
   }
   // Dentro de la ventana invisible: temporizadores ×20 y sin animaciones, para que la repetición acabe casi al instante
   const ACELERA = 20;
@@ -2536,7 +2564,7 @@
       if (!(await abrirLista())) throw new Error('no encuentro «Combates»');
       await esperar(() => filas().length, 4000);
       // qué filas interesan: las de este trono (y solo derrotas si se pide) que aún no se conozcan
-      const quiero = li => { const f = infoFila(li); return !!f && (!filtro.tipo || f.tipo === filtro.tipo) && (!filtro.soloDerrotas || f.gane === false) && !combateConocido(li); };
+      const quiero = li => { const f = infoFila(li); return !!f && (!filtro.tipo || f.tipo === filtro.tipo) && (!filtro.soloDerrotas || f.gane === false) && !combateConocido(li, filas()); };
       const pendientes = filas().map((li, i) => (quiero(li) ? i : -1)).filter(i => i >= 0);
       total = pendientes.length;
       const sigue = () => !historialCancelar && Date.now() - t0 < TOPE;
@@ -2638,17 +2666,43 @@
   const leerPlanT = () => { try { const p = JSON.parse(sessionStorage.getItem(SS_PLAN_T) || 'null'); return p && p.dia === hoyT() ? p : null; } catch { return null; } };
   const guardarPlanT = p => { try { sessionStorage.setItem(SS_PLAN_T, JSON.stringify(p)); } catch { /* nada */ } };
   const botonFicha = re => $$('div.fixed button').find(b => re.test((b.textContent || '').trim()) && !b.disabled);
+  // Lo que dice la cabecera de la hoja del combate (el del reto que acabo de hacer): se guarda en el plan del día
+  function apuntarResultadoReto() {
+    try {
+      const plan = leerPlanT(); if (!plan || !plan.retado) return;
+      const C = leerCombateTrono();
+      if (!C || C.rol !== 'reto' || C.gane === null || C.tipo !== plan.retado) return;
+      plan.resultado = { t: C.tipo, gane: C.gane }; guardarPlanT(plan);
+    } catch (e) { console.warn('[axt tronos] resultado', e); }
+  }
   async function pasoTronos() {
     if (tronoPaso || !autoTronos() || automatizando) return;
     tronoPaso = true;
     try {
       // el combate de un reto sale encima: al resultado y cerrar
+      // (el resultado sale en la cabecera de la hoja desde el principio: «… · ganaste» / «… · perdiste»; se apunta ANTES de cerrarla,
+      // porque las tarjetas de atrás tardan en actualizarse y no sirven para saber si se ganó)
       const saltar = $$('button').find(b => /saltar al resultado/i.test(b.textContent || '') && !b.disabled);
-      if (saltar) { saltar.click(); await esperaT(1500); const x = $$('button').find(b => (b.textContent || '').trim() === '✕'); if (x) x.click(); tronoMsg = 'Combate hecho.'; return; }
+      if (saltar) {
+        apuntarResultadoReto();
+        saltar.click(); await esperaT(1500);
+        apuntarResultadoReto();
+        try { aprenderTronos(); } catch { /* nada */ }
+        const x = $$('button').find(b => (b.textContent || '').trim() === '✕'); if (x) x.click(); tronoMsg = 'Combate hecho.'; return;
+      }
+      // la hoja de un combate ya acabado (sin botón de saltar): se apunta cómo quedó y se cierra
+      const pl0 = leerPlanT();
+      if (pl0 && pl0.retado && leerCombateTrono()) {
+        apuntarResultadoReto();
+        try { aprenderTronos(); } catch { /* nada */ }
+        const x = $$('button[aria-label="Cerrar"]').pop() || $$('button').find(b => (b.textContent || '').trim() === '✕'); if (x) x.click();
+        tronoMsg = 'Combate hecho.'; return;
+      }
       const cards = tarjetasTronos();
       if (!cards.length) return;
       const mio = cards.find(x => /TUYO/i.test(x.b.textContent || ''));
       if (mio) {
+        { const pl = leerPlanT(); if (pl && pl.retado) { pl.retado = pl.resultado = null; pl.ganadoEn = 0; guardarPlanT(pl); } }     // ya es tuyo: el reto de antes terminó
         if (lsGet('axt-tronos-revisado', '') === hoyT() + '|' + mio.t) { tronoMsg = lsGet('axt-tronos-revisado-msg', '') || `👑 Tienes el de ${bonito(mio.t)} con su mejor equipo.`; return; }
         tronoMsg = `👑 Tienes el de ${bonito(mio.t)}: reviso que lleve el mejor equipo…`; pintarTronos();
         const r = await calcularEnFicha(mio.t);
@@ -2661,10 +2715,24 @@
       }
       const plan = leerPlanT() || { dia: hoyT(), notas: {}, perdidos: [], fallidos: [], retado: null, retadoEn: 0 };
       const hoyYa = x => /hoy ya|🔒/i.test(x.b.textContent || '');
-      // ¿cómo acabó el último reto? (si se ganó, arriba ya sale como TUYO)
+      // ¿cómo acabó el último reto? Manda lo que dijo el combate («ganaste» / «perdiste»); la tarjeta («hoy ya», 🔒) solo
+      // dice que hoy ya no se puede retar ese trono, se gane o se pierda, y tarda en ponerse como TUYO
       if (plan.retado) {
         const c = cards.find(x => x.t === plan.retado);
-        if (c && hoyYa(c)) { plan.perdidos.push(plan.retado); tronoMsg = `❌ He perdido contra el de ${bonito(plan.retado)}: voy a por el siguiente.`; plan.retado = null; guardarPlanT(plan); return; }
+        const res = plan.resultado && plan.resultado.t === plan.retado ? plan.resultado.gane : null;
+        if (res === false) { plan.perdidos.push(plan.retado); tronoMsg = `❌ He perdido contra el de ${bonito(plan.retado)}: voy a por el siguiente.`; plan.retado = plan.resultado = null; guardarPlanT(plan); return; }
+        if (res === true) {
+          // ganado: el trono tiene que salir como TUYO (se vuelve a cargar la página si tarda)
+          tronoMsg = `🏆 Ganado el de ${bonito(plan.retado)}: espero a que salga como tuyo…`;
+          if (!plan.ganadoEn) { plan.ganadoEn = Date.now(); guardarPlanT(plan); }
+          else if (Date.now() - plan.ganadoEn > 15000 && !plan.recargado) { plan.recargado = true; guardarPlanT(plan); location.reload(); }
+          else if (Date.now() - plan.ganadoEn > 60000) { plan.retado = plan.resultado = null; plan.ganadoEn = 0; plan.recargado = false; guardarPlanT(plan); }
+          return;
+        }
+        // sin resultado leído (p. ej. se cerró la hoja a mano): la tarjeta solo vale pasado un rato y si no pone TUYO
+        if (c && hoyYa(c) && Date.now() - plan.retadoEn > 20000) {
+          plan.perdidos.push(plan.retado); tronoMsg = `❌ No lo he ganado (el de ${bonito(plan.retado)}): voy a por el siguiente.`; plan.retado = null; guardarPlanT(plan); return;
+        }
         if (Date.now() - plan.retadoEn < 90000) { tronoMsg = `⚔️ Retando al de ${bonito(plan.retado)}…`; return; }
         plan.fallidos.push(plan.retado); tronoMsg = `⚠ No consta el reto al de ${bonito(plan.retado)}: lo dejo y sigo con otro.`; plan.retado = null; guardarPlanT(plan); return;
       }
