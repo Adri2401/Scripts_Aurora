@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.29.0
+// @version      0.29.1
 // @description  Solo en /castillo. /castillo?hasta=40: baja desde el sello más hondo derecho hasta la 40 y la termina (altar de Volcarona y salir con todo el botín). Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y a un variocolor o legendario le lanza la Master Ball (y avisa).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -712,6 +712,9 @@
 
   // Pantalla de combate: «SEGUIR» hasta acabar (y «Continuar/Aceptar» de los cierres)
   async function atenderCombate() {
+    // si se puede, directo al resultado (sin ver el combate entero)
+    const sr = botonesVisibles().find(x => !x.disabled && /saltar al resultado/i.test(x.textContent || ''));
+    if (sr) { msg = '⏩ Combate: salto al resultado…'; pintar(); await pausa(300, 600); sr.click(); await pausa(700, 1100); return true; }
     const b = botonesVisibles().find(x => !x.disabled && /^\s*(seguir|continuar|aceptar)\s*$/i.test(x.textContent || ''));
     if (!b) return false;
     msg = '⚔️ Combate: sigo…';

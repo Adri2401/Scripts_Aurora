@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Frente Batalla (automático)
 // @namespace    auroradex-frente
-// @version      0.5.1
+// @version      0.5.2
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @description  En cada edificio del Frente Batalla (/frontera/…): marca solos a los mejores para esa regla de los Pokémon que haya (en cuanto abres la pantalla de elegir) (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Seguir» hasta el final. Si sale una pantalla que aún no conoce, se para, avisa y deja copiar su HTML. En la Cúpula, antes de cada combate, pone a los tuyos en el mejor orden contra los tres que te esperan. Si ganas una tanda empieza sola la siguiente; se para si pierdes o al llevar 3 ganadas. Y recomienda lo mejor de toda la Pokédex (1ª a 5ª generación, sin legendarios) para cada edificio: 3 Pokémon en la Arena (1 contra 1) y 3 equipos de 3 en los demás.
@@ -618,8 +618,10 @@
   const registro = [];
   const log = t => { registro.push([Date.now(), t]); if (registro.length > 40) registro.shift(); kLog(document.querySelector('#axf-panel .axf-log'), t); };
   function botonAvance() {
-    return $$('main button, div.fixed button').filter(b => !ajeno(b) && visible(b) && !b.disabled)
-      .find(b => { const t = texto(b); return RE_AVANCE.test(t) && !RE_PELIGRO.test(t); });
+    const bs = $$('main button, div.fixed button').filter(b => !ajeno(b) && visible(b) && !b.disabled);
+    // si se puede, directo al resultado del combate
+    return bs.find(b => /saltar al resultado/i.test(texto(b)))
+      || bs.find(b => { const t = texto(b); return RE_AVANCE.test(t) && !RE_PELIGRO.test(t); });
   }
   // Cambios de verdad en la pantalla del juego (elementos nuevos o quitados dentro del contenido): no cuentan los
   // relojes de la cabecera (energía, que cambian cada segundo) ni el propio panel
