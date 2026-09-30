@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.20.0
+// @version      1.20.1
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1806,8 +1806,27 @@
       } else if (!si && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
     } catch { wakeLock = null; } finally { wakePidiendo = false; }
   }
+  // Las barras del móvil: la de arriba toma el color que pide la web («theme-color») y la de abajo, el fondo de la
+  // página; en modo noche las dos a negro, y al salir se deja todo como estaba
+  let nocheAntes = null;
+  function barrasNegras(si) {
+    const html = document.documentElement;
+    if (si && !nocheAntes) {
+      const metas = [...document.querySelectorAll('meta[name="theme-color"]')];
+      nocheAntes = { metas: metas.map(m => [m, m.getAttribute('content')]), html: html.style.background, body: document.body.style.background, scheme: html.style.colorScheme };
+      if (!metas.length) { const m = document.createElement('meta'); m.name = 'theme-color'; m.dataset.axdNoche = '1'; document.head.appendChild(m); metas.push(m); }
+      metas.forEach(m => m.setAttribute('content', '#000000'));
+      html.style.background = '#000'; document.body.style.background = '#000'; html.style.colorScheme = 'dark';
+    } else if (!si && nocheAntes) {
+      nocheAntes.metas.forEach(([m, c]) => { if (c == null) m.removeAttribute('content'); else m.setAttribute('content', c); });
+      document.querySelectorAll('meta[data-axd-noche]').forEach(m => m.remove());
+      html.style.background = nocheAntes.html; document.body.style.background = nocheAntes.body; html.style.colorScheme = nocheAntes.scheme;
+      nocheAntes = null;
+    }
+  }
   function modoNoche(si) {
     let o = document.getElementById('axd-noche');
+    barrasNegras(si);
     if (!si) { if (o) o.remove(); return; }
     if (o) return;
     o = document.createElement('div');
@@ -2149,6 +2168,7 @@
       set('.axdf-movil [data-m="despierto"]', 'wakeLock' in navigator ? `🔆 Pantalla encendida: ${despiertoOn() ? 'sí' : 'no'}` : '🔆 Este navegador no deja');
       c.querySelector('.axdf-movil [data-m="despierto"]').classList.toggle('on', despiertoOn() && 'wakeLock' in navigator);
       const noche = document.getElementById('axd-noche');
+      if (noche) document.querySelectorAll('meta[name="theme-color"]').forEach(m => { if (m.getAttribute('content') !== '#000000') m.setAttribute('content', '#000000'); });
       if (noche) { const tn = noche.querySelector('.t'), fn = noche.querySelector('.f'), a = c.querySelector('.axdf-act'), fz = c.querySelector('.axdf-fase'); const v1 = `🤖 ${titulo}`, v2 = `${a && a.textContent ? a.textContent + ' · ' : ''}${(fz && fz.textContent) || sub || ''}`; if (tn.textContent !== v1) tn.textContent = v1; if (fn.textContent !== v2) fn.textContent = v2; }
       set('.axdf-pie', on ? '' : `<button type="button" data-a="cerrar">Cerrar</button><button type="button" data-a="seguir" class="axdf-prim">▶ Seguir</button>`, true);
     },
