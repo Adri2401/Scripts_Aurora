@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.16.0
+// @version      1.16.1
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1615,10 +1615,12 @@
   });
 
   // Viaje o tramo pendiente: se sigue en cuanto React monta lo que hay que pulsar, sin esperar a que la página esté quieta
-  if ([ADX_PENDING_KEY, ZONA_KEY, DESTINO_KEY].some(k => sessionStorage.getItem(k))) {
+  // (en un marco sin acceso al sessionStorage, p. ej. uno aislado, no hay nada pendiente: no debe romper el script)
+  const hayPendiente = () => { try { return [ADX_PENDING_KEY, ZONA_KEY, DESTINO_KEY].some(k => sessionStorage.getItem(k)); } catch { return false; } };
+  if (hayPendiente()) {
     const t0 = Date.now();
     const tic = setInterval(() => {
-      if (Date.now() - t0 > 30000 || ![ADX_PENDING_KEY, ZONA_KEY, DESTINO_KEY].some(k => sessionStorage.getItem(k))) { clearInterval(tic); return; }
+      if (Date.now() - t0 > 30000 || !hayPendiente()) { clearInterval(tic); return; }
       if (!hidratado(document.querySelector('main'))) return;
       continuarDestino();
       continuarViajePendiente();
