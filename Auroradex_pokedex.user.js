@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Cazador de Pokédex
 // @namespace    auroradex-pokedex
-// @version      1.4.0
+// @version      1.4.1
 // @description  «🎯 Ir a por…» en la Pokédex: toca un Pokémon que te falta, o añade cualquiera a tu lista (p. ej. Rayquaza), y te lleva a su región y al tramo donde más sale (con el «Donde aparece» de la Pokédex del juego).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -229,7 +229,7 @@
     p.className = cab.className;
     const lista = Object.entries(NOMBRES).filter(([k]) => +k <= 649).map(([k, v]) => `<option value="${esc(v)}">#${k}</option>`).join('');
     p.innerHTML = `<div class="t"><h2 class="${h1 ? esc(h1.className.replace(/text-xl/, 'text-lg')) : ''}">🎯 Ir a por…</h2><button type="button" class="${CL.pill} axp-mirar" title="Mira qué te falta en cada región">🔄 Mirar</button></div>
-      <div class="bus"><input class="axp-q ${buscador ? esc(buscador.className) : ''}" list="axp-nombres" placeholder="Un Pokémon (Rayquaza, #384…)" autocomplete="off"><button type="button" class="${CL.rojo} axp-ir">Ir</button><button type="button" class="${CL.pill} axp-add" title="Añadir a tu lista">➕</button></div>
+      <div class="bus"><input class="axp-q ${buscador ? esc(buscador.className) : ''}" list="axp-nombres" placeholder="Nombre o nº (Rayquaza, 384)" autocomplete="off"><button type="button" class="${CL.rojo} axp-ir">Ir</button><button type="button" class="${CL.pill} axp-add" title="Añadir a tu lista">➕</button></div>
       <datalist id="axp-nombres">${lista}</datalist>
       <div class="out"></div>`;
     const q = p.querySelector('.axp-q');

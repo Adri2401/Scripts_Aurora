@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Golf (hoyo en el mínimo de golpes)
 // @namespace    auroradex-golf
-// @version      1.2.1
+// @version      1.2.2
 // @description  Solo en /golf. Calcula con la física del propio juego el tiro (ángulo y fuerza) que mete la bola en el mínimo de golpes y lo tira solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -13,6 +13,7 @@
 
 (function () {
   'use strict';
+  const pl = (n, uno, varios) => (n === 1 ? uno : varios);   // singular / plural
   // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
   try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
 
@@ -259,7 +260,7 @@
           console.log(`[axgolf] plan de ${plan.golpes} golpes en ${Math.round(performance.now() - t0)} ms`, plan.tiros);
         }
         const tiro = plan.tiros.shift();
-        decir(`Plan: ${plan.tiros.length + 1} golpe(s) más · tiro a ${tiro.angulo}° con fuerza ${tiro.potencia}.`);
+        decir(`Plan: ${plan.tiros.length + 1} ${pl(plan.tiros.length + 1, 'golpe', 'golpes')} más · tiro a ${tiro.angulo}° con fuerza ${tiro.potencia}.`);
         await sleep(350);
         p.disparar(tiro.angulo, tiro.potencia);
         // Espera a que la bola se quede quieta en pantalla y el juego vuelva a dejar tirar

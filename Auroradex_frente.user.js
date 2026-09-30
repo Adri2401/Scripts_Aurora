@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Frente Batalla (automático)
 // @namespace    auroradex-frente
-// @version      0.6.0
+// @version      0.7.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @description  Los siete edificios del Frente Batalla (/frontera/…) solos: marca a los mejores para la regla de cada edificio (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Siguiente combate», «Saltar al resultado» y «Seguir» hasta el final. En la Cúpula ordena a los tuyos contra los que te esperan; en la Senda elige puerta (y apunta qué sale detrás de cada una). Modos: 1 tanda, hasta el Oro o sin parar (con «si pierdo, sigo» y un tope de tandas; se para sin ⚡). Si no estás en la isla, te lleva (con Accesos Directos) y vuelve. En la plaza (/frontera): los siete de un vistazo (Plata, Oro, racha) y «A por los que faltan», que recorre solo cada edificio. Si tu equipo no vale (legendarios), te dice qué cambiar. Recomienda lo mejor de la Pokédex (1ª a 5ª gen., sin legendarios) para cada edificio.
@@ -1033,23 +1033,34 @@
     const l = p.querySelector('.axf-lista'); if (l.dataset.h !== filas) { l.dataset.h = filas; l.innerHTML = filas; }
     const o = p.querySelector('.axf-opts'); const ho = htmlOpciones(O); if (o.dataset.h !== ho) { o.dataset.h = ho; o.innerHTML = ho; engancharOpciones(o); }
     const faltan = salas.filter(x => O.modo === 'oro' ? !x.oro : O.modo === '1' ? !x.simbolo_conseguido : true).length;
-    kSet(p.querySelector('.axf-todos'), colaLee() ? '■ Parar el recorrido' : `🤖 ${O.modo === 'oro' ? `A por los Oros que faltan (${faltan})` : O.modo === '1' ? `A por las Platas que faltan (${faltan})` : 'Tandas en los siete'}`);
+    const btnTodos = p.querySelector('.axf-todos'), nada = !colaLee() && O.modo !== 'sin' && faltan === 0;
+    kSet(btnTodos, colaLee() ? '■ Parar el recorrido' : nada ? (O.modo === 'oro' ? '✅ Ya tienes el Oro de los siete' : '✅ Ya tienes la Plata de los siete') : `🤖 ${O.modo === 'oro' ? `A por los Oros que faltan (${faltan})` : O.modo === '1' ? `A por las Platas que faltan (${faltan})` : 'Tandas en los siete'}`);
+    if (btnTodos) { btnTodos.disabled = nada; btnTodos.style.opacity = nada ? '0.6' : ''; }
     const u = lsGet('axf-cola-ultima', null);
     const hu = u ? `Último recorrido (${new Date(u.t).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}):<br>${resumenCola(u).map(kEsc).join('<br>')}` : '';
     const pu = p.querySelector('.axf-ultima'); if (pu.dataset.h !== hu) { pu.dataset.h = hu; pu.innerHTML = hu; }
   }
   // Opciones del bucle (en la plaza y en cada edificio)
   function htmlOpciones(O) {
-    const b = (m, t) => `<button type="button" data-modo="${m}" class="pastilla border-2 ${O.modo === m ? 'border-hoja-400 bg-hoja-50 text-hoja-700' : 'border-crema-200 bg-crema-50 text-tinta-500'}" style="flex:1;padding:4px 6px;font-size:11px">${t}</button>`;
+    const b = (m, t) => `<button type="button" data-modo="${m}" class="pastilla border-2 ${O.modo === m ? 'border-hoja-400 bg-hoja-50 text-hoja-700' : 'border-crema-200 bg-crema-50 text-tinta-500'}" style="flex:1;padding:10px 6px;font-size:12px;min-height:44px">${t}</button>`;
+    // qué hace el modo elegido, en una frase (en el móvil no hay «pasar el ratón» para explicarlo)
+    const ayuda = { '1': `Hace una tanda (${COSTE} ⚡) por edificio, a por la Plata, y pasa al siguiente.`, oro: `Repite tandas en cada edificio hasta conseguir el Oro.`, sin: `Va tanda tras tanda, sin tope, hasta que te quedes sin ⚡.` }[O.modo] || '';
+    const sigue = O.modo === '1' ? '' : `<label class="k-switch mt-1 text-[11px] font-bold leading-snug text-tinta-600"><input type="checkbox" class="axf-sigue" ${O.seguirSiPierde ? 'checked' : ''}><span>Si pierdo una tanda, seguir intentándolo (si no, paro en cuanto pierda)</span></label>`;
+    const tope = O.modo === 'oro' ? `<div class="mt-1 flex items-center gap-2 text-[11px] font-bold text-tinta-600"><span class="flex-1 leading-snug">Máximo de tandas por edificio<br><span class="text-[10px] font-semibold text-tinta-400">${COSTE} ⚡ cada una: como mucho ${O.maxTandas * COSTE} ⚡</span></span>
+        <button type="button" class="axf-menos pastilla border-2 border-crema-200 bg-crema-50 text-tinta-600" style="min-width:44px;min-height:44px;font-size:18px" aria-label="Una tanda menos">−</button>
+        <b class="axf-maxv tabular-nums" style="min-width:28px;text-align:center;font-size:16px">${O.maxTandas}</b>
+        <button type="button" class="axf-mas pastilla border-2 border-crema-200 bg-crema-50 text-tinta-600" style="min-width:44px;min-height:44px;font-size:18px" aria-label="Una tanda más">+</button></div>` : '';
     return `<div class="flex gap-1">${b('1', '1 tanda')}${b('oro', 'Hasta el Oro')}${b('sin', 'Sin parar')}</div>
-      <label class="mt-1 flex items-center gap-2 text-[11px] font-bold text-tinta-500"><input type="checkbox" class="axf-sigue" ${O.seguirSiPierde ? 'checked' : ''}> Si pierdo, sigo</label>
-      <label class="mt-1 flex items-center gap-2 text-[11px] font-bold text-tinta-500">Como mucho <input type="number" min="1" max="99" class="axf-max w-14 rounded-card border-2 border-crema-200 bg-crema-50 px-1 text-center" value="${O.maxTandas}"> tandas por edificio (${COSTE} ⚡ cada una)</label>`;
+      <p class="mt-1 text-[11px] font-semibold leading-snug text-tinta-500">${ayuda}</p>${sigue}${tope}`;
   }
   function engancharOpciones(o) {
     const guarda = cambio => { lsPut(LS_OPC, { ...opc(), ...cambio }); pintar(); pintarPlaza(); };
     o.querySelectorAll('[data-modo]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); guarda({ modo: b.dataset.modo }); }));
-    o.querySelector('.axf-sigue').addEventListener('change', e => guarda({ seguirSiPierde: e.target.checked }));
-    o.querySelector('.axf-max').addEventListener('change', e => { const n = Math.max(1, Math.min(99, parseInt(e.target.value, 10) || 10)); guarda({ maxTandas: n }); });
+    const sigue = o.querySelector('.axf-sigue'); if (sigue) sigue.addEventListener('change', e => guarda({ seguirSiPierde: e.target.checked }));
+    const paso = d => e => { e.preventDefault(); guarda({ maxTandas: Math.max(1, Math.min(99, opc().maxTandas + d)) }); };
+    const menos = o.querySelector('.axf-menos'), mas = o.querySelector('.axf-mas');
+    if (menos) menos.addEventListener('click', paso(-1));
+    if (mas) mas.addEventListener('click', paso(1));
   }
 
   const rachaTexto = () => { const p = $$('main p').map(texto).find(t => /llevas \d+ tanda/i.test(t)); return p ? [p] : []; };
@@ -1145,7 +1156,8 @@
         </details>
         <div class="axf-opts"></div>
         <button type="button" class="axf-tanda boton-principal w-full !py-2.5 text-sm"></button>
-        <p class="text-[10px] font-semibold leading-snug text-tinta-400">Elige a los mejores (todas las combinaciones de los que valen aquí, contra rivales de todos los tipos), empieza la tanda (${COSTE} ⚡) y va pulsando «Siguiente combate», «Saltar al resultado» y «Seguir» hasta el final. En la Cúpula ordena a los tuyos contra los que te esperan; en la Senda elige puerta. «1 tanda», «Hasta el Oro» (se para al conseguirlo) o «Sin parar» (hasta quedarte sin ⚡); si pierdes, para salvo que marques «Si pierdo, sigo» (con el tope de tandas). En la plaza del Frente puedes hacer los siete de un tirón.</p>
+        <details class="rounded-card border-2 border-crema-200 bg-crema-50 p-2"><summary class="cursor-pointer text-[11px] font-extrabold text-tinta-600">❓ Cómo funciona</summary>
+          <p class="mt-1 text-[11px] font-semibold leading-snug text-tinta-500">1. Elige a los mejores de tu caja para este edificio (prueba todas las combinaciones contra rivales de todos los tipos).<br>2. Empieza la tanda (${COSTE} ⚡) y pulsa sola «Siguiente combate», «Saltar al resultado» y «Seguir» hasta el final.<br>3. En la Cúpula ordena a los tuyos contra los que te esperan; en la Senda elige puerta.<br>4. En la plaza del Frente puedes hacer los siete edificios de un tirón.</p></details>
         <p class="axf-msg text-center text-[11px] font-bold text-tinta-500"></p>
         <button type="button" class="axf-copiar boton-suave w-full !py-2 text-[11px]" hidden>📋 Copiar el HTML de esta pantalla</button>
         <div class="axf-log ${K_LOG}"></div>`;

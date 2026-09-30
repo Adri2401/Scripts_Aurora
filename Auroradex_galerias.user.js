@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Galerías (escalera y camino)
 // @namespace    auroradex-galerias
-// @version      0.29.1
+// @version      0.29.2
 // @description  Solo en /castillo. /castillo?hasta=40: baja desde el sello más hondo derecho hasta la 40 y la termina (altar de Volcarona y salir con todo el botín). Minijuego de bajar plantas: resalta la escalera y el camino más corto, recuerda cada planta (siempre son iguales) y al volver la enseña entera aunque esté a oscuras (escaleras, tumbas, puertas…) para ir directo a la escalera, explora solo (o todo lo oscuro antes de bajar) (combates, remolinos, jarrones, capturas con Poké Ball, aceite y cuerda) y a un variocolor o legendario le lanza la Master Ball (y avisa).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -13,6 +13,7 @@
 
 (function () {
   'use strict';
+  const pl = (n, uno, varios) => (n === 1 ? uno : varios);   // singular / plural
   // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
   try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
 
@@ -445,15 +446,15 @@
     partes.push(a.escaleras.length ? `🪜 Escalera ${a.deMemoria ? 'recordada (a oscuras)' : 'a la vista'}${a.ruta ? ` · ${pasos(a.ruta)} pasos` : ' (sin camino conocido)'}` : '🪜 Escalera (o arena movediza) aún no descubierta');
     if (plantaN() != null) partes.push(`🗺️ Planta ${plantaN()} memorizada al ${a.pct}%`);
     const cuenta = tp => a.otros.filter(o => o.tipo === tp).length;
-    if (cuenta('entrenador')) partes.push(`👤 ${cuenta('entrenador')} entrenador(es)`);
+    if (cuenta('entrenador')) partes.push(`👤 ${cuenta('entrenador')} ${pl(cuenta('entrenador'), 'entrenador', 'entrenadores')}`);
     if (cuenta('mercader')) partes.push(`🛒 mercader`);
-    if (cuenta('personaje')) partes.push(`🧍 ${cuenta('personaje')} personaje(s)`);
-    if (cuenta('remolino')) partes.push(`🌀 ${cuenta('remolino')} remolino(s)`);
-    if (cuenta('lapida')) partes.push(`🪦 ${cuenta('lapida')} lápida(s)`);
-    if (cuenta('jarron')) partes.push(`🏺 ${cuenta('jarron')} jarrón(es)`);
+    if (cuenta('personaje')) partes.push(`🧍 ${cuenta('personaje')} ${pl(cuenta('personaje'), 'personaje', 'personajes')}`);
+    if (cuenta('remolino')) partes.push(`🌀 ${cuenta('remolino')} ${pl(cuenta('remolino'), 'remolino', 'remolinos')}`);
+    if (cuenta('lapida')) partes.push(`🪦 ${cuenta('lapida')} ${pl(cuenta('lapida'), 'lápida', 'lápidas')}`);
+    if (cuenta('jarron')) partes.push(`🏺 ${cuenta('jarron')} ${pl(cuenta('jarron'), 'jarrón', 'jarrones')}`);
     if (cuenta('arqueologo')) partes.push('📜 arqueólogo');
-    if (cuenta('puerta')) partes.push(`🚪 ${cuenta('puerta')} puerta(s)`);
-    if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} objeto(s)`);
+    if (cuenta('puerta')) partes.push(`🚪 ${cuenta('puerta')} ${pl(cuenta('puerta'), 'puerta', 'puertas')}`);
+    if (cuenta('objeto')) partes.push(`✨ ${cuenta('objeto')} ${pl(cuenta('objeto'), 'objeto', 'objetos')}`);
     estado.textContent = partes.join(' · ');
     panel.querySelector('.axg-msg').textContent = msg + (ultimaParada && !explorando && msg !== ultimaParada ? ' · Última parada: ' + ultimaParada : '');
     panel.querySelector('[data-a="auto"]').textContent = explorando && modoExplorar === 'escalera' ? '■ Parar exploración' : '🧭 Explorar hasta la escalera';
@@ -884,7 +885,7 @@
         await sleep(400);
         return true;
       }
-      msg = `🚪 Suelo pulido: ${ruta.length} movimiento(s) hasta el pedestal.`; pintar();
+      msg = `🚪 Suelo pulido: ${ruta.length} ${pl(ruta.length, 'movimiento', 'movimientos')} hasta el pedestal.`; pintar();
       const b = boton(ruta[0]);
       if (!b || b.disabled) break;
       await pausa(300, 500);

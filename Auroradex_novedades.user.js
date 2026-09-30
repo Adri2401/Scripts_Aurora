@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Novedades
 // @namespace    auroradex-novedades
-// @version      2.0.1
+// @version      2.0.2
 // @description  Lee la web entera (todas sus secciones, todo su código y los datos que manda el servidor) y te enseña lo nuevo y lo oculto: textos nuevos en cada sección, secciones que no están en el menú, lo que está «en pruebas» (solo lo ven las cuentas de prueba), cosas nuevas en tiendas y catálogos, imágenes nuevas (se ven), regiones, especies y dibujos de generaciones nuevas, y un buscador por todo el código. Mira cada 30 min si la web ha cambiado y la repasa entera al cambiar (y cada 12 h). Todo en «🆕 Novedades», arriba del Menú. Nunca abre Voltorb Flip, Ruinas Alfa ni el Suelo Helado.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -13,6 +13,7 @@
 
 (() => {
   'use strict';
+  const pl = (n, uno, varios) => (n === 1 ? uno : varios);   // singular / plural
   // Solo en la pestaña (no en las ventanas ocultas de los robots)
   try { if (window.top !== window) return; } catch { return; }
 
@@ -274,14 +275,14 @@
     if (c.primera) return c.resumen;
     const p = [];
     if (c.web) p.push('🔧 web actualizada');
-    if (c.secciones.length) p.push(`🆕 ${c.secciones.length} sección(es) en el menú`);
-    if (c.rutas.length) p.push(`🗺️ ${c.rutas.length} página(s) nueva(s)`);
-    if (c.flags.length) p.push(`🔧 ${c.flags.length} cosa(s) en pruebas`);
-    if (c.futuras.length) p.push(`⏰ ${c.futuras.length} programada(s)`);
-    if (c.catalogo.length) p.push(`🛍️ ${c.catalogo.length} nueva(s) en catálogos`);
-    if (c.textos.length) p.push(`📝 ${c.textos.length} texto(s) nuevo(s)`);
-    if (c.imagenes.length) p.push(`🖼️ ${c.imagenes.length} imagen(es)`);
-    if (c.pistas.length) p.push(`🧬 ${c.pistas.length} pista(s) de generaciones/regiones nuevas`);
+    if (c.secciones.length) p.push(`🆕 ${c.secciones.length} ${pl(c.secciones.length, 'sección nueva', 'secciones nuevas')} en el menú`);
+    if (c.rutas.length) p.push(`🗺️ ${c.rutas.length} ${pl(c.rutas.length, 'página nueva', 'páginas nuevas')}`);
+    if (c.flags.length) p.push(`🔧 ${c.flags.length} ${pl(c.flags.length, 'cosa', 'cosas')} en pruebas`);
+    if (c.futuras.length) p.push(`⏰ ${c.futuras.length} ${pl(c.futuras.length, 'programada', 'programadas')}`);
+    if (c.catalogo.length) p.push(`🛍️ ${c.catalogo.length} ${pl(c.catalogo.length, 'novedad', 'novedades')} en catálogos`);
+    if (c.textos.length) p.push(`📝 ${c.textos.length} ${pl(c.textos.length, 'texto nuevo', 'textos nuevos')}`);
+    if (c.imagenes.length) p.push(`🖼️ ${c.imagenes.length} ${pl(c.imagenes.length, 'imagen', 'imágenes')}`);
+    if (c.pistas.length) p.push(`🧬 ${c.pistas.length} ${pl(c.pistas.length, 'pista', 'pistas')} de generaciones/regiones nuevas`);
     if (c.regiones.length) p.push(`🗺️ región: ${c.regiones.join(', ')}`);
     if (c.dex) p.push(`📕 Pokédex hasta el #${c.dex.ahora}`);
     if (c.sprites.length) p.push(`🎨 dibujos de la ${c.sprites.join(', ')}.ª gen.`);
@@ -433,7 +434,7 @@
         for (const g of x.sprites || []) h += `<div class="item">🎨 Ya están los dibujos de la ${g}.ª generación <img src="/sprites/${SPRITES.find(s => s[1] == g)[0]}.png" style="width:48px;height:48px;image-rendering:pixelated;vertical-align:middle"></div>`;
         if ((x.imagenes || []).length) h += `<div class="imgs">${x.imagenes.map(i => `<figure>${/…$/.test(i) ? '' : `<img src="${esc(i)}" loading="lazy" alt="">`}<figcaption>${esc(i)}</figcaption></figure>`).join('')}</div>`;
         if ((x.textos || []).length) { h += `<h3>📝 Textos nuevos (${x.textos.length})</h3>`; for (const t of x.textos.slice(0, 300)) h += textoItem(t.s, t.p); }
-        if (x.quitados) h += `<div class="item" style="opacity:.7">🗑️ ${x.quitados} texto(s) han desaparecido del código.</div>`;
+        if (x.quitados) h += `<div class="item" style="opacity:.7">🗑️ ${x.quitados} ${pl(x.quitados, 'texto ha desaparecido', 'textos han desaparecido')} del código.</div>`;
       }
     } else if (tab === 'pruebas') {
       const tx = Object.entries(inv.textos).filter(([s]) => EN_PRUEBAS.test(s));
