@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.33.0
+// @version      1.34.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier o por estadística (botón «📊 Stat»: cada toque pasa a PS, Ataque, Defensa, Especial, Velocidad y Total; pone el valor en cada uno, corona al mejor 👑 y dice quién la tiene más alta en el equipo y en la Caja), tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -2620,16 +2620,16 @@
     let c = document.getElementById('axt-tronos-auto');
     if (!c) {
       c = document.createElement('div'); c.id = 'axt-tronos-auto'; c.setAttribute('data-ax-ignore', '1'); c.style.cssText = 'margin:8px 0';
-      c.innerHTML = '<button type="button" class="boton-principal w-full !py-2 text-xs"></button><p class="text-[11px] font-bold text-tinta-500" style="margin-top:4px"></p>';
-      c.querySelector('button').addEventListener('click', e => { e.preventDefault(); try { sessionStorage.setItem(SS_TRONOS, autoTronos() ? '0' : '1'); } catch { /* nada */ } tronoMsg = autoTronos() ? 'Empiezo…' : 'Parado.'; pintarTronos(); programar(); });
+      // (sin botón: los Tronos solos los pone en marcha el robot de Diarias; aquí solo se ve lo que va haciendo)
+      c.innerHTML = '<p class="text-[11px] font-bold text-tinta-500"></p>';
       ancla.insertAdjacentElement('beforebegin', c);
     }
     pintarTronos();
   }
   function pintarTronos() {
     const c = document.getElementById('axt-tronos-auto'); if (!c) return;
-    const b = c.querySelector('button'), t = autoTronos() ? '■ Parar los Tronos solos' : '👑 Tronos solo (defender el mío o quitar el más fácil)';
-    if (b.textContent !== t) b.textContent = t;
+    const v = autoTronos() ? '' : 'none';
+    if (c.style.display !== v) c.style.display = v;
     const m = c.querySelector('p'); if (m.textContent !== tronoMsg) m.textContent = tronoMsg;
   }
   const esperaT = ms => new Promise(r => setTimeout(r, ms));
@@ -2703,6 +2703,12 @@
       const mio = cards.find(x => /TUYO/i.test(x.b.textContent || ''));
       if (mio) {
         { const pl = leerPlanT(); if (pl && pl.retado) { pl.retado = pl.resultado = null; pl.ganadoEn = 0; guardarPlanT(pl); } }     // ya es tuyo: el reto de antes terminó
+        if (leerPlanT() && leerPlanT().elegido === mio.t && lsGet('axt-tronos-revisado', '') !== hoyT() + '|' + mio.t) {
+          // el que acabo de ganar: ya se calculó y se puso su mejor equipo antes de retar
+          tronoMsg = `👑 ¡Ganado el de ${bonito(mio.t)}! Lo defiendo con el mejor equipo que calculé.`;
+          lsPut('axt-tronos-revisado', hoyT() + '|' + mio.t); lsPut('axt-tronos-revisado-msg', tronoMsg);
+          return;
+        }
         if (lsGet('axt-tronos-revisado', '') === hoyT() + '|' + mio.t) { tronoMsg = lsGet('axt-tronos-revisado-msg', '') || `👑 Tienes el de ${bonito(mio.t)} con su mejor equipo.`; return; }
         tronoMsg = `👑 Tienes el de ${bonito(mio.t)}: reviso que lleve el mejor equipo…`; pintarTronos();
         const r = await calcularEnFicha(mio.t);
@@ -2720,7 +2726,7 @@
       if (plan.retado) {
         const c = cards.find(x => x.t === plan.retado);
         const res = plan.resultado && plan.resultado.t === plan.retado ? plan.resultado.gane : null;
-        if (res === false) { plan.perdidos.push(plan.retado); tronoMsg = `❌ He perdido contra el de ${bonito(plan.retado)}: voy a por el siguiente.`; plan.retado = plan.resultado = null; guardarPlanT(plan); return; }
+        if (res === false) { plan.perdidos.push(plan.retado); tronoMsg = `❌ He perdido contra el de ${bonito(plan.retado)}.`; plan.retado = plan.resultado = null; guardarPlanT(plan); return; }
         if (res === true) {
           // ganado: el trono tiene que salir como TUYO (se vuelve a cargar la página si tarda)
           tronoMsg = `🏆 Ganado el de ${bonito(plan.retado)}: espero a que salga como tuyo…`;
@@ -2731,39 +2737,31 @@
         }
         // sin resultado leído (p. ej. se cerró la hoja a mano): la tarjeta solo vale pasado un rato y si no pone TUYO
         if (c && hoyYa(c) && Date.now() - plan.retadoEn > 20000) {
-          plan.perdidos.push(plan.retado); tronoMsg = `❌ No lo he ganado (el de ${bonito(plan.retado)}): voy a por el siguiente.`; plan.retado = null; guardarPlanT(plan); return;
+          plan.perdidos.push(plan.retado); tronoMsg = `❌ No lo he ganado (el de ${bonito(plan.retado)}).`; plan.retado = null; guardarPlanT(plan); return;
         }
         if (Date.now() - plan.retadoEn < 90000) { tronoMsg = `⚔️ Retando al de ${bonito(plan.retado)}…`; return; }
-        plan.fallidos.push(plan.retado); tronoMsg = `⚠ No consta el reto al de ${bonito(plan.retado)}: lo dejo y sigo con otro.`; plan.retado = null; guardarPlanT(plan); return;
+        plan.fallidos.push(plan.retado); plan.elegido = null; tronoMsg = `⚠ No consta el reto al de ${bonito(plan.retado)}: pruebo con otro.`; plan.retado = null; guardarPlanT(plan); return;
       }
-      // sin trono: los que se pueden retar hoy
+      // sin trono: UNO cualquiera de los que se pueden retar hoy, al azar y sin pensarlo; eso sí, se calcula su mejor equipo,
+      // se pone y se combate. Un solo intento al día (si se pierde, hasta mañana).
+      if (plan.perdidos.length) { tronoMsg = `🏁 Un intento hecho hoy (perdí contra el de ${bonito(plan.perdidos[0])}): mañana otro.`; return; }
       const libres = cards.filter(x => !hoyYa(x) && !plan.fallidos.includes(x.t));
-      if (!libres.length) { tronoMsg = `🏁 Hoy ya no queda ningún trono por retar${plan.perdidos.length ? ` (perdidos: ${plan.perdidos.map(bonito).join(', ')})` : ''}.`; return; }
-      const pendientes = libres.filter(x => !(x.t in plan.notas));
-      if (pendientes.length) {
-        const t = pendientes[0].t, hechos = libres.length - pendientes.length;
-        tronoMsg = `🔮 Calculando el trono de ${bonito(t)} (${hechos + 1}/${libres.length})…`; pintarTronos();
-        const r = await calcularEnFicha(t);
-        plan.notas[t] = r && r.n ? r.gA : -1;
-        guardarPlanT(plan);
-        cerrarFicha(); await esperaT(800);
-        return;
-      }
-      const orden = libres.map(x => [x.t, plan.notas[x.t]]).filter(([, g]) => g > 0).sort((a, b) => b[1] - a[1]);
-      if (!orden.length) { tronoMsg = '🏁 No tengo equipo para ningún trono libre.'; return; }
-      const [t, g] = orden[0];
-      tronoMsg = `⚔️ Voy a por el de ${bonito(t)} (gano ≈ ${pctT(g)}): pongo el mejor equipo y reto.`; pintarTronos();
-      await calcularEnFicha(t);
+      if (!libres.length) { tronoMsg = '🏁 Hoy ya no queda ningún trono por retar.'; return; }
+      let t = plan.elegido && libres.some(x => x.t === plan.elegido) ? plan.elegido : null;
+      if (!t) { t = libres[Math.floor(Math.random() * libres.length)].t; plan.elegido = t; guardarPlanT(plan); }
+      tronoMsg = `🎲 Me ha tocado el de ${bonito(t)}: calculo su mejor equipo, lo pongo y reto.`; pintarTronos();
+      const r = await calcularEnFicha(t);
+      if (!r || !r.n) { plan.fallidos.push(t); plan.elegido = null; guardarPlanT(plan); tronoMsg = `⚠ Sin equipo válido para el de ${bonito(t)}: pruebo con otro.`; cerrarFicha(); return; }
       await ponerYGuardar();
       await esperaT(1000);
       // la pestaña «Retar» de la ficha y, dentro, el botón de verdad («Retar con mi equipo de …»)
       if (!botonFicha(/^retar con mi equipo/i)) { const tab = botonFicha(/^retar$/i); if (tab) { tab.click(); await esperaT(1500); } }
       let reto = null;
       for (let i = 0; i < 16 && !reto; i++) { reto = botonFicha(/^retar con mi equipo/i); if (!reto) await esperaT(500); }
-      if (!reto) { plan.fallidos.push(t); guardarPlanT(plan); tronoMsg = `⚠ No encuentro el botón para retar al de ${bonito(t)}: sigo con otro.`; cerrarFicha(); return; }
+      if (!reto) { plan.fallidos.push(t); plan.elegido = null; guardarPlanT(plan); tronoMsg = `⚠ No encuentro el botón para retar al de ${bonito(t)}: pruebo con otro.`; cerrarFicha(); return; }
       plan.retado = t; plan.retadoEn = Date.now(); guardarPlanT(plan);
       reto.click();
-      tronoMsg = `⚔️ Reto al de ${bonito(t)} (gano ≈ ${pctT(g)}).`;
+      tronoMsg = `⚔️ Reto al de ${bonito(t)} (gano ≈ ${pctT(r.gA)}).`;
       await esperaT(2500);
     } catch (e) { console.warn('[axt tronos auto]', e); tronoMsg = '⚠ ' + (e && e.message); }
     finally { tronoPaso = false; pintarTronos(); }
