@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.17.1
+// @version      1.18.0
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1331,6 +1331,7 @@
     // primero lo que cambia de región (las Manadas y los viajes con sus Safaris), luego lo de casa y al final lo demás
     const deCasa = menu.filter(d => !d.hecha && d.sabe).map(d => ({ href: d.href })), viajes = [], alFinal = [];
     pintarMenu(['Mirando qué queda…']);
+    etapaYendo('Mirando qué queda por hacer hoy', 'Leo el menú y miro por detrás Casa Treta, Misiones, Isla, Tronos y Torre');
     // lo que no sale en «Para hoy» se mira por detrás, todo a la vez
     const [ct, misionesP, islaP, tronosP, torreP] = await Promise.all([tretaPendiente(), misionesPendientes(), islaAbierta(), sinTrono(), torrePendiente()]);
     const solarP = !(+lsGet(LS_SOLAR, 0) > Date.now());
@@ -1396,6 +1397,7 @@
     if (x && x.viaje && !x.vuelta) r.fuera = true;
     r.actual = x ? { ...x, desde: Date.now(), logDesde: r.log.length } : null;
     ssPut(r);
+    etapaYendo(x ? (x.viaje ? `Abriendo el mapa de regiones para ir a ${x.viaje}` : `Entrando en ${nombrePaso(x, r.casa).replace(/^[^\p{L}¿]+/u, '')}`) : 'Cerrando la ruta', x ? '' : 'Apuntando lo hecho');
     await sleep(1500 + Math.random() * 1300);
     if (!ssGet()) return;                                    // lo han parado mientras
     // los viajes se empiezan desde el menú (el enlace a «Viajar a otra región» cambia según dónde estés)
@@ -1553,8 +1555,85 @@
     if (a.viaje) { delete a.href; ssPut(r); location.assign('/menu'); } else { ssPut(r); location.assign(a.href); }
     return true;
   }
+  /* ══════════ Dónde está cada diaria por dentro (para la tarjeta de la pestaña) ══════════
+   * La ventana oculta publica, mientras juega, la actividad, la etapa concreta y su avance; la tarjeta lo enseña tal
+   * cual. Sale de la propia página del juego y de los paneles de los scripts que la juegan (todos llevan su línea de
+   * estado «.k-sub» y su registro «.k-log»). */
+  const SS_ETAPA = 'axd-fondo-etapa';
+  const PANEL_DE = { safari: '#ax-safari-auto', casa: '#ct-embedded-panel', valle: '#axv-panel', salon: '#ax-salon-auto', huerto: '#axh-panel', isla: '#axi-panel', entranas: '#axe-panel', subsuelo: '#axsub-panel' };
+  const sinHora = t => String(t || '').replace(/^\d\d:\d\d(:\d\d)?\s+/, '').replace(/\s+/g, ' ').trim();
+  function panelDice(sel) {
+    const p = sel && document.querySelector(sel);
+    if (!p) return {};
+    const ls = p.querySelectorAll('.k-log > p, [data-ax="log"]');
+    return { sub: texto(p.querySelector('.k-sub')), ult: ls.length ? sinHora(texto(ls[ls.length - 1])) : '' };
+  }
+  // contadores que el juego enseña en casi todas: «6 / 6 aciertos», «Te quedan 2 de 5», «Planta 3 de 8»…
+  function progresoPagina() {
+    const t = textoMain();
+    let m = t.match(/(\d+)\s*\/\s*(\d+)\s*aciertos/i);
+    if (m) return { det: `${m[1]} de ${m[2]} aciertos`, pct: +m[1] / +m[2] };
+    m = t.match(/te quedan?\s*(\d+)\s*de\s*(\d+)/i);
+    if (m) return { det: `quedan ${m[1]} de ${m[2]}`, pct: 1 - +m[1] / +m[2] };
+    m = t.match(/\b(silueta|carrera|tirada|bajada|prueba|foto|ronda|pregunta|reto|combate)\s*(\d+)\s*(?:de|\/)\s*(\d+)/i);
+    if (m) return { det: `${m[1][0].toUpperCase() + m[1].slice(1).toLowerCase()} ${m[2]} de ${m[3]}`, pct: (+m[2] - 1) / +m[3] };
+    m = t.match(/(\d+)\s*grietas?/i);
+    if (m && ruta() === '/cantera') return { det: `${m[1]} de 14 grietas`, pct: null };
+    return {};
+  }
+  VIAJE.etapa = function () { const d = this.destino(), e = this.estoy(); return { fase: d ? `Viajando${e && e !== d ? ` de ${e}` : ''} a ${d}` : 'En la página de Regiones', det: e === d ? `Ya en ${d}` : 'Pulso «Viajar a…» y espero a llegar' }; };
+  SAFARI.etapa = function () {
+    if (this.cerrada()) return { fase: 'Visita de hoy terminada', pct: 1 };
+    // los contadores del juego: etiqueta («Pasos») y debajo su número (igual que los lee Safari Auto)
+    const stat = l => { const p = $$('main p').find(x => !x.closest('#ax-safari-auto') && texto(x).toLowerCase() === l); const m = p && p.nextElementSibling && texto(p.nextElementSibling).match(/-?\d+/); return m ? +m[0] : null; };
+    const pasos = stat('pasos'), balls = stat('balls'), atr = stat('atrapados');
+    const pd = panelDice('#ax-safari-auto');
+    if (pasos == null) return { fase: pd.ult || 'Entrando en la reserva…' };
+    this.pasosMax = Math.max(this.pasosMax || 0, pasos);
+    return { fase: pd.ult || 'Andando por la reserva', det: `👣 ${pasos} pasos · ⚾ ${balls ?? '?'} Balls · 🎒 ${atr ?? 0} atrapado${atr === 1 ? '' : 's'}`, pct: this.pasosMax ? 1 - pasos / this.pasosMax : null };
+  };
+  TRETA.etapa = function () {
+    const p = this.plantas(), pd = panelDice('#ct-embedded-panel');
+    if (/se te acabaron los intentos de hoy/i.test(textoMain())) return { fase: 'Sin intentos por hoy', det: p ? `${p[0]} de ${p[1]} plantas subidas` : '', pct: 1 };
+    return { fase: pd.ult || (p ? `Subiendo la planta ${Math.min(p[0] + 1, p[1])}` : 'Entrando'), det: p ? `🏠 ${p[0]} de ${p[1]} plantas subidas hoy` : pd.sub, pct: p ? p[0] / p[1] : null };
+  };
+  TREN.etapa = function () { const q = this.quedan(); return { fase: 'Rebuscando en el vagón de chatarra', det: q != null ? `🚃 quedan ${q} de 3 rebuscas` : '', pct: q != null ? 1 - q / 3 : null }; };
+  MANADAS.etapa = function () {
+    const g = ssLeer('mh-gratis-fondo') || ssLeer('mh-gratis');
+    if (!g) return { fase: 'Abriendo el Canal Manadas…' };
+    const n = (g.cola || []).length, h = (g.hechas || []).length, i = Math.min(n, h + (g.fase === 'canal' ? 0 : 1));
+    const QUE = { canal: 'en el Canal, eligiendo la siguiente región', buscar: 'buscando su manada por el mapa', macro: 'encuentros gratis con la macro de captura' };
+    const macro = texto(document.querySelector('#adx-macro-ui .adx-msg'));
+    const ult = sinHora((g.log || []).slice(-1)[0] || '');
+    return { fase: `${g.actual ? g.actual + ' · ' : ''}región ${i || 1} de ${n || '?'} · ${QUE[g.fase] || g.fase}`, det: (g.fase === 'macro' && macro) || ult, pct: n ? h / n : null };
+  };
+  ENTRANAS.etapa = function () { const e = ssLeer(SS_EF.estado) || {}; const pd = panelDice('#axe-panel'); return { fase: e.piso ? `Bajando · piso ${e.piso}` : 'En la entrada', det: e.msg || pd.ult || pd.sub || '' }; };
+  SUBSUELO.etapa = function () { const s = lsGet('axsub-resumen', null), pd = panelDice('#axsub-panel'); return { fase: pd.ult || 'Picando vetas', det: s && s.total ? `⛏️ ${s.picadas} de ${s.total} vetas picadas` : pd.sub, pct: s && s.total ? s.picadas / s.total : null }; };
+  TORRE.etapa = function () { return { det: fondo.detalle('torre') }; };
+  let etapaUlt = null;
+  function publicarEtapa(r) {
+    if (!EN_FONDO || !r || !r.actual) return;
+    const a = r.actual, d = a.viaje ? VIAJE : EXTRA[a.href] || RUTAS[a.href];
+    const e = { fase: '', det: '', pct: null };
+    try { if (d && d.etapa && (a.viaje || d.detecta() || a.otras)) Object.assign(e, d.etapa() || {}); } catch { /* nada */ }
+    const pd = panelDice(d && PANEL_DE[d.id]);
+    if (!e.fase) e.fase = pd.ult || '';
+    if (!e.det && pd.sub && pd.sub !== e.fase) e.det = pd.sub;
+    if (!e.det || e.pct == null) { const pg = progresoPagina(); if (!e.det && pg.det) e.det = pg.det; if (e.pct == null && pg.pct != null) e.pct = pg.pct; }
+    if (!e.fase) { const u = ssLeer(SS_AHORA); if (u && u.t >= (a.desde || 0)) e.fase = corto(u.texto).replace(/^[^\p{L}\d¿]+/u, ''); }
+    if (!e.fase && a.href && ruta() !== a.href) e.fase = `Abriendo ${a.href}…`;
+    const clave = JSON.stringify([e.fase, e.det, e.pct == null ? null : Math.round(e.pct * 100)]);
+    const ahora = Date.now();
+    if (etapaUlt && etapaUlt.clave === clave && ahora - etapaUlt.t < 5000) return;
+    const cambio = etapaUlt && etapaUlt.clave === clave ? etapaUlt.cambio : ahora;
+    etapaUlt = { clave, t: ahora, cambio };
+    ssSet(SS_ETAPA, { t: ahora, cambio, desde: a.desde || ahora, fase: e.fase, det: e.det, pct: e.pct == null ? null : Math.max(0, Math.min(1, e.pct)) });
+  }
+  const etapaYendo = (fase, det = '') => { if (EN_FONDO) { const t = Date.now(); etapaUlt = null; ssSet(SS_ETAPA, { t, cambio: t, desde: t, fase, det, pct: null }); } };
+
   async function tick() {
     if (EN_FONDO) ssSet(SS_LATIDO, Date.now());
+    if (EN_FONDO) { try { publicarEtapa(ssGet()); } catch { /* nada */ } }
     if (ocupado) return;
     const r = ssGet();
     if (perdida(r)) return;
@@ -1613,58 +1692,73 @@
    * por el sessionStorage de la pestaña, que comparten. Si recargas la página, sigue donde iba. */
   function fondoActivo() { return !!ssLeer(SS_FONDO) || robotOn(); }
   const FONDO_CSS = `
-    #axd-fondo-card{position:fixed;z-index:2147483000;width:min(292px,calc(100vw - 16px));font-family:inherit;color:rgb(var(--tinta-800,33 36 29));touch-action:none;animation:axdf-entra .3s cubic-bezier(.2,1.25,.4,1) both}
-    #axd-fondo-card .axdf-caja{border-radius:18px;background:color-mix(in srgb,rgb(var(--lienzo,255 255 255)) 94%,transparent);backdrop-filter:blur(8px);border:1.5px solid color-mix(in srgb,var(--axdf-c) 45%,rgb(var(--crema-200,232 226 210)));box-shadow:0 3px 0 0 rgba(0,0,0,.06),0 14px 30px -14px rgba(0,0,0,.55);overflow:hidden}
-    #axd-fondo-card .axdf-cab{display:flex;align-items:center;gap:8px;padding:7px 7px 7px 8px;cursor:grab;user-select:none}
+    #axd-fondo-card{--axdf-bg:rgb(var(--lienzo,255 255 255));--axdf-suave:rgb(var(--crema-100,244 239 226));--axdf-borde:rgb(var(--crema-200,232 226 210));--axdf-tx:rgb(var(--tinta-800,33 36 29));--axdf-tx2:rgb(var(--tinta-400,140 143 133));position:fixed;z-index:2147483000;width:min(304px,calc(100vw - 16px));font-family:inherit;color:var(--axdf-tx);touch-action:none;animation:axdf-entra .3s cubic-bezier(.2,1.25,.4,1) both}
+    #axd-fondo-card *{box-sizing:border-box}
+    #axd-fondo-card p{margin:0}
+    #axd-fondo-card .axdf-caja{border-radius:20px;background:var(--axdf-bg);border:2px solid color-mix(in srgb,var(--axdf-c) 55%,var(--axdf-borde));box-shadow:0 4px 0 0 rgba(0,0,0,.08),0 18px 36px -16px rgba(0,0,0,.6);overflow:hidden}
+    #axd-fondo-card .axdf-cab{display:flex;align-items:center;gap:8px;padding:8px 8px 8px 9px;cursor:grab;user-select:none}
     #axd-fondo-card.axdf-arrastra .axdf-cab{cursor:grabbing}
-    #axd-fondo-card .axdf-ico{position:relative;width:30px;height:30px;flex-shrink:0;border-radius:10px;display:grid;place-items:center;font-size:16px;background:color-mix(in srgb,var(--axdf-c) 16%,rgb(var(--lienzo,255 255 255)))}
-    #axd-fondo-card[data-s="on"] .axdf-ico::after{content:"";position:absolute;inset:-3px;border-radius:12px;border:2px solid transparent;border-top-color:var(--axdf-c);animation:axdf-gira 1.1s linear infinite}
+    #axd-fondo-card .axdf-ico{position:relative;width:32px;height:32px;flex-shrink:0;border-radius:11px;display:grid;place-items:center;font-size:17px;background:color-mix(in srgb,var(--axdf-c) 18%,var(--axdf-bg))}
+    #axd-fondo-card[data-s="on"] .axdf-ico::after{content:"";position:absolute;inset:-3px;border-radius:13px;border:2px solid transparent;border-top-color:var(--axdf-c);animation:axdf-gira 1.1s linear infinite}
     #axd-fondo-card .axdf-tx{flex:1;min-width:0}
-    #axd-fondo-card .axdf-tit{margin:0;font-family:var(--font-display),system-ui,sans-serif;font-size:13px;font-weight:800;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    #axd-fondo-card .axdf-sub{margin:1px 0 0;font-size:10.5px;font-weight:700;color:rgb(var(--tinta-400,140 143 133));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    #axd-fondo-card .axdf-bt{width:24px;height:24px;flex-shrink:0;border:0;border-radius:999px;display:grid;place-items:center;cursor:pointer;font-size:11px;font-weight:900;background:rgb(var(--crema-100,244 239 226));color:rgb(var(--tinta-500,99 102 92))}
-    #axd-fondo-card .axdf-bt:hover{background:rgb(var(--crema-200,232 226 210))}
+    #axd-fondo-card .axdf-tit{font-family:var(--font-display),system-ui,sans-serif;font-size:14px;font-weight:800;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #axd-fondo-card .axdf-sub{margin-top:1px;font-size:10.5px;font-weight:700;color:var(--axdf-tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #axd-fondo-card .axdf-bts{display:flex;gap:4px;flex-shrink:0}
+    #axd-fondo-card .axdf-bt{width:26px;height:26px;border:0;border-radius:999px;display:grid;place-items:center;cursor:pointer;font-size:12px;font-weight:900;background:var(--axdf-suave);color:var(--axdf-tx2)}
+    #axd-fondo-card .axdf-bt:hover,#axd-fondo-card .axdf-bt.on{background:color-mix(in srgb,var(--axdf-c) 22%,var(--axdf-suave));color:var(--axdf-tx)}
     #axd-fondo-card .axdf-stop{color:rgb(var(--rojo-600,200 60 50))}
-    #axd-fondo-card .axdf-barra{height:3px;background:rgb(var(--crema-200,232 226 210))}
+    #axd-fondo-card .axdf-barra{height:4px;background:var(--axdf-borde)}
     #axd-fondo-card .axdf-barra>span{display:block;height:100%;width:0;background:var(--axdf-c);transition:width .6s cubic-bezier(.22,1,.36,1)}
-    #axd-fondo-card .axdf-cuerpo{padding:6px 7px 7px}
-    #axd-fondo-card .axdf-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
-    #axd-fondo-card .axdf-tile{position:relative;border:0;padding:5px 2px 4px;border-radius:11px;background:rgb(var(--crema-50,250 247 238));box-shadow:inset 0 0 0 1px rgb(var(--crema-200,232 226 210));display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0;cursor:default;font:inherit;color:inherit}
-    #axd-fondo-card .axdf-tile .i{font-size:14px;line-height:1}
-    #axd-fondo-card .axdf-tile .v{font-size:10.5px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
-    #axd-fondo-card .axdf-tile .l{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:rgb(var(--tinta-400,140 143 133));white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
-    #axd-fondo-card .axdf-tile.ya{background:color-mix(in srgb,var(--axdf-c) 14%,rgb(var(--lienzo,255 255 255)));box-shadow:inset 0 0 0 1.5px var(--axdf-c)}
+    #axd-fondo-card .axdf-cuerpo{padding:8px;display:flex;flex-direction:column;gap:7px}
+    #axd-fondo-card .axdf-ahora{border-radius:14px;padding:8px 10px 9px;background:color-mix(in srgb,var(--axdf-c) 10%,var(--axdf-bg));box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--axdf-c) 30%,transparent)}
+        #axd-fondo-card .axdf-a1{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;color:color-mix(in srgb,var(--axdf-c) 75%,var(--axdf-tx))}
+    #axd-fondo-card .axdf-a1 .n{margin-left:auto;font-variant-numeric:tabular-nums;opacity:.8}
+    #axd-fondo-card .axdf-act{margin-top:3px;font-family:var(--font-display),system-ui,sans-serif;font-size:15px;font-weight:800;line-height:1.2}
+    #axd-fondo-card .axdf-fase{margin-top:3px;font-size:12px;font-weight:800;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    #axd-fondo-card .axdf-det{margin-top:2px;font-size:11px;font-weight:700;line-height:1.3;color:var(--axdf-tx2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    #axd-fondo-card .axdf-det:empty,#axd-fondo-card .axdf-fase:empty{display:none}
+    #axd-fondo-card .axdf-pb{margin-top:6px;height:6px;border-radius:999px;background:color-mix(in srgb,var(--axdf-c) 14%,var(--axdf-borde));overflow:hidden}
+    #axd-fondo-card .axdf-pb>span{display:block;height:100%;border-radius:999px;background:var(--axdf-c);transition:width .6s cubic-bezier(.22,1,.36,1)}
+    #axd-fondo-card .axdf-pb.ind>span{width:35%!important;animation:axdf-ind 1.4s ease-in-out infinite}
+    #axd-fondo-card .axdf-a3{display:flex;gap:8px;margin-top:6px;font-size:10px;font-weight:800;color:var(--axdf-tx2);font-variant-numeric:tabular-nums}
+    #axd-fondo-card .axdf-a3 .lu{margin-left:auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #axd-fondo-card .axdf-a3 .quieto{color:#E08A00}
+    #axd-fondo-card .axdf-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
+    #axd-fondo-card .axdf-tile{display:flex;align-items:center;gap:6px;min-width:0;padding:5px 7px;border-radius:11px;background:var(--axdf-suave);font:inherit;color:inherit}
+    #axd-fondo-card .axdf-tile .i{font-size:15px;line-height:1;flex-shrink:0}
+    #axd-fondo-card .axdf-tile .tx{min-width:0;display:flex;flex-direction:column}
+    #axd-fondo-card .axdf-tile .v{font-size:11.5px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #axd-fondo-card .axdf-tile .l{font-size:9px;font-weight:800;color:var(--axdf-tx2);line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #axd-fondo-card .axdf-tile.ya{background:color-mix(in srgb,var(--axdf-c) 18%,var(--axdf-bg));box-shadow:inset 0 0 0 1.5px var(--axdf-c)}
     #axd-fondo-card .axdf-tile.ok .v{color:rgb(var(--hoja-700,40 120 60))}
     #axd-fondo-card .axdf-tile.pronto .v{color:#E08A00}
-    #axd-fondo-card .axdf-tile.boton{cursor:pointer}
-    #axd-fondo-card .axdf-tile.abierto{box-shadow:inset 0 0 0 1.5px rgb(var(--tinta-400,140 143 133))}
-    #axd-fondo-card .axdf-ahora{margin:0 0 6px;padding:5px 8px;border-radius:10px;background:color-mix(in srgb,var(--axdf-c) 9%,rgb(var(--lienzo,255 255 255)));font-size:11px;font-weight:700;line-height:1.3;color:rgb(var(--tinta-600,72 75 66));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    #axd-fondo-card .axdf-ahora:empty{display:none}
-    #axd-fondo-card .axdf-mas{margin-top:6px}
     #axd-fondo-card .axdf-mas:empty{display:none}
-    #axd-fondo-card .axdf-chips{display:flex;flex-wrap:wrap;gap:3px;max-height:96px;overflow-y:auto}
-    #axd-fondo-card .axdf-chip{display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:800;white-space:nowrap;background:rgb(var(--crema-100,244 239 226));color:rgb(var(--tinta-600,72 75 66))}
-    #axd-fondo-card .axdf-c-ok,#axd-fondo-card .axdf-c-ya{background:color-mix(in srgb,#2FA84F 14%,rgb(var(--lienzo,255 255 255)));color:rgb(var(--hoja-700,40 120 60))}
+    #axd-fondo-card .axdf-chips{display:flex;flex-wrap:wrap;gap:4px;max-height:120px;overflow-y:auto}
+    #axd-fondo-card .axdf-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:800;white-space:nowrap;background:var(--axdf-suave);color:var(--axdf-tx)}
+    #axd-fondo-card .axdf-c-ok,#axd-fondo-card .axdf-c-ya{background:color-mix(in srgb,#2FA84F 16%,var(--axdf-bg));color:rgb(var(--hoja-700,40 120 60))}
     #axd-fondo-card .axdf-c-ya{opacity:.7}
-    #axd-fondo-card .axdf-c-mal,#axd-fondo-card .axdf-c-salto{background:color-mix(in srgb,#E0A000 16%,rgb(var(--lienzo,255 255 255)));color:rgb(var(--ambar-700,160 100 0))}
-    #axd-fondo-card .axdf-c-ahora{background:color-mix(in srgb,var(--axdf-c) 18%,rgb(var(--lienzo,255 255 255)));box-shadow:inset 0 0 0 1px var(--axdf-c)}
+    #axd-fondo-card .axdf-c-mal,#axd-fondo-card .axdf-c-salto{background:color-mix(in srgb,#E0A000 18%,var(--axdf-bg));color:rgb(var(--ambar-700,160 100 0))}
+    #axd-fondo-card .axdf-c-ahora{background:color-mix(in srgb,var(--axdf-c) 20%,var(--axdf-bg));box-shadow:inset 0 0 0 1.5px var(--axdf-c)}
     #axd-fondo-card .axdf-c-luego{opacity:.55}
-    #axd-fondo-card .axdf-log{margin:0;padding:0;list-style:none;max-height:110px;overflow-y:auto;font-size:10.5px;font-weight:700;line-height:1.35;color:rgb(var(--tinta-500,99 102 92))}
-    #axd-fondo-card .axdf-log li+li{border-top:1px dashed rgb(var(--crema-200,232 226 210))}
-    #axd-fondo-card .axdf-pie{display:flex;gap:6px;margin-top:6px}
+    #axd-fondo-card .axdf-log{margin:0;padding:0;list-style:none;max-height:130px;overflow-y:auto;font-size:11px;font-weight:700;line-height:1.4;color:var(--axdf-tx2)}
+    #axd-fondo-card .axdf-log li{padding:2px 0}
+    #axd-fondo-card .axdf-log li+li{border-top:1px dashed var(--axdf-borde)}
+    #axd-fondo-card .axdf-pie{display:flex;gap:6px}
     #axd-fondo-card .axdf-pie:empty{display:none}
-    #axd-fondo-card .axdf-pie button{flex:1;border:0;border-radius:999px;padding:6px 8px;font-size:11px;font-weight:900;cursor:pointer;background:rgb(var(--crema-100,244 239 226));color:rgb(var(--tinta-600,72 75 66))}
+    #axd-fondo-card .axdf-pie button{flex:1;border:0;border-radius:999px;padding:7px 8px;font-size:12px;font-weight:900;cursor:pointer;background:var(--axdf-suave);color:var(--axdf-tx)}
     #axd-fondo-card .axdf-pie button.axdf-prim{background:var(--axdf-c);color:#fff}
-    #axd-fondo-card.axdf-mini{width:auto}
+    #axd-fondo-card.axdf-mini{width:auto;max-width:calc(100vw - 16px)}
     #axd-fondo-card.axdf-mini .axdf-caja{border-radius:999px}
-    #axd-fondo-card.axdf-mini .axdf-cab{padding:4px 5px 4px 4px;gap:6px}
-    #axd-fondo-card.axdf-mini .axdf-ico{width:26px;height:26px;border-radius:999px;font-size:14px}
+    #axd-fondo-card.axdf-mini .axdf-cab{padding:4px 6px 4px 4px;gap:7px}
+    #axd-fondo-card.axdf-mini .axdf-ico{width:28px;height:28px;border-radius:999px;font-size:15px}
     #axd-fondo-card.axdf-mini[data-s="on"] .axdf-ico::after{border-radius:999px}
     #axd-fondo-card.axdf-mini .axdf-tit{font-size:12px}
-    #axd-fondo-card.axdf-mini .axdf-sub,#axd-fondo-card.axdf-mini .axdf-barra,#axd-fondo-card.axdf-mini .axdf-cuerpo,#axd-fondo-card.axdf-mini .axdf-stop,#axd-fondo-card.axdf-mini .axdf-log-bt{display:none}
-    #axd-fondo-card .axdf-rueda{width:9px;height:9px;border-radius:999px;border:2px solid color-mix(in srgb,var(--axdf-c) 30%,transparent);border-top-color:var(--axdf-c);display:inline-block;animation:axdf-gira .8s linear infinite}
+    #axd-fondo-card.axdf-mini .axdf-sub{font-size:10px;max-width:180px}
+    #axd-fondo-card.axdf-mini .axdf-barra,#axd-fondo-card.axdf-mini .axdf-cuerpo,#axd-fondo-card.axdf-mini .axdf-stop,#axd-fondo-card.axdf-mini .axdf-log-bt,#axd-fondo-card.axdf-mini .axdf-lista-bt{display:none}
+    #axd-fondo-card .axdf-rueda{width:10px;height:10px;flex-shrink:0;border-radius:999px;border:2px solid color-mix(in srgb,var(--axdf-c) 30%,transparent);border-top-color:var(--axdf-c);display:inline-block;animation:axdf-gira .8s linear infinite}
     @keyframes axdf-entra{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
     @keyframes axdf-gira{to{transform:rotate(360deg)}}
+    @keyframes axdf-ind{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}
     @media (prefers-reduced-motion:reduce){#axd-fondo-card,#axd-fondo-card *{animation:none!important}}`;
   const LS_MINI = 'axd-fondo-mini';
   const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -1877,14 +1971,16 @@
         c.innerHTML = `<div class="axdf-caja">
             <div class="axdf-cab" title="Arrastra para moverlo · doble toque: a su sitio"><div class="axdf-ico"><span>🤖</span></div>
               <div class="axdf-tx"><p class="axdf-tit"></p><p class="axdf-sub"></p></div>
+              <div class="axdf-bts"><button type="button" class="axdf-bt axdf-lista-bt" title="Las diarias de hoy, una a una">📋</button>
               <button type="button" class="axdf-bt axdf-log-bt" title="Lo que ha hecho">📜</button>
               <button type="button" class="axdf-bt axdf-min" title="Minimizar">–</button>
-              <button type="button" class="axdf-bt axdf-stop" title="Parar">■</button></div>
+              <button type="button" class="axdf-bt axdf-stop" title="Parar">■</button></div></div>
             <div class="axdf-barra"><span></span></div>
-            <div class="axdf-cuerpo"><div class="axdf-ahora"></div><div class="axdf-tiles"></div><div class="axdf-mas"></div><div class="axdf-pie"></div></div></div>`;
+            <div class="axdf-cuerpo"><div class="axdf-ahora"><div class="axdf-a1"><span class="axdf-rueda"></span><span class="k"></span><span class="n"></span></div><p class="axdf-act"></p><p class="axdf-fase"></p><p class="axdf-det"></p><div class="axdf-pb"><span></span></div><div class="axdf-a3"><span class="t"></span><span class="q"></span><span class="lu"></span></div></div><div class="axdf-tiles"></div><div class="axdf-mas"></div><div class="axdf-pie"></div></div></div>`;
         const abrir = que => { const a = lsGet('axd-fondo-abierto', ''); lsPut('axd-fondo-abierto', a === que ? '' : que); this.pintar(); };
         c.querySelector('.axdf-min').addEventListener('click', e => { e.stopPropagation(); const m = !c.classList.contains('axdf-mini'); try { localStorage.setItem(LS_MINI, m ? '1' : '0'); } catch { /* nada */ } this.pintar(); setTimeout(() => this.colocar(c), 0); });
         c.querySelector('.axdf-log-bt').addEventListener('click', e => { e.stopPropagation(); abrir('log'); });
+        c.querySelector('.axdf-lista-bt').addEventListener('click', e => { e.stopPropagation(); abrir('diarias'); });
         c.querySelector('.axdf-stop').addEventListener('click', e => {
           e.stopPropagation();
           if (robotOn()) { if (confirm('¿Parar el robot de diarias?\n\nLo que ya está hecho, hecho queda. Puedes seguir luego donde lo dejó.')) this.parar(); }
@@ -1894,7 +1990,6 @@
           if (e.target.closest('button') || Date.now() - (+c.dataset.recienMovido || 0) < 400) return;
           if (c.classList.contains('axdf-mini')) { this.ver(); setTimeout(() => this.colocar(c), 0); }
         });
-        c.querySelector('.axdf-tiles').addEventListener('click', e => { const t = e.target.closest('[data-abre]'); if (t) abrir(t.dataset.abre); });
         c.querySelector('.axdf-pie').addEventListener('click', e => {
           const b = e.target.closest('button'); if (!b) return;
           if (b.dataset.a === 'cerrar') this.cerrar();
@@ -1920,18 +2015,21 @@
       const sig = Object.keys(ROBOT).map(id => ({ id, t: rtGet(id) })).filter(x => x.t.prox > ahora && !(r && (enDiarias ? x.id === 'diarias' : idAhora === x.id))).sort((a, b) => a.t.prox - b.t.prox)[0];
       const cuenta = t => t - ahora > 6 * 3600000 ? hhmm(t) : mmss(t - ahora);
       let color = '#7C5CFF', estado = 'on', titulo, sub;
-      const det = idAhora ? this.detalle(idAhora) : '';
-      const ult = ssLeer(SS_AHORA), ultTxt = ult && ult.texto && ahora - ult.t < 10 * 60000 ? corto(ult.texto) : '';
-      if (!on) { color = '#8C8F85'; estado = 'off'; titulo = 'Robot parado'; sub = R.parado ? `desde las ${hhmm(R.parado)}` : ''; }
+      const et = r ? ssLeer(SS_ETAPA) : null;
+      const quedanN = enDiarias ? ld.filter(x => x.e === 'luego').length : 0;
+      if (!on) { color = '#8C8F85'; estado = 'off'; titulo = 'Robot parado'; sub = R.parado ? `desde las ${hhmm(R.parado)} · lo hecho, hecho queda` : ''; }
       else if (r) {
-        titulo = enDiarias ? `Diarias · ${hechasN}/${ld.length || '…'}` : (actual || 'Terminando…');
-        sub = (det || ultTxt || (enDiarias ? actual || 'Mirando qué queda…' : '')).replace(/^[^\p{L}\d¿]+/u, '');
+        titulo = enDiarias ? `Diarias · ${hechasN} de ${ld.length || '…'}` : (actual || 'Terminando…').replace(/^[^\p{L}¿]+/u, '');
+        sub = enDiarias ? (ld.length ? `${quedanN ? `quedan ${quedanN}` : 'la última'}${r.t0 ? ` · desde ${hhmm(r.t0)}` : ''}` : 'Mirando qué queda…') : 'Tarea con hora del robot';
       } else {
         estado = 'espera'; color = '#5B8DEF';
         titulo = 'En espera';
-        sub = sig ? `${ROBOT[sig.id].nombre} en ${cuenta(sig.t.prox)}` : 'nada pendiente';
+        sub = sig ? `${ROBOT[sig.id].nombre.replace(/^[^\p{L}¿]+/u, '')} en ${cuenta(sig.t.prox)}` : 'nada pendiente hoy';
       }
-      if (mini && on) { titulo = r ? (enDiarias ? `${hechasN}/${ld.length || '…'}` : (ROBOT[idAhora] ? ROBOT[idAhora].nombre : '▶')) : sig ? `${ROBOT[sig.id].nombre.split(' ')[0]} ${cuenta(sig.t.prox)}` : '💤'; }
+      if (mini && on) {
+        titulo = r ? (enDiarias ? `Diarias ${hechasN}/${ld.length || '…'}` : (actual || '▶').replace(/^[^\p{L}¿]+/u, '')) : sig ? `${ROBOT[sig.id].nombre.split(' ')[0]} ${cuenta(sig.t.prox)}` : '💤';
+        sub = r ? (et && et.fase) || (actual || '') : '';
+      }
       c.style.setProperty('--axdf-c', color); c.dataset.s = estado;
       set('.axdf-tit', titulo); set('.axdf-sub', sub || '');
       set('.axdf-ico span', !on ? '⏹' : r ? '🤖' : '💤');
@@ -1941,28 +2039,56 @@
       c.querySelector('.axdf-stop').title = on ? 'Parar el robot' : 'Cerrar';
       c.querySelector('.axdf-min').style.display = on ? '' : 'none';
       set('.axdf-stop', on ? '■' : '✕');
-      set('.axdf-ahora', '', true);
-      // la agenda en fichitas: cada cosa, con su cuenta atrás (o ✅ si ya está hasta mañana)
-      const CORTO = { diarias: 'Diarias', huerto: 'Huerto', torre: 'Torre', tronos: 'Tronos', entranas: 'Entrañas', subsuelo: 'Subsuelo', missingno: 'MissingNo' };
-      const manana0 = (() => { const d = new Date(); d.setHours(24, 0, 0, 0); return d.getTime(); })();
       const abierto = lsGet('axd-fondo-abierto', '');
-      const tiles = Object.keys(ROBOT).map(id => {
-        const t = rtGet(id), ya = on && r && (enDiarias ? id === 'diarias' : idAhora === id);
-        let v = '—', cls = '', l = CORTO[id];
-        if (ya) {
-          v = id === 'diarias' ? `${hechasN}/${ld.length || '…'}` : id === 'entranas' ? `P${(ssLeer(SS_EF.estado) || {}).piso || 1}` : '▶';
-          cls = 'ya';
-        } else if (on && t.prox) {
-          if (t.prox >= manana0) { v = '✅'; cls = 'ok'; }
-          else if (t.prox <= ahora) v = ROBOT[id].chequeo && !t.listo ? '…' : 'ya';
+      c.querySelector('.axdf-lista-bt').style.display = ld.length ? '' : 'none';
+      c.querySelector('.axdf-lista-bt').classList.toggle('on', abierto === 'diarias');
+      c.querySelector('.axdf-log-bt').classList.toggle('on', abierto === 'log');
+      // «Ahora»: qué actividad, en qué etapa está dentro de ella, el detalle y cuánto le queda (cada línea por su lado:
+      // así el reloj no reinicia las animaciones)
+      const A = { k: '', n: '', act: '', fase: '', det: '', pct: null, ind: false, t: '', q: '', qCls: '', lu: '', rueda: false, ver: false };
+      if (on && r) {
+        const nAhora = enDiarias && r.actual && !r.actual.viaje ? ld.findIndex(x => x.e === 'ahora') + 1 : 0;
+        const e = et && (!r.actual || !r.actual.desde || (et.desde || 0) >= r.actual.desde - 3000) ? et : null;
+        const pct = e && e.pct != null ? Math.round(e.pct * 100) : null;
+        const quieto = e && e.cambio ? Math.round((ahora - e.cambio) / 1000) : 0;
+        const sigP = (r.cola || []).find(x => !x.viaje) || (r.cola || [])[0];
+        Object.assign(A, {
+          ver: true, rueda: true, k: 'Ahora', n: nAhora ? `${nAhora} de ${ld.length}` : '',
+          act: r.actual ? nombrePaso(r.actual, r.casa) : r.preparar || r.preparando ? '🗓️ Preparando la ruta' : '🏁 Terminando',
+          fase: e ? e.fase : r.actual ? 'Entrando…' : 'Mirando qué queda…', det: e ? e.det || '' : '',
+          pct, ind: pct == null, t: r.actual && r.actual.desde ? `⏱ ${mmss(ahora - r.actual.desde)}` : '',
+          q: quieto >= 45 ? `sin cambios ${mmss(quieto * 1000)}` : pct != null ? `${pct}%` : '', qCls: quieto >= 45 ? 'quieto' : '',
+          lu: sigP ? `luego: ${nombrePaso(sigP, r.casa).replace(/^[^\p{L}¿]+/u, '')}` : '',
+        });
+      } else if (on && sig) {
+        Object.assign(A, { ver: true, k: '💤 En espera', act: ROBOT[sig.id].nombre, fase: `Le toca a las ${hhmm(sig.t.prox)} (en ${cuenta(sig.t.prox)})`, det: sig.t.info || '', pct: null, ind: false });
+      }
+      const caja = c.querySelector('.axdf-ahora');
+      caja.style.display = A.ver ? '' : 'none';
+      caja.querySelector('.axdf-a1 .axdf-rueda').style.display = A.rueda ? '' : 'none';
+      set('.axdf-a1 .k', A.k); set('.axdf-a1 .n', A.n); set('.axdf-act', A.act); set('.axdf-fase', A.fase); set('.axdf-det', A.det);
+      const pb = caja.querySelector('.axdf-pb');
+      pb.style.display = A.rueda ? '' : 'none'; pb.classList.toggle('ind', A.ind);
+      pb.firstElementChild.style.width = (A.pct == null ? 0 : A.pct) + '%';
+      set('.axdf-a3 .t', A.t); set('.axdf-a3 .q', A.q); set('.axdf-a3 .lu', A.lu);
+      caja.querySelector('.axdf-a3 .q').className = 'q ' + A.qCls;
+      caja.querySelector('.axdf-a3').style.display = A.t || A.q || A.lu ? '' : 'none';
+      // lo que va por horas, en casillas: cada cosa con su cuenta atrás (o ✅ si ya está hasta mañana)
+      const CORTO = { huerto: 'Huerto', torre: 'Torre', tronos: 'Tronos', entranas: 'Entrañas', subsuelo: 'Subsuelo', missingno: 'MissingNo' };
+      const manana0 = (() => { const d = new Date(); d.setHours(24, 0, 0, 0); return d.getTime(); })();
+      const tiles = Object.keys(ROBOT).filter(id => id !== 'diarias').map(id => {
+        const t = rtGet(id), ya = on && r && !enDiarias && idAhora === id;
+        let v = '—', cls = '', l = CORTO[id] || id;
+        if (ya) { v = id === 'entranas' ? `piso ${(ssLeer(SS_EF.estado) || {}).piso || 1}` : 'ahora'; cls = 'ya'; }
+        else if (on && t.prox) {
+          if (t.prox >= manana0) { v = '✅ hoy'; cls = 'ok'; }
+          else if (t.prox <= ahora) v = ROBOT[id].chequeo && !t.listo ? 'mirando' : r ? 'en cola' : 'toca ya';
           else { v = cuenta(t.prox); if (t.prox - ahora < 5 * 60000) cls = 'pronto'; }
         }
-        if (id === 'diarias' && !ya && ld.length) { v = `${hechasN}/${ld.length}`; if (hechasN === ld.length) cls = 'ok'; }
         if (id === 'subsuelo') { const s = lsGet('axsub-resumen', null); if (s && s.total) l = `${s.picadas}/${s.total} vetas`; }
-        if (id === 'tronos') { const tipo = (String(t.info || '').match(/tienes el de (\S+)/) || [])[1]; if (tipo) l = tipo; }
-        const titulo = `${ROBOT[id].nombre}${t.info ? ' · ' + t.info : ''}${t.prox && !ya ? ` · ${t.prox <= ahora ? 'toca ya' : 'a las ' + hhmm(t.prox)}` : ''}`;
-        const abre = id === 'diarias' ? ' boton" data-abre="diarias' : '';
-        return `<button type="button" class="axdf-tile ${cls}${abierto === 'diarias' && id === 'diarias' ? ' abierto' : ''}${abre}" title="${esc(titulo)}"><span class="i">${ya ? '<span class="axdf-rueda"></span>' : ROBOT[id].nombre.split(' ')[0]}</span><span class="v">${esc(v)}</span><span class="l">${esc(l)}</span></button>`;
+        if (id === 'tronos') { const tipo = (String(t.info || '').match(/tienes el de (\S+)/) || [])[1]; if (tipo) l = `Trono ${tipo}`; }
+        const tt = `${ROBOT[id].nombre}${t.info ? ' · ' + t.info : ''}${t.prox && !ya ? ` · ${t.prox <= ahora ? 'toca ya' : 'a las ' + hhmm(t.prox)}` : ''}`;
+        return `<div class="axdf-tile ${cls}" title="${esc(tt)}"><span class="i">${ya ? '<span class="axdf-rueda"></span>' : ROBOT[id].nombre.split(' ')[0]}</span><span class="tx"><span class="v">${esc(v)}</span><span class="l">${esc(l)}</span></span></div>`;
       }).join('');
       set('.axdf-tiles', tiles, true);
       // desplegable: las diarias una a una, o lo que ha hecho
