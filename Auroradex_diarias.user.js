@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.19.0
+// @version      1.20.0
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1751,6 +1751,9 @@
     #axd-fondo-card .axdf-log{margin:0;padding:0;list-style:none;max-height:130px;overflow-y:auto;font-size:11px;font-weight:700;line-height:1.4;color:var(--axdf-tx2)}
     #axd-fondo-card .axdf-log li{padding:2px 0}
     #axd-fondo-card .axdf-log li+li{border-top:1px dashed var(--axdf-borde)}
+    #axd-fondo-card .axdf-movil{display:flex;gap:5px}
+    #axd-fondo-card .axdf-movil button{flex:1;border:0;border-radius:999px;padding:5px 8px;font-size:10.5px;font-weight:800;cursor:pointer;background:var(--axdf-suave);color:var(--axdf-tx2)}
+    #axd-fondo-card .axdf-movil button.on{background:color-mix(in srgb,var(--axdf-c) 20%,var(--axdf-suave));color:var(--axdf-tx)}
     #axd-fondo-card .axdf-pie{display:flex;gap:6px}
     #axd-fondo-card .axdf-pie:empty{display:none}
     #axd-fondo-card .axdf-pie button{flex:1;border:0;border-radius:999px;padding:7px 8px;font-size:12px;font-weight:900;cursor:pointer;background:var(--axdf-suave);color:var(--axdf-tx)}
@@ -1788,6 +1791,32 @@
   }
   // La pestaña manda: el robot (qué toca y cuándo), la ventana oculta mientras hay algo que hacer y la tarjeta
   const mmss = ms => { const t = Math.max(0, Math.round(ms / 1000)), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60); return h ? `${h}:${String(m).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}` : `${m}:${String(t % 60).padStart(2, '0')}`; };
+  // En el móvil, con la pantalla apagada el navegador congela la pestaña (y el robot con ella). Lo que sí se puede:
+  // que no se apague sola mientras el robot trabaja (Wake Lock) y un «modo noche» en negro (en OLED casi no gasta)
+  const LS_DESPIERTO = 'axd-despierto';
+  const despiertoOn = () => lsGet(LS_DESPIERTO, true) !== false;
+  let wakeLock = null, wakePidiendo = false;
+  async function mantenerDespierto(si) {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      if (si && !wakeLock && !wakePidiendo && document.visibilityState === 'visible') {
+        wakePidiendo = true;
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      } else if (!si && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
+    } catch { wakeLock = null; } finally { wakePidiendo = false; }
+  }
+  function modoNoche(si) {
+    let o = document.getElementById('axd-noche');
+    if (!si) { if (o) o.remove(); return; }
+    if (o) return;
+    o = document.createElement('div');
+    o.id = 'axd-noche'; o.setAttribute('data-ax-ignore', '');
+    o.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font:700 12px system-ui,sans-serif;color:#3a3a3a;text-align:center;padding:24px;cursor:pointer;touch-action:manipulation';
+    o.innerHTML = '<p class="t" style="margin:0"></p><p class="f" style="margin:0;font-weight:600"></p><p style="margin:14px 0 0;font-size:10px;color:#262626">Toca para volver · no bloquees el móvil: la pantalla tiene que seguir encendida</p>';
+    o.addEventListener('click', () => modoNoche(false));
+    document.body.appendChild(o);
+  }
   const fondo = {
     reinicios: 0, vistaDesde: Date.now(), chequeando: false,
     iframe() { return document.querySelector(`iframe[name="${FONDO_NOMBRE}"]`); },
@@ -1913,6 +1942,8 @@
           if (ids.length) this.lanzar([ids[0]]);
         }
       }
+      mantenerDespierto(!!(R && R.on) && despiertoOn());
+      if (!(R && R.on)) modoNoche(false);
       this.pintar();
     },
     // la línea de «ahora» de cada tarea mientras se hace
@@ -1984,7 +2015,7 @@
               <button type="button" class="axdf-bt axdf-min" title="Minimizar">–</button>
               <button type="button" class="axdf-bt axdf-stop" title="Parar">■</button></div></div>
             <div class="axdf-barra"><span></span></div>
-            <div class="axdf-cuerpo"><div class="axdf-ahora"><div class="axdf-a1"><span class="axdf-rueda"></span><span class="k"></span><span class="n"></span></div><p class="axdf-act"></p><p class="axdf-fase"></p><p class="axdf-det"></p><div class="axdf-pb"><span></span></div><div class="axdf-a3"><span class="t"></span><span class="q"></span><span class="lu"></span></div></div><div class="axdf-tiles"></div><div class="axdf-mas"></div><div class="axdf-pie"></div></div></div>`;
+            <div class="axdf-cuerpo"><div class="axdf-ahora"><div class="axdf-a1"><span class="axdf-rueda"></span><span class="k"></span><span class="n"></span></div><p class="axdf-act"></p><p class="axdf-fase"></p><p class="axdf-det"></p><div class="axdf-pb"><span></span></div><div class="axdf-a3"><span class="t"></span><span class="q"></span><span class="lu"></span></div></div><div class="axdf-tiles"></div><div class="axdf-mas"></div><div class="axdf-movil"><button type="button" data-m="despierto"></button><button type="button" data-m="noche">🌙 Modo noche</button></div><div class="axdf-pie"></div></div></div>`;
         const abrir = que => { const a = lsGet('axd-fondo-abierto', ''); lsPut('axd-fondo-abierto', a === que ? '' : que); this.pintar(); };
         c.querySelector('.axdf-min').addEventListener('click', e => { e.stopPropagation(); const m = !c.classList.contains('axdf-mini'); try { localStorage.setItem(LS_MINI, m ? '1' : '0'); } catch { /* nada */ } this.pintar(); setTimeout(() => this.colocar(c), 0); });
         c.querySelector('.axdf-log-bt').addEventListener('click', e => { e.stopPropagation(); abrir('log'); });
@@ -1997,6 +2028,11 @@
         c.querySelector('.axdf-cab').addEventListener('click', e => {
           if (e.target.closest('button') || Date.now() - (+c.dataset.recienMovido || 0) < 400) return;
           if (c.classList.contains('axdf-mini')) { this.ver(); setTimeout(() => this.colocar(c), 0); }
+        });
+        c.querySelector('.axdf-movil').addEventListener('click', e => {
+          const b = e.target.closest('button'); if (!b) return;
+          if (b.dataset.m === 'despierto') { lsPut(LS_DESPIERTO, !despiertoOn()); mantenerDespierto(robotOn() && despiertoOn()); this.pintar(); }
+          else if (b.dataset.m === 'noche') modoNoche(true);
         });
         c.querySelector('.axdf-pie').addEventListener('click', e => {
           const b = e.target.closest('button'); if (!b) return;
@@ -2109,6 +2145,11 @@
         mas = `<ul class="axdf-log">${R.fuera ? `<li>🧭 Te he dejado fuera de ${esc(R.fuera)}.</li>` : ''}${l.map(x => `<li>${esc(x)}</li>`).join('') || '<li>Aún nada.</li>'}</ul>`;
       }
       set('.axdf-mas', mas, true);
+      c.querySelector('.axdf-movil').style.display = on ? '' : 'none';
+      set('.axdf-movil [data-m="despierto"]', 'wakeLock' in navigator ? `🔆 Pantalla encendida: ${despiertoOn() ? 'sí' : 'no'}` : '🔆 Este navegador no deja');
+      c.querySelector('.axdf-movil [data-m="despierto"]').classList.toggle('on', despiertoOn() && 'wakeLock' in navigator);
+      const noche = document.getElementById('axd-noche');
+      if (noche) { const tn = noche.querySelector('.t'), fn = noche.querySelector('.f'), a = c.querySelector('.axdf-act'), fz = c.querySelector('.axdf-fase'); const v1 = `🤖 ${titulo}`, v2 = `${a && a.textContent ? a.textContent + ' · ' : ''}${(fz && fz.textContent) || sub || ''}`; if (tn.textContent !== v1) tn.textContent = v1; if (fn.textContent !== v2) fn.textContent = v2; }
       set('.axdf-pie', on ? '' : `<button type="button" data-a="cerrar">Cerrar</button><button type="button" data-a="seguir" class="axdf-prim">▶ Seguir</button>`, true);
     },
   };
