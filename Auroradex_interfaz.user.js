@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.14.0
+// @version      1.15.0
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1140,9 +1140,24 @@
       if (!tipo) tipo = prev.tuyos ? prev.tipo || '' : '';
       const pm = enDetalle && hojasQue(m, /\d+\s*retos?\s+parados?/i).map(h => +textoDe(h).match(/(\d+)\s*retos?\s+parados?/i)[1])[0];
       const parados = typeof pm === 'number' ? pm : prev.tuyos && prev.tipo === tipo && prev.parados != null ? prev.parados : null;
-      return { tuyos: 1, tipo, parados, txt: `trono ${tipo} · ${parados == null ? '?' : plural(parados, 'parado')}` };
+      const mismo = prev.tuyos && prev.tipo && normalizarTexto(prev.tipo) === normalizarTexto(tipo);
+      return { tuyos: 1, tipo, parados, desde: mismo ? prev.desde || null : null, txt: `trono ${tipo} · ${parados == null ? '?' : plural(parados, 'parado')}` };
     },
   };
+  // Los Tronos, sin abrir nada: la página trae en sus datos la vitrina entera (de quién es cada trono, desde cuándo y los
+  // retos parados), así que al pedirla por detrás ya se sabe todo lo del tuyo
+  const TIPO_BONITO = { Electrico: 'Eléctrico', Psiquico: 'Psíquico', Dragon: 'Dragón' };
+  function tronosDeHtml(html) {
+    const s = String(html || '').replace(/\\"/g, '"'), i = s.indexOf('"vitrina":[');
+    if (i < 0) return null;
+    const lista = [...s.slice(i, i + 30000).matchAll(/\{"tipo":"([^"]+)","ocupado":(?:true|false)[^{}]*?"esYo":(true|false)[^{}]*?"desde":(?:"([^"]+)"|null)[^{}]*?"retosParados":(\d+)/g)];
+    if (!lista.length) return null;
+    const mio = lista.find(m => m[2] === 'true');
+    if (!mio) return { tuyos: 0, txt: 'sin trono' };
+    const tipo = TIPO_BONITO[mio[1]] || mio[1], parados = +mio[4], desde = mio[3] ? Date.parse(mio[3]) || null : null;
+    return { tuyos: 1, tipo, parados, desde, txt: `trono ${tipo} · ${plural(parados, 'parado')}` };
+  }
+  const llevas = ms => { const m = Math.max(0, Math.floor(ms / 60000)), h = Math.floor(m / 60), d = Math.floor(h / 24); return d ? `${d}d ${h % 24}h` : h ? `${h}h ${m % 60}m` : `${m}m`; };
   function guardarInfo(href, v) {
     if (!v) return;
     const info = lsJSON(INFO_KEY, {}), g = info[href];
@@ -1173,6 +1188,7 @@
         if (g.tuyos == null) return null;
         if (!g.tuyos) return chip('ax-c-gris', 'Sin trono');
         return chip('ax-c-rey', kEsc(g.tipo || 'Tuyo'))
+          + (g.desde ? chip('ax-c-plano', `⏱ ${llevas(Date.now() - g.desde)}`) : '')
           + (g.parados == null ? '' : chip(g.parados ? 'ax-c-escudo' : 'ax-c-gris', `${g.parados} parado${g.parados === 1 ? '' : 's'}`));
     }
     return null;
@@ -1200,7 +1216,11 @@
         infoIntento[h] = Date.now();
         try {
           const html = await pedirPagina(h);
-          if (html) { const d = new DOMParser().parseFromString(html, 'text/html'); guardarInfo(h, LECTORES[h](d.querySelector('main') || d.body)); }
+          if (html) {
+            const deDatos = h === '/tronos' ? tronosDeHtml(html) : null;
+            if (deDatos) guardarInfo(h, deDatos);
+            else { const d = new DOMParser().parseFromString(html, 'text/html'); guardarInfo(h, LECTORES[h](d.querySelector('main') || d.body)); }
+          }
         } catch { /* sin red: se queda lo guardado */ }
       }
     } finally { infoPidiendo = false; }
