@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.17.0
+// @version      1.17.1
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -488,15 +488,14 @@
     },
     // «Ya has hecho tu visita de hoy…» (ojo: dentro pone «Al salir se acaba la visita de hoy», que no es lo mismo)
     cerrada: () => /has hecho tu visita de hoy|abre otra vez mañana/i.test(textoMain()),
-    otraRegion(g) { const r = this.region(); return !!r && r !== g; },
-    apuntar() {
-      const reg = this.region();
+    otraRegion(g) { if (this.arrancado) return false; const r = this.region(); return !!r && r !== g; },
+    apuntar(reg = this.region()) {
       if (reg) { const s = safarisHoy(); if (!s.hechas.includes(reg)) { s.hechas.push(reg); lsPut('axd-safaris', s); } marcarInterfaz('/safari@' + reg.toLowerCase()); }
     },
     listo() {
       if (!this.cerrada()) return false;
       const r = ssGet(), g = r && r.actual && r.actual.region;
-      if (!g || g === this.region()) this.apuntar();
+      if (g && this.arrancado) this.apuntar(g); else if (!g || g === this.region()) this.apuntar();
       return true;
     },
     desde: 0, arrancado: false, arranques: 0, salidas: 0,
@@ -518,7 +517,7 @@
       if (fin) return pulsar(fin, `🌾 ${texto(fin)}`);
       // «¿Seguro? Se acaba la visita de hoy…»: «Sí, salir» (no «Seguir aquí», que la deja abierta y vuelve a empezar)
       const confirmar = juego(/^s[ií],?\s*salir/i);
-      if (confirmar && this.arrancado) { this.apuntar(); return pulsar(confirmar, `🌾 ${texto(confirmar)}`, [2000, 3000]); }
+      if (confirmar && this.arrancado) { const r0 = ssGet(); this.apuntar((r0 && r0.actual && r0.actual.region) || undefined); return pulsar(confirmar, `🌾 ${texto(confirmar)}`, [2000, 3000]); }
       const andar = juego(/^andar/i), salir = juego(/^salir de/i);
       const smart = p.querySelector('[data-ax="smart"]');
       // arrancar Safari Auto (y volver a arrancarlo si se para con pasos por andar, hasta 3 veces)
@@ -1217,7 +1216,12 @@
       }
       const r = ssGet();
       if (!r || !r.actual) return false;
-      if (r.actual.arrancado) return true;
+      if (r.actual.arrancado) {
+        // lo que va haciendo el Cazador de Manadas (región a región), a la tarjeta
+        const g = ssLeer('mh-gratis-fondo') || ssLeer('mh-gratis'), u = g && g.log && g.log[g.log.length - 1];
+        if (u && u !== this.ultimo && !/^🐾 Empiezo/.test(u)) { this.ultimo = u; log(`📺 ${u}`); }
+        return true;
+      }
       const b = document.querySelector('#mh-gratis button');
       if (!b) {
         if (!this.desde) this.desde = Date.now();
