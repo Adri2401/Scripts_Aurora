@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Grutas del Subsuelo (todas las vetas)
 // @namespace    auroradex-grutas
-// @version      0.8.0
+// @version      0.9.0
 // @description  Solo en /subsuelo. «🧭 Explorar y picar»: recorre el mapa deprisa y pica cada veta (y Poké Ball) que ve de los tipos elegidos. «⛏️ Picarlas todas»: el camino más corto por todas las que conoce (el mínimo de pasos, que es lo que cuesta energía al andar; con botas, 1 ⚡ cada 9). Usa los datos del propio juego (el trozo de mapa del servidor con cada veta, su tipo y cuándo vuelve, y el mapa entero de «Ver mapa») y recuerda todo lo que ve. Sabe qué es cada casilla (la lava la reconoce por su dibujo) y nunca pisa lava, escaleras, la Sima ni puertas. Eliges qué tipos picar y el ritmo (humano por defecto). Dibuja el camino y se para si no llega la energía; sigue donde lo dejó. Antes de andar se pone las Botas de Andar del Huerto (con su script). /subsuelo?explorar=1 empieza solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -954,12 +954,8 @@
   const EMOJI_TIPO = [[/roja/i, '🔴'], [/azul/i, '🔵'], [/f[oó]sil|cr[aá]neo|coraza/i, '🦴'], [/magma/i, '🌋'], [/placa/i, '📜'], [/ball|poke/i, '⚪'], [/fil[oó]n|brillante/i, '🌟'], [/mineral/i, '💠'], [/veta|peque|grande/i, '💎']];
   const emojiTipo = tp => (EMOJI_TIPO.find(([re]) => re.test(tp)) || [0, '⛏️'])[1];
   const nombreTipo = tp => { const s = String(tp).replace(/[-_]+/g, ' ').trim(); return s.charAt(0).toUpperCase() + s.slice(1); };
-  // Un tipo nuevo (que aparece más tarde) se pica solo si no has quitado ninguno: si has elegido, lo nuevo empieza quitado
-  const quiereTipo = tp => {
-    const t = cfg.tipos || {};
-    if (tp in t) return t[tp] !== false;
-    return !Object.values(t).some(v => v === false);
-  };
+  // Solo se salta lo que has quitado tú a mano: un tipo nuevo (que aparece más tarde) siempre se pica
+  const quiereTipo = tp => { const t = cfg.tipos || {}; return !(tp in t) || t[tp] !== false; };
   // Lo que dice el dibujo de un código: al menos 4 casillas vistas y 7 de cada 10 iguales
   function votado(m, c) {
     const vv = m.votos && m.votos[c];
@@ -1175,8 +1171,8 @@
     return { dist, prev, idx, W };
   }
   const INF = 1e9;
-  function planificar(o, tope = 700) {
-    const mapa = construirMapa(o);
+  function planificar(o, tope = 700, relajado = false) {
+    const mapa = construirMapa(o, relajado);
     const inicio = o.pos;
     const disp = mapa.vetas.filter(v => v.ok);
     // casillas desde las que se pica cada veta (al lado, sin diagonales)
@@ -1654,8 +1650,11 @@
       let total = 0, picadas = 0, proxima = 0;
       for (const [k, n] of Object.entries(nodos)) {
         total++;
-        const mv = (m.vetas || {})[k];
-        if (mv && mv.picada && mv.picada >= (n.visto || 0) - 5000 && ahora - mv.picada < H12) { picadas++; const vuelve = mv.picada + H12; if (!proxima || vuelve < proxima) proxima = vuelve; }
+        const mv = (m.vetas || {})[k], disp = aTiempo(n.disp);
+        // vacía: el juego dice hasta cuándo (o la has picado tú en las últimas 12 h)
+        let vuelve = !n.activo && disp && disp > ahora ? disp : 0;
+        if (!vuelve && mv && mv.picada && mv.picada >= (n.visto || 0) - 5000 && ahora - mv.picada < H12) vuelve = mv.picada + H12;
+        if (vuelve) { picadas++; if (!proxima || vuelve < proxima) proxima = vuelve; }
       }
       const r = { total, picadas, proxima, t: ahora };
       lsPon('axsub-resumen', r);
@@ -1700,7 +1699,21 @@
     pintar();
     if (marco === 'datos' && !(await leerPlano()) && !planoMemo) log('ℹ️ No he podido leer el mapa entero («Ver mapa»): sigo con lo que voy viendo.');
     log(modo === 'explorar' ? '🧭 Exploro lo que falta del mapa y pico cada veta que vea.' : '▶ Empiezo: camino más corto por todas las vetas.');
-    let fallosSeguidos = 0, esperasMov = 0, pasosExplorando = 0, reintentos = 0, reintentoFallidas = false;
+    {
+      // sin ninguna veta llena (de los tipos que quieres) y con el mapa ya recorrido en las últimas 20 h: no se gasta
+      // energía andando; se dice cuándo vuelve la primera
+      const o0 = await esperarQuieto(900), m0 = mem();
+      if (m0 && !m0.exploradoT) { const f0 = lsLee('axsub-fin', null); if (f0 && /ya he visto todo/i.test(f0.motivo || '')) m0.exploradoT = f0.t; }
+      if (o0.ok && o0.fuente === 'datos' && m0 && m0.exploradoT && Date.now() - m0.exploradoT < 20 * 3600e3) {
+        const mp = construirMapaDatos(o0);
+        if (!mp.vetas.some(v => v.ok)) {
+          const r = resumenVetas();
+          parar(`💤 Todas las vetas están vacías${r && r.proxima ? `: la primera vuelve a las ${new Date(r.proxima).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : ''}. El mapa ya está recorrido, así que no gasto energía andando.`, 'fin');
+          return;
+        }
+      }
+    }
+    let fallosSeguidos = 0, esperasMov = 0, pasosExplorando = 0, reintentos = 0, reintentoFallidas = false, repasoRelajado = false;
     try {
       while (corriendo) {
         if (!enGrutas() || !tablero()) { parar('Has salido de las grutas.'); break; }
@@ -1721,7 +1734,8 @@
             if (!plan.explorar) for (const pa of plan.paradas) if (!anunciadas.has(pa.v.k)) { anunciadas.add(pa.v.k); log(`👀 ${pa.v.tipoId ? emojiTipo(pa.v.tipoId) + ' ' + nombreTipo(pa.v.tipoId) : 'Veta'} a la vista (${pa.v.x},${pa.v.y}): voy a picarla.`); }
             pintar();
           }
-          if (plan.explorar && !plan.paradas.length && porVer() && reintentos < 6) {
+          const yaRecorrido = (() => { const m = mem(); return !!(m && m.exploradoT && Date.now() - m.exploradoT < 20 * 3600e3); })();
+          if (plan.explorar && !plan.paradas.length && porVer() && reintentos < (yaRecorrido ? 0 : 3)) {
             const pr = planExplorar(o, true);
             if (pr.paradas.length) {
               reintentos++;
@@ -1736,8 +1750,14 @@
             log(`🔁 Vuelvo a por ${fallidas.size} veta(s) que no pude picar antes.`);
             fallidas.clear(); plan = null; continue;
           }
+          if (plan.explorar && !plan.paradas.length && !repasoRelajado && o.fuente === 'datos') {
+            repasoRelajado = true;
+            const pr = planificar(o, 400, true);
+            if (pr.paradas.length) { log(`🔁 Repaso: ${pr.paradas.length} veta(s) a las que creía no llegar; pruebo otra vez.`); { const m = mem(); m.sinPaso = {}; } plan = pr; plan.firmaV = firmaV; plan.relajado = true; pintar(); }
+          }
           if (plan.explorar && !plan.paradas.length) {
             const m = mem(), nv = Object.keys(m.nodos || {}).length;
+            m.exploradoT = Date.now(); guardarMem();
             const pv = porVer(o);
             if (pv) log('ℹ️ ' + motivoSinVer());
             const quedan = vetasSinPicar(o);
@@ -1752,6 +1772,16 @@
         const sig = plan.paradas.find(x => x.idx >= plan.cursor);
         if (!sig && modo === 'explorar') { plan = null; continue; }
         const explorando = !!plan.explorar;
+        if (!sig && fallidas.size && !reintentoFallidas) {
+          reintentoFallidas = true;
+          log(`🔁 Vuelvo a por ${fallidas.size} veta(s) que no pude picar antes.`);
+          fallidas.clear(); plan = null; continue;
+        }
+        if (!sig && plan.sinCamino && !repasoRelajado) {
+          repasoRelajado = true;
+          const pr = planificar(o, 700, true);
+          if (pr.paradas.length) { log(`🔁 Repaso: ${pr.paradas.length} veta(s) a las que creía no llegar; pruebo otra vez.`); { const m = mem(); m.sinPaso = {}; } plan = pr; plan.relajado = true; pintar(); continue; }
+        }
         if (!sig) {
           const partes = [];
           if (plan.sinCamino) partes.push(`No llego a ${plan.sinCamino} veta(s): el camino pasaría por escaleras, la Sima, puertas, otras vetas o zonas que aún no he visto.`);
