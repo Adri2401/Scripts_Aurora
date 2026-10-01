@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Novedades
 // @namespace    auroradex-novedades
-// @version      2.1.0
+// @version      2.1.1
 // @description  Lee la web entera (todas sus secciones, todo su código y los datos que manda el servidor) y te enseña lo nuevo y lo oculto: textos nuevos en cada sección, secciones que no están en el menú, lo que está «en pruebas» (solo lo ven las cuentas de prueba), cosas nuevas en tiendas y catálogos, imágenes nuevas (se ven), regiones, especies y dibujos de generaciones nuevas, y un buscador por todo el código. Mira cada 30 min si la web ha cambiado y la repasa entera al cambiar (y cada 12 h). Todo en «🆕 Novedades», arriba del Menú. Nunca abre Voltorb Flip, Ruinas Alfa ni el Suelo Helado.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -17,7 +17,7 @@
   // Solo en la pestaña (no en las ventanas ocultas de los robots)
   try { if (window.top !== window) return; } catch { return; }
 
-  const VERSION = '2.1.0';
+  const VERSION = '2.1.1';
   const PANEL_ID = 'axn-panel', VISOR_ID = 'axn-visor';
   const LS_NOV = 'axn2-cambios', LS_T = 'axn2-mirado', LS_REPASO = 'axn2-repaso', LS_BUILD = 'axn2-build', LS_MENU = 'axn2-menu';
   const CADA_RAPIDO = 30 * 60e3, CADA_REPASO = 12 * 3600e3;
@@ -540,6 +540,25 @@
     montar();
     if (!estado.mirando && Date.now() - lsGet(LS_T, 0) > CADA_RAPIDO) rapido();
   }
+  // Una sola vez al pasar a la 2.1: el historial guardado por las versiones anteriores traía falsas novedades (tus Pokémon y
+  // objetos como «catálogo», páginas leídas por primera vez, textos con la web sin cambiar). Se quitan; lo que valga se queda.
+  function limpiarHistorial() {
+    if (lsGet('axn2-limpio', '') === '2.1') return;
+    const l = lsGet(LS_NOV, []);
+    const limpio = [];
+    for (const x of l) {
+      if (x.primera) { limpio.push(x); continue; }
+      if (!x.web) { x.textos = []; x.imagenes = []; x.pistas = []; x.rutas = []; x.quitados = 0; }       // con la misma web, el código no pudo cambiar
+      x.catalogo = (x.catalogo || []).filter(k => catDelJuego(k.k));
+      x.cambiados = (x.cambiados || []).filter(k => catDelJuego(k.k));
+      if (!x.web) x.catalogo = [];                                                                        // sin cambio de web, lo de catálogo era casi siempre «páginas leídas por primera vez»
+      x.total = (x.web ? 1 : 0) + (x.secciones || []).length + (x.rutas || []).length + (x.textos || []).length + (x.imagenes || []).length + x.catalogo.length + x.cambiados.length + (x.flags || []).length + (x.futuras || []).length + (x.pistas || []).length + (x.regiones || []).length + (x.dex ? 1 : 0) + (x.sprites || []).length;
+      if (x.total) limpio.push(x);
+    }
+    lsPut(LS_NOV, limpio);
+    lsPut('axn2-limpio', '2.1');
+  }
+  limpiarHistorial();
   try { ['axn-foto', 'axn-novedades', 'axn-ultima'].forEach(k => localStorage.removeItem(k)); } catch { /* lo de la versión 1 */ }
   setTimeout(() => { tick(); setInterval(tick, 5000); }, 4000);
   window.__axNovedades = { repaso, rapido, comparar, vistoDe, abrirVisor, VERSION };
