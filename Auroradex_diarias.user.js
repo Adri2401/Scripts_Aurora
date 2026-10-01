@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.21.1
+// @version      1.22.0
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas, el Valle (recoge con el almacén lleno para la hora punta ×2, gasta el Brillo y los puntos de investigación) y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -275,11 +275,16 @@
   };
 
   /* ══════════ DIARIA 3 · El Muelle (pesca) ══════════
-   * Al echar el flotador sale una barra con tres marcas puestas en porcentaje: la zona verde (left/width), el centro
-   * (left/width) y el flotador, que va del 0% al 100% a velocidad fija (su «left» cambia en cada fotograma). Al tirar,
-   * cuenta dónde está el flotador en ese momento: se sigue fotograma a fotograma y se tira cuando cae en el centro del
-   * centro (adelantándose medio fotograma para no pasarse). */
-  const frame = () => new Promise(r => requestAnimationFrame(() => r()));
+   * El juego, por dentro: al echar el flotador el servidor manda la zona verde (16 % de ancho) y, en su mitad, el centro
+   * (4 %). El flotador va del 0 al 100 % en unos dos segundos (su «left» se recalcula en cada fotograma) y, al tirar, el
+   * juego manda al servidor la posición del ÚLTIMO fotograma (no la del momento del clic): «Clavado» si cae a ±2 % del
+   * centro del centro, «Ha picado» si cae en el verde y «Se escapó» si no. Por eso:
+   *  · lo que se lee del flotador en un fotograma es justo lo que se enviaría si se tira en ese mismo fotograma;
+   *  · hay que estar mirando desde el primer fotograma: el servidor contesta y el flotador echa a andar a la vez, y si el
+   *    centro está cerca del principio (a un 30 %, a los 0,6 s) un robot que tarda en mirar llega tarde (esa era la causa
+   *    de «falla a veces»: se volvía a mirar en el siguiente turno, hasta 0,8 s después);
+   *  · se tira en el primer fotograma que cae DENTRO del centro y que está más cerca de su mitad que el siguiente. */
+  const frame = () => new Promise(r => { let ok = false; const fin = () => { if (!ok) { ok = true; r(performance.now()); } }; requestAnimationFrame(t => { ok = true; r(t); }); setTimeout(fin, 80); });
   const pct = (el, prop) => { const v = el && el.style[prop]; return v && /%$/.test(v) ? parseFloat(v) : null; };
   function barraMuelle(tira) {
     // las tres marcas: spans con «left» en % dentro de la barra que va justo antes del botón ¡TIRA!
@@ -292,6 +297,59 @@
     }
     return null;
   }
+  const botonTira = () => $$('main button').find(b => !ajeno(b) && !b.disabled && visible(b) && /^¡?tira!?$/i.test(texto(b)));
+  // Decide si tirar en este fotograma. `x`: dónde está el flotador (y dónde se enviará); `paso`: cuánto avanzará en el
+  // siguiente fotograma; `c0`/`c1`: el centro; `v0`/`v1`: el verde. Devuelve 'centro', 'verde' o null (esperar).
+  function decideTiro(x, paso, c0, c1, v0, v1) {
+    const mitad = (c0 + c1) / 2, m = 0.1;
+    if (x >= c0 + m && x <= c1 - m) return x + paso / 2 >= mitad || x + paso > c1 - m ? 'centro' : null;
+    if (x > c1 - m) return x <= v1 ? 'verde' : 'fuera';        // ya se pasó del centro: lo que quede
+    if (x < c0 + m && x + paso > c1 - m && x >= v0) return x + paso / 2 >= mitad ? 'verde' : null;   // el centro cabe entero entre dos fotogramas: no se puede clavar
+    return null;
+  }
+  const mediana = a => { const b = a.slice().sort((p, q) => p - q); return b[b.length >> 1]; };
+  // Sigue el flotador fotograma a fotograma y tira donde toca
+  async function jugarBarra(tira) {
+    const m = barraMuelle(tira);
+    if (!m) { log('⚠ Veo «¡TIRA!» pero no la barra. Pulsa «📋 Copiar HTML» y pásamelo.'); return false; }
+    const v0 = pct(m.verde, 'left'), v1 = v0 + pct(m.verde, 'width');
+    const c0 = pct(m.centro, 'left'), c1 = c0 + pct(m.centro, 'width');
+    const T = [], X = [];
+    const t0 = performance.now();
+    while (performance.now() - t0 < 20000) {
+      const t = await frame();
+      if (!jugando()) throw PARADO;
+      if (!document.contains(m.flot) || tira.disabled) return true;     // ya se tiró (o acabó solo)
+      const x = pct(m.flot, 'left');
+      if (x == null) continue;
+      if (X.length && (t <= T[T.length - 1] || x === X[X.length - 1])) continue;   // el mismo fotograma otra vez (el juego aún no ha movido el flotador)
+      T.push(t); X.push(x);
+      if (T.length > 8) { T.shift(); X.shift(); }
+      // velocidad (% por ms) de toda la ventana y fotograma típico (la mediana, para que un tirón no la desvíe); con menos de
+      // tres fotogramas, lo normal del juego (100 % en ~2,2 s a 60 fotogramas/s)
+      let vel = 0.045, dt = 16.7;
+      if (T.length >= 3 && X[X.length - 1] > X[0]) { vel = (X[X.length - 1] - X[0]) / (T[T.length - 1] - T[0]); dt = mediana(T.slice(1).map((q, i) => q - T[i])); }
+      const paso = vel * dt;
+      const que = decideTiro(x, paso, c0, c1, v0, v1);
+      if (que) {
+        tira.click(); otraAccion();
+        const fps = Math.round(1000 / dt);
+        log(`🎯 ¡Tira! en el ${x.toFixed(1)}% (centro ${c0.toFixed(1)}–${c1.toFixed(1)}, verde ${v0.toFixed(0)}–${v1.toFixed(0)} · ${fps} fotogramas/s${que === 'centro' ? '' : que === 'verde' ? ' · centro no alcanzado, voy al verde' : ' · llegué tarde'})`);
+        await pausa(1500, 2200);
+        return true;
+      }
+    }
+    return false;
+  }
+  const LS_MUELLE = 'axd-muelle';
+  function contarMuelle(txt) {
+    const r = /clavado/i.test(txt) ? 'centro' : /ha picado/i.test(txt) ? 'verde' : /se escap/i.test(txt) ? 'fuera' : null;
+    if (!r) return '';
+    const g = lsGet(LS_MUELLE, { centro: 0, verde: 0, fuera: 0 });
+    g[r] = (g[r] || 0) + 1; lsPut(LS_MUELLE, g);
+    const n = g.centro + g.verde + g.fuera;
+    return ` (en total: ${g.centro} clavados de ${n})`;
+  }
   const MUELLE = {
     id: 'muelle',
     nombre: '🎣 El Muelle',
@@ -299,32 +357,25 @@
     async paso() {
       // el cartel del resultado (Clavado / Ha picado / Se escapó): tocar para seguir
       const cartel = $$('button').find(b => !ajeno(b) && visible(b) && /toca para seguir$/i.test(texto(b)));
-      if (cartel) return pulsar(cartel, `🐟 ${texto(cartel).replace(/toca para seguir$/i, '').trim().slice(0, 90)}`, [800, 1300]);
-      const tira = $$('main button').find(b => !ajeno(b) && !b.disabled && visible(b) && /^¡?tira!?$/i.test(texto(b)));
-      if (tira) {
-        const m = barraMuelle(tira);
-        if (!m) { log('⚠ Veo «¡TIRA!» pero no la barra. Pulsa «📋 Copiar HTML» y pásamelo.'); return false; }
-        const meta = pct(m.centro, 'left') + pct(m.centro, 'width') / 2;
-        let antes = pct(m.flot, 'left'), v = 0;
-        const t0 = performance.now();
-        while (performance.now() - t0 < 20000) {
-          await frame();
-          if (!document.contains(m.flot) || tira.disabled) return true;
-          const x = pct(m.flot, 'left');
-          if (x == null) continue;
-          if (x > antes) v = x - antes;
-          antes = x;
-          if (v > 0 && x + v / 2 >= meta) {
-            tira.click(); otraAccion();
-            log(`🎯 ¡Tira! en el ${x.toFixed(1)}% (centro en el ${meta.toFixed(1)}%, verde ${pct(m.verde, 'left')}–${(pct(m.verde, 'left') + pct(m.verde, 'width')).toFixed(0)})`);
-            await pausa(1500, 2200);
-            return true;
-          }
-        }
-        return false;
-      }
+      if (cartel) { const tx = texto(cartel).replace(/toca para seguir$/i, '').trim(); return pulsar(cartel, `🐟 ${tx.slice(0, 90)}${contarMuelle(tx)}`, [800, 1300]); }
+      const tira = botonTira();
+      if (tira) return jugarBarra(tira);
       const echar = $$('main button').find(b => !ajeno(b) && !b.disabled && visible(b) && /echar el flotador/i.test(texto(b)));
-      if (echar) return pulsar(echar, '🎣 Echar el flotador', [150, 300]);
+      if (echar) {
+        await pausa(600, 1200);
+        if (!document.contains(echar) || echar.disabled) return true;
+        log('🎣 Echar el flotador');
+        echar.click(); otraAccion();
+        // la barra sale cuando contesta el servidor y el flotador echa a andar en ese mismo momento: no se suelta el turno,
+        // se espera aquí a que salga ¡TIRA! y se empieza a seguirlo desde el primer fotograma
+        for (let i = 0; i < 200; i++) {
+          const t = botonTira();
+          if (t) return jugarBarra(t);
+          await frame();
+          if (!jugando()) throw PARADO;
+        }
+        return true;
+      }
       return pulsarSeguir();
     },
   };
