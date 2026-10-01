@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.22.0
+// @version      1.22.1
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas, el Valle (recoge con el almacén lleno para la hora punta ×2, gasta el Brillo y los puntos de investigación) y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -283,7 +283,7 @@
    *  · hay que estar mirando desde el primer fotograma: el servidor contesta y el flotador echa a andar a la vez, y si el
    *    centro está cerca del principio (a un 30 %, a los 0,6 s) un robot que tarda en mirar llega tarde (esa era la causa
    *    de «falla a veces»: se volvía a mirar en el siguiente turno, hasta 0,8 s después);
-   *  · se tira en el primer fotograma que cae DENTRO del centro y que está más cerca de su mitad que el siguiente. */
+   *  · se tira en el primer fotograma que cae DENTRO del centro (esperar a uno más centrado no da nada y arriesga). */
   const frame = () => new Promise(r => { let ok = false; const fin = () => { if (!ok) { ok = true; r(performance.now()); } }; requestAnimationFrame(t => { ok = true; r(t); }); setTimeout(fin, 80); });
   const pct = (el, prop) => { const v = el && el.style[prop]; return v && /%$/.test(v) ? parseFloat(v) : null; };
   function barraMuelle(tira) {
@@ -298,13 +298,14 @@
     return null;
   }
   const botonTira = () => $$('main button').find(b => !ajeno(b) && !b.disabled && visible(b) && /^¡?tira!?$/i.test(texto(b)));
-  // Decide si tirar en este fotograma. `x`: dónde está el flotador (y dónde se enviará); `paso`: cuánto avanzará en el
-  // siguiente fotograma; `c0`/`c1`: el centro; `v0`/`v1`: el verde. Devuelve 'centro', 'verde' o null (esperar).
-  function decideTiro(x, paso, c0, c1, v0, v1) {
-    const mitad = (c0 + c1) / 2, m = 0.1;
-    if (x >= c0 + m && x <= c1 - m) return x + paso / 2 >= mitad || x + paso > c1 - m ? 'centro' : null;
+  // Decide si tirar en este fotograma. `x`: dónde está el flotador (y dónde se enviará); `c0`/`c1`: el centro; `v1`: el
+  // final del verde. Devuelve 'centro', 'verde', 'fuera' o null (esperar). «Clavado» vale lo mismo en cualquier punto del
+  // centro, así que se tira en el PRIMER fotograma que cae dentro: esperar a uno más cercano a la mitad no da nada y, si
+  // el navegador se atasca justo después, se pierde el centro.
+  function decideTiro(x, c0, c1, v1) {
+    const m = 0.05;                                            // (el servidor redondea a dos decimales)
+    if (x >= c0 + m && x <= c1 - m) return 'centro';
     if (x > c1 - m) return x <= v1 ? 'verde' : 'fuera';        // ya se pasó del centro: lo que quede
-    if (x < c0 + m && x + paso > c1 - m && x >= v0) return x + paso / 2 >= mitad ? 'verde' : null;   // el centro cabe entero entre dos fotogramas: no se puede clavar
     return null;
   }
   const mediana = a => { const b = a.slice().sort((p, q) => p - q); return b[b.length >> 1]; };
@@ -325,12 +326,8 @@
       if (X.length && (t <= T[T.length - 1] || x === X[X.length - 1])) continue;   // el mismo fotograma otra vez (el juego aún no ha movido el flotador)
       T.push(t); X.push(x);
       if (T.length > 8) { T.shift(); X.shift(); }
-      // velocidad (% por ms) de toda la ventana y fotograma típico (la mediana, para que un tirón no la desvíe); con menos de
-      // tres fotogramas, lo normal del juego (100 % en ~2,2 s a 60 fotogramas/s)
-      let vel = 0.045, dt = 16.7;
-      if (T.length >= 3 && X[X.length - 1] > X[0]) { vel = (X[X.length - 1] - X[0]) / (T[T.length - 1] - T[0]); dt = mediana(T.slice(1).map((q, i) => q - T[i])); }
-      const paso = vel * dt;
-      const que = decideTiro(x, paso, c0, c1, v0, v1);
+      const dt = T.length > 1 ? mediana(T.slice(1).map((q, i) => q - T[i])) : 16.7;
+      const que = decideTiro(x, c0, c1, v1);
       if (que) {
         tira.click(); otraAccion();
         const fps = Math.round(1000 / dt);
