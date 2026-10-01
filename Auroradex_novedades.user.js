@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Novedades
 // @namespace    auroradex-novedades
-// @version      2.1.1
+// @version      2.1.2
 // @description  Lee la web entera (todas sus secciones, todo su código y los datos que manda el servidor) y te enseña lo nuevo y lo oculto: textos nuevos en cada sección, secciones que no están en el menú, lo que está «en pruebas» (solo lo ven las cuentas de prueba), cosas nuevas en tiendas y catálogos, imágenes nuevas (se ven), regiones, especies y dibujos de generaciones nuevas, y un buscador por todo el código. Mira cada 30 min si la web ha cambiado y la repasa entera al cambiar (y cada 12 h). Todo en «🆕 Novedades», arriba del Menú. Nunca abre Voltorb Flip, Ruinas Alfa ni el Suelo Helado.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -17,7 +17,7 @@
   // Solo en la pestaña (no en las ventanas ocultas de los robots)
   try { if (window.top !== window) return; } catch { return; }
 
-  const VERSION = '2.1.1';
+  const VERSION = '2.1.2';
   const PANEL_ID = 'axn-panel', VISOR_ID = 'axn-visor';
   const LS_NOV = 'axn2-cambios', LS_T = 'axn2-mirado', LS_REPASO = 'axn2-repaso', LS_BUILD = 'axn2-build', LS_MENU = 'axn2-menu';
   const CADA_RAPIDO = 30 * 60e3, CADA_REPASO = 12 * 3600e3;
@@ -536,9 +536,12 @@
     pre.textContent = 'No lo encuentro en el código de esta versión.';
   }
 
+  // Con el robot de Diarias en plena ruta no se lee el código de la web: es mucho trabajo seguido para el navegador y hace
+  // que se atasquen los minijuegos que van al milisegundo (el Muelle). Se hace cuando el robot descansa.
+  const robotJugando = () => { try { return JSON.parse(sessionStorage.getItem('axd-ruta-fondo') || 'null') != null; } catch { return false; } };
   function tick() {
     montar();
-    if (!estado.mirando && Date.now() - lsGet(LS_T, 0) > CADA_RAPIDO) rapido();
+    if (!estado.mirando && !robotJugando() && Date.now() - lsGet(LS_T, 0) > CADA_RAPIDO) rapido();
   }
   // Una sola vez al pasar a la 2.1: el historial guardado por las versiones anteriores traía falsas novedades (tus Pokémon y
   // objetos como «catálogo», páginas leídas por primera vez, textos con la web sin cambiar). Se quitan; lo que valga se queda.
