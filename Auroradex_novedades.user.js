@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Novedades
 // @namespace    auroradex-novedades
-// @version      2.0.2
+// @version      2.1.0
 // @description  Lee la web entera (todas sus secciones, todo su código y los datos que manda el servidor) y te enseña lo nuevo y lo oculto: textos nuevos en cada sección, secciones que no están en el menú, lo que está «en pruebas» (solo lo ven las cuentas de prueba), cosas nuevas en tiendas y catálogos, imágenes nuevas (se ven), regiones, especies y dibujos de generaciones nuevas, y un buscador por todo el código. Mira cada 30 min si la web ha cambiado y la repasa entera al cambiar (y cada 12 h). Todo en «🆕 Novedades», arriba del Menú. Nunca abre Voltorb Flip, Ruinas Alfa ni el Suelo Helado.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -17,7 +17,7 @@
   // Solo en la pestaña (no en las ventanas ocultas de los robots)
   try { if (window.top !== window) return; } catch { return; }
 
-  const VERSION = '2.0.1';
+  const VERSION = '2.1.0';
   const PANEL_ID = 'axn-panel', VISOR_ID = 'axn-visor';
   const LS_NOV = 'axn2-cambios', LS_T = 'axn2-mirado', LS_REPASO = 'axn2-repaso', LS_BUILD = 'axn2-build', LS_MENU = 'axn2-menu';
   const CADA_RAPIDO = 30 * 60e3, CADA_REPASO = 12 * 3600e3;
@@ -58,7 +58,7 @@
     .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
     .replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
     .replace(/\\n/g, ' ').replace(/\\(["'\\])/g, '$1');
-  const esClases = s => { const t = s.split(/\s+/); return t.every(x => /^[a-z0-9!:\-[\]/.#%_()&>~*+=,]+$/.test(x)) && t.some(x => /[-:]/.test(x)); };
+  const esClases = s => { const t = s.split(/\s+/); return t.every(x => /^[a-zA-Z0-9!:\-[\]/.#%_()&>~*+=,]+$/.test(x)) && t.some(x => /[-:]/.test(x)); };
   const esCodigo = s => /=>|&&|\|\||==|[;{}]|\(\)|\.concat\(|\b(function|return|void 0|let|var|const|case|break|continue|typeof|use strict)\b|^\s*[.#]?[a-z]+\([^)]*\)$/.test(s);
   // Todas las cadenas del código, leídas carácter a carácter (sin descuadrarse con comillas dentro de expresiones
   // regulares, comentarios o plantillas `…${x}…`)
@@ -142,6 +142,13 @@
     await dbPut('chunks', u, res).catch(() => {});
     return res;
   }
+
+  /* ── Qué datos del servidor son del JUEGO y cuáles del JUGADOR ──
+   * En /base, /album, /mapa o /equipo vienen TUS cosas (tus Pokémon, tus objetos, tus muñecos): cambian cuando juegas,
+   * no cuando el admin añade algo. Tampoco cuentan los ids de Pokémon concretos («pkm:cmu…») ni las subastas, que rotan. */
+  const PAGINAS_TUYAS = /^\/(base|album|mapa|equipo|perfil|jugador|subasta|trueques|chat|mercadillo|amigos|ranking|clasificacion|liga|tren|carreras|jefe)(\/|$)/;   // (tren, carreras y jefe: lo de cada día)
+  const idTuyo = id => /^(pkm|mon|poke|item|inv)[:_]/i.test(id) || /[a-z0-9]{20,}/i.test(id);   // (un cuid son 25 letras y números seguidos)
+  const catDelJuego = (k) => { const [p, id] = k.split('|'); return !PAGINAS_TUYAS.test(p) && !idTuyo(id); };
 
   /* ── Leer los datos del servidor de cada página (lo que viene en la propia página) ── */
   const volcado = h => { const partes = []; for (const m of String(h || '').matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)) partes.push(m[1]); return desescapar(partes.join('')).replace(/\\"/g, '"'); };
@@ -235,14 +242,18 @@
         dexMax: nums.length ? Math.max(...nums) : null, sprites, regiones,
         chunks: [...chunks], bytes: porChunk.reduce((a, c) => a + c.bytes, 0),
       };
+      inv.paginasDatos = paginasConDatos(cat);
       const antes = await dbGet('kv', 'inventario').catch(() => null);
+      // todo lo visto alguna vez (si aún no hay memoria, se parte de la lectura anterior)
+      const visto = (await dbGet('kv', 'visto').catch(() => null)) || (antes ? vistoDe(antes) : null);
       await dbPut('kv', 'inventario', inv);
       lsPut(LS_BUILD, buildId); lsPut(LS_MENU, menu); lsPut(LS_REPASO, Date.now()); lsPut(LS_T, Date.now());
       if (!antes) apuntar({ primera: true, t: Date.now(), motivo, resumen: resumenInicial(inv) }, false);
       else {
-        const d = comparar(antes, inv);
+        const d = comparar(antes, inv, visto);
         if (d.total) apuntar({ t: Date.now(), motivo, ...d }, true);
       }
+      await dbPut('kv', 'visto', vistoDe(inv, visto));
     } finally { estado = { mirando: false }; pintar(); }
   }
   function resumenInicial(inv) {
@@ -250,24 +261,53 @@
     const pruebas = Object.entries(inv.textos).filter(([s]) => EN_PRUEBAS.test(s));
     return `📸 Primera lectura completa: ${Object.keys(inv.rutas).length} secciones, ${inv.chunks.length} ficheros de código (${Math.round(inv.bytes / 1024)} KB), ${Object.keys(inv.textos).length} textos, ${Object.keys(inv.cat).length} cosas de catálogo. Ya hay ${pruebas.length} textos «en pruebas» y ${fuera.length} secciones que abren y no están en el menú: míralo en «🔎 Ver todo».`;
   }
-  // Lo que cambia entre dos lecturas
-  function comparar(a, b) {
-    const d = { web: a.buildId && b.buildId && a.buildId !== b.buildId };
+  /* ── Memoria de todo lo visto alguna vez ──
+   * Comparar solo con la última lectura daba falsas novedades: una página que ayer no se leyó y hoy sí (todo su texto,
+   * todo su catálogo) parecía «nueva», aunque llevara meses en el juego. Ahora se guarda la unión de todas las lecturas
+   * y solo es novedad lo que no se había visto NUNCA. Además:
+   *  · el código solo cambia cuando la web se actualiza (cambia el buildId): con la misma versión, nada del código
+   *    (textos, páginas, imágenes, pistas) puede ser nuevo; lo que sale es que antes no se había leído ese trozo;
+   *  · el catálogo de una página que nunca se había leído se apunta en silencio (es ampliar lo que se mira);
+   *  · lo del jugador (sus Pokémon, sus objetos) no cuenta. */
+  const REGIONES_CONOCIDAS = ['Kanto', 'Johto', 'Hoenn', 'Sinnoh', 'Teselia'];
+  const paginasConDatos = cat => [...new Set(Object.keys(cat || {}).map(k => k.split('|')[0]))];
+  function vistoDe(inv, base) {
+    const v = base || { textos: {}, rutas: {}, imagenes: {}, pistas: {}, cat: {}, flags: {}, futuras: {}, menu: {}, regiones: Object.fromEntries(REGIONES_CONOCIDAS.map(r => [r, 1])), sprites: {}, dexMax: 0, paginas: {} };
+    for (const t of Object.keys(inv.textos || {})) v.textos[t] = 1;
+    for (const r of Object.keys(inv.rutas || {})) v.rutas[r] = 1;
+    for (const x of inv.imagenes || []) v.imagenes[x] = 1;
+    for (const x of inv.pistas || []) v.pistas[x] = 1;
+    for (const k of Object.keys(inv.cat || {})) v.cat[k] = inv.cat[k];
+    for (const f of inv.flags || []) v.flags[f.pagina + '|' + f.id + '|' + f.marca] = 1;
+    for (const f of inv.futuras || []) v.futuras[f.pagina + '|' + f.id + '|' + f.t] = 1;
+    for (const m of inv.menu || []) v.menu[m] = 1;
+    for (const r of inv.regiones || []) v.regiones[r] = 1;
+    for (const [g, ok] of Object.entries(inv.sprites || {})) if (ok) v.sprites[g] = 1;
+    if (inv.dexMax && inv.dexMax > v.dexMax) v.dexMax = inv.dexMax;
+    for (const p of inv.paginasDatos || paginasConDatos(inv.cat)) v.paginas[p] = 1;
+    return v;
+  }
+  // a: lectura anterior · b: la de ahora · v: todo lo visto alguna vez (sin esta lectura)
+  function comparar(a, b, v) {
+    v = v || vistoDe(a);
+    const mismaWeb = !!(a.buildId && b.buildId && a.buildId === b.buildId);
+    const d = { web: !!(a.buildId && b.buildId && a.buildId !== b.buildId) };
     const nuevos = (x, y) => Object.keys(y || {}).filter(k => !(k in (x || {})));
-    d.secciones = (b.menu || []).filter(e => !(a.menu || []).includes(e));
-    d.rutas = nuevos(a.rutas, b.rutas).filter(r => b.rutas[r].st === 200);
-    d.textos = nuevos(a.textos, b.textos).map(s => ({ s, p: b.textos[s] }));
-    d.quitados = nuevos(b.textos, a.textos).length;
-    d.imagenes = (b.imagenes || []).filter(x => !(a.imagenes || []).includes(x));
-    d.catalogo = nuevos(a.cat, b.cat).map(k => ({ k, nombre: b.cat[k] }));
-    d.cambiados = Object.keys(b.cat || {}).filter(k => a.cat && k in a.cat && a.cat[k] !== b.cat[k]).map(k => ({ k, antes: a.cat[k], ahora: b.cat[k] }));
-    const kf = f => f.pagina + '|' + f.id + '|' + f.marca;
-    d.flags = (b.flags || []).filter(f => !(a.flags || []).some(g => kf(g) === kf(f)));
-    d.futuras = (b.futuras || []).filter(f => !(a.futuras || []).some(g => g.pagina === f.pagina && g.id === f.id && g.t === f.t));
-    d.pistas = (b.pistas || []).filter(x => !(a.pistas || []).includes(x));
-    d.regiones = (b.regiones || []).filter(x => !(a.regiones || []).includes(x));
-    d.dex = a.dexMax && b.dexMax && b.dexMax > a.dexMax ? { antes: a.dexMax, ahora: b.dexMax } : null;
-    d.sprites = Object.keys(b.sprites || {}).filter(g => b.sprites[g] && !(a.sprites || {})[g]);
+    d.secciones = (b.menu || []).filter(e => !v.menu[e]);
+    d.rutas = mismaWeb ? [] : Object.keys(b.rutas || {}).filter(r => !v.rutas[r] && b.rutas[r].st === 200);
+    d.textos = mismaWeb ? [] : Object.keys(b.textos || {}).filter(t => !v.textos[t]).map(s => ({ s, p: b.textos[s] }));
+    d.quitados = mismaWeb ? 0 : nuevos(b.textos, a.textos).length;
+    d.imagenes = mismaWeb ? [] : (b.imagenes || []).filter(x => !v.imagenes[x]);
+    d.pistas = mismaWeb ? [] : (b.pistas || []).filter(x => !v.pistas[x]);
+    const delJuego = k => catDelJuego(k) && v.paginas[k.split('|')[0]];
+    d.catalogo = Object.keys(b.cat || {}).filter(k => delJuego(k) && !(k in v.cat)).map(k => ({ k, nombre: b.cat[k] }));
+    if (mismaWeb && d.catalogo.length > 30) d.catalogo = [];      // decenas de golpe con la misma web: es que se ha leído más, no que haya algo nuevo
+    d.cambiados = Object.keys(b.cat || {}).filter(k => delJuego(k) && k in v.cat && v.cat[k] !== b.cat[k]).map(k => ({ k, antes: v.cat[k], ahora: b.cat[k] }));
+    d.flags = (b.flags || []).filter(f => !v.flags[f.pagina + '|' + f.id + '|' + f.marca]);
+    d.futuras = (b.futuras || []).filter(f => !v.futuras[f.pagina + '|' + f.id + '|' + f.t]);
+    d.regiones = (b.regiones || []).filter(x => !v.regiones[x]);
+    d.dex = v.dexMax && b.dexMax && b.dexMax > v.dexMax ? { antes: v.dexMax, ahora: b.dexMax } : null;
+    d.sprites = Object.keys(b.sprites || {}).filter(g => b.sprites[g] && !v.sprites[g]);
     d.total = (d.web ? 1 : 0) + d.secciones.length + d.rutas.length + d.textos.length + d.imagenes.length + d.catalogo.length + d.cambiados.length + d.flags.length + d.futuras.length + d.pistas.length + d.regiones.length + (d.dex ? 1 : 0) + d.sprites.length;
     return d;
   }
@@ -502,5 +542,5 @@
   }
   try { ['axn-foto', 'axn-novedades', 'axn-ultima'].forEach(k => localStorage.removeItem(k)); } catch { /* lo de la versión 1 */ }
   setTimeout(() => { tick(); setInterval(tick, 5000); }, 4000);
-  window.__axNovedades = { repaso, rapido, comparar, abrirVisor, VERSION };
+  window.__axNovedades = { repaso, rapido, comparar, vistoDe, abrirVisor, VERSION };
 })();
