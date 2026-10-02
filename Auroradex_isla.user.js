@@ -1079,12 +1079,37 @@
   }
   // Lo que se ha visto de verdad esta semana: resultado de cada combate y niveles que subió el equipo con cada victoria
   const LS_HIST = 'axi-hist';
+  let histVer = 0;          // sube con cada combate apuntado (para no recalcular lo aprendido de más)
   function histGet(est) { const t = lsGet(LS_HIST, {}); return t[claveSemana(est)] || []; }
   function histPut(est, lista) {
+    histVer++;
     const t = lsGet(LS_HIST, {}), k = claveSemana(est);
     t[k] = lista.slice(-300);
     for (const o of Object.keys(t)) if (o !== k && Object.keys(t).length > 3) delete t[o];
     lsPut(LS_HIST, t);
+  }
+  /* La simulación puede ser demasiado optimista o pesimista (el juego manda): se compara lo que decía antes de cada combate con cómo salió
+   * (de todas las semanas guardadas) y se corrige con un desplazamiento en «probabilidad logística» igual para todas las zonas, con la
+   * cautela de pocos datos (con 6 combates vale la mitad). Así lo aprendido en las zonas ya pisadas vale también para las que no. */
+  const logit = x => Math.log(Math.min(0.98, Math.max(0.02, x)) / (1 - Math.min(0.98, Math.max(0.02, x))));
+  const sigm = x => 1 / (1 + Math.exp(-x));
+  let calibMemo = { k: -1, v: 0 };
+  function desvioGana() {
+    if (calibMemo.k === histVer) return calibMemo.v;
+    const t = lsGet(LS_HIST, {}), todos = Object.values(t).flat().filter(x => typeof x.pr === 'number' && (x.r === 'g' || x.r === 'p' || x.r === 'e'));
+    let d = 0;
+    if (todos.length >= 3) {
+      // regresión logística con un solo parámetro (el desplazamiento) y una cautela que lo ata a 0 mientras haya pocos datos:
+      // las victorias que ya se esperaban (previsión del 98 %) casi no mueven nada; las sorpresas, sí
+      const obs = todos.filter(x => x.r === 'g').length, L = todos.map(x => logit(x.pr));
+      for (let i = 0; i < 40; i++) {
+        const ps = L.map(l => sigm(l + d)), f = ps.reduce((a, q) => a + q, 0) - obs + d / 2.25, df = ps.reduce((a, q) => a + q * (1 - q), 0) + 1 / 2.25;
+        if (Math.abs(f) < 1e-4) break;
+        d = Math.max(-3, Math.min(4, d - f / df));
+      }
+    }
+    calibMemo = { k: histVer, v: d };
+    return d;
   }
   function dlMedio(est, zonaId) {
     const h = histGet(est).filter(x => (!zonaId || x.z === zonaId) && x.r === 'g' && typeof x.dl === 'number').slice(-8);
@@ -1093,7 +1118,11 @@
   // Cuánto sube el equipo con cada victoria: se mira el nivel (con su barra de progreso) de cada uno antes de explorar y después del combate
   let foto = null;
   const nivelesDe = est => { const o = {}; for (const p of est.equipo) o[p.id] = { v: p.nivel + (p.progreso || 0) / 100, t: !!p.topado }; return o; };
-  function tomarFoto(est, zona) { foto = { zona, dia: est.dia, niv: nivelesDe(est), t: Date.now() }; }
+  function tomarFoto(est, zona) {
+    let pr = null;
+    try { const x = (puntuarZonas(est) || []).find(q => q.id === zona); pr = x && x.prior != null ? +x.prior.toFixed(3) : null; } catch { /* nada */ }
+    foto = { zona, dia: est.dia, niv: nivelesDe(est), t: Date.now(), pr };
+  }
   // En cuanto sale el resultado del combate (sea el modo automático o tú) se apunta cómo salió y cuánta experiencia dio (en las
   // victorias no hay botón «Seguir»: sale el encuentro debajo del resultado, así que se mira el texto)
   function vigilarResultado() {
@@ -1116,7 +1145,7 @@
         let suma = 0, cuantos = 0;
         for (const [id, a] of Object.entries(f.niv)) { const b = ahora[id]; if (b && !a.t) { suma += b.v - a.v; cuantos++; } }
         const h = histGet(est);
-        h.push({ z: f.zona, d: f.dia, r: res, x: exp, dl: res === 'g' && cuantos ? +(suma / cuantos).toFixed(3) : null, t: Date.now() });
+        h.push({ z: f.zona, d: f.dia, r: res, x: exp, dl: res === 'g' && cuantos ? +(suma / cuantos).toFixed(3) : null, pr: f.pr, t: Date.now() });
         histPut(est, h);
       } catch { /* nada */ }
     }, 1500);
@@ -1200,11 +1229,11 @@
     const T = tablaIsla(est);
     if (!T || !Array.isArray(est.zonas) || !Array.isArray(est.equipo) || !Array.isArray(est.caja)) return null;
     const ef = op.efecto || efectoDeHoy(est, T);
-    const k = [claveSemana(est), est.dia, est.exploraciones, est.capturadas, est.puntos, est.jefe && est.jefe.vencido, est.equipo.map(p => `${p.id}:${p.nivel}:${p.topado ? 1 : 0}`).join(), est.zonas.map(z => +!!z.abierta).join(''), (est.zonasVisitadas || []).length, ef.texto, ef.alta, ef.baja, ef.enjambre, ef.arde, op.sinBonus ? 1 : 0, est.caja.length, histGet(est).length].join('|');
+    const k = [claveSemana(est), est.dia, est.exploraciones, est.capturadas, est.puntos, est.jefe && est.jefe.vencido, est.equipo.map(p => `${p.id}:${p.nivel}:${p.topado ? 1 : 0}`).join(), est.zonas.map(z => +!!z.abierta).join(''), (est.zonasVisitadas || []).length, ef.texto, ef.alta, ef.baja, ef.enjambre, ef.arde, op.sinBonus ? 1 : 0, est.caja.length, histGet(est).length, desvioGana().toFixed(2)].join('|');
     if (memoZonas.has(k)) return memoZonas.get(k);
     const A = analizar(est), fz = fauna(est), tengo = A.tengo, cuantos = {};
     for (const p of [...est.equipo, ...est.caja]) cuantos[p.speciesId] = (cuantos[p.speciesId] || 0) + 1;
-    const puedeOrdenar = sePuedeOrdenar(), escala = escalaCaptura(fz), nivelValor = valorNivel(est, A), dificil = op.sinBonus ? null : zonaDificilPendiente(est), lm = Math.max(5, fuerzaEquipo(est));
+    const puedeOrdenar = sePuedeOrdenar(), desvio = desvioGana(), escala = escalaCaptura(fz), nivelValor = valorNivel(est, A), dificil = op.sinBonus ? null : zonaDificilPendiente(est), lm = Math.max(5, fuerzaEquipo(est));
     const out = [];
     for (const z of est.zonas) {
       const zt = T.zonas[z.id];
@@ -1222,7 +1251,7 @@
         if (!tengo.has(n)) { pNueva += pr * pc; nuevas.push({ n, p: pr, pc }); }
       }
       nuevas.sort((a, b) => b.p * b.pc - a.p * a.pc);
-      const st = fz.stats[z.id] || { g: 0, p: 0 }, tz = trioDeZona(est, zt, niv, ef), prior = tz ? (puedeOrdenar ? tz.p : tz.pActual) : null;
+      const st = fz.stats[z.id] || { g: 0, p: 0 }, tz = trioDeZona(est, zt, niv, ef), prior = tz ? sigm(logit(puedeOrdenar ? tz.p : tz.pActual) + desvio) : null;
       const pGana = prior == null ? (st.g + 1) / (st.g + st.p + 2) : (st.g + 3 * prior) / (st.g + st.p + 3);     // el cálculo pesa como 3 combates vistos
       const lr = (niv[0] + niv[niv.length - 1]) / 2;
       const dl = dlMedio(est, z.id) ?? (Math.min(0.5, 3 * lr / (lm * lm)) * (arde ? 1.5 : 1));     // niveles que sube el equipo con cada victoria aquí
@@ -1724,7 +1753,7 @@
   }
   setInterval(() => { if (!enIsla()) return; const est = estadoIsla(); if (est && est.encuentro) apuntarEncuentro(est); vigilarResultado(); pintarAuto(); pasoAuto(); }, 1500);
   setTimeout(autoDesdeEnlace, 1000);
-  window.__axIsla = { estadoIsla, fauna, zonaElegida, analizar, puntuarZonas, efectoDeHoy, tablaIsla, leerTablasWeb, elegirCompanero, valorCompanero, umbralJefe, esperarMareaBaja, trioDeZona, equipoParaZona, nivelesZona, luchador, simulaTrio, baseEsp, tiposEsp, tiposDe, textoEfecto, histGet, dlMedio, rivalesJefe, mejorTrio, valorNivel, valorJefePorNivel, equipoPropuesto, ISLAS_RESPALDO, ESP, EVO_RESPALDO, tablasWeb: () => tablasWeb };
+  window.__axIsla = { desvioGana, estadoIsla, fauna, zonaElegida, analizar, puntuarZonas, efectoDeHoy, tablaIsla, leerTablasWeb, elegirCompanero, valorCompanero, umbralJefe, esperarMareaBaja, trioDeZona, equipoParaZona, nivelesZona, luchador, simulaTrio, baseEsp, tiposEsp, tiposDe, textoEfecto, histGet, dlMedio, rivalesJefe, mejorTrio, valorNivel, valorJefePorNivel, equipoPropuesto, ISLAS_RESPALDO, ESP, EVO_RESPALDO, tablasWeb: () => tablasWeb };
 
   let prog = null;
   function programar() {
