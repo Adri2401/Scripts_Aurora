@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.7.1
-// @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura a todos (también los repetidos), ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
+// @version      2.8.0
+// @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero y, con las tablas exactas de la isla de la semana (qué sale en cada zona y con qué probabilidad) y lo que cambia cada día (marea, enjambre, sequía), gasta la marea en la zona que más puntos promete (especie nueva × captura × victoria + experiencia), pone delante a los 3 mejores contra esa zona (también de la caja) y detrás a los que van a evolucionar, captura a todos (también los repetidos) y lucha contra el jefe cuando compensa (simula el combate). /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: lo que ha salido y lo que aún te falta, con su probabilidad. También dice a quién meter en el equipo para evolucionar a una especie que aún no tienes (a qué nivel y qué día lo permite el tope). Los datos de las islas y las evoluciones ya vienen en el script (y se leen de la web si cambian); solo se consulta PokéAPI si sale una especie que no conoce.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_isla.user.js
@@ -299,6 +299,312 @@
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   /* ------------------------------------------------------------------ *
+   *  DATOS DEL JUEGO. Las 5 islas que se turnan cada semana (zonas, qué sale en cada una y con qué peso, jefe y
+   *  compañeros) y las especies que pueden salir o evolucionar (tipos, estadísticas base, ritmo de captura y evoluciones
+   *  por nivel, de PokéAPI). Son los mismos datos que usa la propia página: si se pueden leer de ella (leerTablasWeb)
+   *  valen los de la web, que son los buenos si algún día cambian; si no, valen estos.
+   * ------------------------------------------------------------------ */
+  const TOPES_DIA = [12, 16, 20, 24, 30, 34, 38], DEX_MAX = 649;
+  // r: regla de la semana · c: compañeros · d: zona difícil · j: jefe (nombre, día, coste de marea, [especie, nivel]…)
+  // z: zonas [id, nombre, abre el día, nivel mín., nivel máx., [[especie, peso]…]]
+  const ISLAS_RESPALDO = {
+      selva: { n: "Isla Espejismo · Selva", r: "enjambre", c: [285,290,453], d: "corazon",
+        j: { n: "Celebi, el guardián de la Selva", d: 6, c: 3, e: [[45,34],[49,34],[251,37]] },
+        z: [
+          ["linde","Linde de la Selva",1,3,9,[[10,12],[13,12],[265,12],[401,10],[273,10],[43,10],[69,10],[46,8],[187,8],[165,8],[167,8],[191,6],[285,2],[290,2],[453,2]]],
+          ["espesura","La Espesura",3,12,20,[[48,10],[23,9],[41,9],[331,8],[406,8],[204,7],[316,7],[29,6],[32,6],[283,6],[434,6],[415,5],[315,4],[193,3],[114,2]]],
+          ["corazon","Corazón de la Selva",5,24,32,[[88,8],[109,8],[451,7],[336,6],[102,6],[455,6],[420,6],[357,5],[313,5],[314,5],[213,4],[214,2],[127,2],[123,2]]],
+          ["copa","Copa del Gran Árbol",6,30,38,[[44,6],[70,6],[274,6],[49,6],[47,6],[24,6],[168,6],[357,6],[15,5],[317,5],[435,5],[193,5],[214,4],[127,4],[123,4],[407,3]]] ] },
+      brasa: { n: "Isla Espejismo · Brasa", r: "sequia", c: [240,438,449], d: "caldera",
+        j: { n: "Entei, el guardián de la Brasa", d: 6, c: 3, e: [[229,39],[59,39],[244,42]] },
+        z: [
+          ["cenizal","El Cenizal",1,3,9,[[27,12],[50,12],[74,12],[218,10],[322,10],[231,10],[104,8],[328,8],[37,8],[58,6],[343,6],[240,2],[438,2],[449,2]]],
+          ["coladas","Las Coladas",3,12,20,[[111,9],[304,8],[299,8],[77,8],[228,7],[75,7],[219,7],[323,7],[105,6],[51,6],[246,6],[408,6],[410,6],[345,4],[347,4]]],
+          ["caldera","La Caldera",5,24,32,[[324,8],[95,7],[126,6],[78,6],[185,6],[232,6],[305,6],[112,5],[229,5],[450,5],[344,5],[337,5],[338,5],[138,3],[140,3],[443,3]]],
+          ["boca","Boca del Volcán",6,30,38,[[59,6],[38,6],[76,6],[324,5],[323,5],[409,5],[411,5],[330,4],[348,4],[346,4],[208,4],[306,4],[142,3],[467,3],[464,3],[248,2]]] ] },
+      coral: { n: "Isla Espejismo · Coral", r: "mareas", c: [283,341,220], d: "fosa",
+        j: { n: "Suicune, el guardián del Arrecife", d: 6, c: 3, e: [[91,34],[87,34],[245,37]] },
+        z: [
+          ["bajio","El Bajío",1,3,9,[[129,12],[278,12],[194,10],[183,10],[270,10],[90,10],[118,10],[120,8],[98,8],[60,8],[72,8],[422,8],[349,5],[283,2],[341,2],[220,2]]],
+          ["arrecife","El Arrecife",3,12,20,[[116,8],[223,8],[456,8],[418,8],[54,8],[170,7],[318,7],[366,7],[86,7],[222,6],[370,6],[271,5],[138,4],[140,4],[458,3]]],
+          ["fosa","La Fosa",5,24,32,[[320,7],[79,7],[61,6],[117,6],[211,6],[195,6],[361,6],[224,5],[87,5],[364,5],[226,4],[368,4],[367,4],[238,4],[369,3]]],
+          ["simas","Simas Heladas",6,30,38,[[55,6],[73,5],[91,5],[121,5],[319,5],[342,5],[419,5],[423,5],[362,5],[87,5],[365,4],[130,4],[131,4],[478,3],[350,3],[230,3]]] ] },
+      tormenta: { n: "Isla Espejismo · Tormenta", r: "rayos", c: [179,396,81], d: "ojo",
+        j: { n: "Zapdos, el guardián de la Tormenta", d: 6, c: 3, e: [[181,32],[227,32],[145,35]] },
+        z: [
+          ["duna","Duna del Viento",1,3,9,[[16,12],[21,12],[403,12],[163,10],[276,10],[309,10],[172,8],[100,8],[278,8],[333,8],[177,8],[84,8],[179,2],[396,2],[81,2]]],
+          ["acantilado","El Acantilado",3,12,20,[[17,7],[397,7],[180,7],[404,7],[25,6],[311,6],[312,6],[417,6],[170,6],[164,5],[178,5],[207,5],[198,5],[239,5],[441,4],[225,3]]],
+          ["ojo","Ojo de la Tormenta",5,24,32,[[82,6],[101,6],[22,6],[42,6],[125,5],[26,5],[310,5],[171,5],[85,5],[193,5],[279,5],[227,4],[291,4],[334,4],[479,3]]],
+          ["columnas","Las Columnas",6,30,38,[[18,5],[398,5],[181,5],[405,5],[430,4],[426,4],[469,4],[169,4],[123,4],[227,4],[135,3],[462,3],[466,3],[130,3],[142,3],[468,2]]] ] },
+      sombra: { n: "Isla Espejismo · Sombra", r: "niebla", c: [261,325,355], d: "pozo",
+        j: { n: "Darkrai, el guardián de la Sombra", d: 6, c: 3, e: [[94,36],[477,36],[491,39]] },
+        z: [
+          ["bruma","La Bruma",1,3,9,[[92,12],[353,10],[425,10],[96,10],[63,8],[433,8],[360,8],[280,8],[434,8],[228,8],[439,6],[201,6],[261,2],[325,2],[355,2]]],
+          ["cementerio","El Cementerio",3,12,20,[[93,7],[262,7],[436,7],[200,6],[302,6],[64,6],[203,6],[274,6],[343,6],[97,5],[326,5],[202,5],[215,5],[337,4],[338,4]]],
+          ["pozo","El Pozo",5,24,32,[[356,6],[354,6],[359,5],[435,5],[332,5],[319,5],[65,5],[358,5],[437,5],[344,5],[178,5],[429,4],[442,4],[375,4],[292,3]]],
+          ["otro-lado","El Otro Lado",6,30,38,[[275,5],[426,5],[430,5],[342,5],[121,5],[429,5],[94,4],[477,4],[478,4],[461,4],[452,4],[282,4],[197,3],[196,3],[475,3],[376,2]]] ] },
+  };
+  // [nombre, ritmo de captura, PS, ataque, defensa, ataque esp., defensa esp., velocidad, tipo 1, tipo 2]
+  const ESP = {
+      10:["caterpie",255,45,30,35,20,20,45,"bicho",null],11:["metapod",120,50,20,55,25,25,30,"bicho",null],12:["butterfree",45,60,45,50,90,80,70,"bicho","volador"],
+      13:["weedle",255,40,35,30,20,20,50,"bicho","veneno"],14:["kakuna",120,45,25,50,25,25,35,"bicho","veneno"],15:["beedrill",45,65,90,40,45,80,75,"bicho","veneno"],
+      16:["pidgey",255,40,45,40,35,35,56,"normal","volador"],17:["pidgeotto",120,63,60,55,50,50,71,"normal","volador"],18:["pidgeot",45,83,80,75,70,70,101,"normal","volador"],
+      21:["spearow",255,40,60,30,31,31,70,"normal","volador"],22:["fearow",90,65,90,65,61,61,100,"normal","volador"],23:["ekans",255,35,60,44,40,54,55,"veneno",null],
+      24:["arbok",90,60,95,69,65,79,80,"veneno",null],25:["pikachu",190,35,55,40,50,50,90,"electrico",null],26:["raichu",75,60,90,55,90,80,110,"electrico",null],
+      27:["sandshrew",255,50,75,85,20,30,40,"tierra",null],28:["sandslash",90,75,100,110,45,55,65,"tierra",null],29:["nidoran-f",235,55,47,52,40,40,41,"veneno",null],
+      30:["nidorina",120,70,62,67,55,55,56,"veneno",null],31:["nidoqueen",45,90,92,87,75,85,76,"veneno","tierra"],32:["nidoran-m",235,46,57,40,40,40,50,"veneno",null],
+      33:["nidorino",120,61,72,57,55,55,65,"veneno",null],34:["nidoking",45,81,102,77,85,75,85,"veneno","tierra"],37:["vulpix",190,38,41,40,50,65,65,"fuego",null],
+      38:["ninetales",75,73,76,75,81,100,100,"fuego",null],41:["zubat",255,40,45,35,30,40,55,"veneno","volador"],42:["golbat",90,75,80,70,65,75,90,"veneno","volador"],
+      43:["oddish",255,45,50,55,75,65,30,"planta","veneno"],44:["gloom",120,60,65,70,85,75,40,"planta","veneno"],45:["vileplume",45,75,80,85,110,90,50,"planta","veneno"],
+      46:["paras",190,35,70,55,45,55,25,"bicho","planta"],47:["parasect",75,60,95,80,60,80,30,"bicho","planta"],48:["venonat",190,60,55,50,40,55,45,"bicho","veneno"],
+      49:["venomoth",75,70,65,60,90,75,90,"bicho","veneno"],50:["diglett",255,10,55,25,35,45,95,"tierra",null],51:["dugtrio",50,35,100,50,50,70,120,"tierra",null],
+      54:["psyduck",190,50,52,48,65,50,55,"agua",null],55:["golduck",75,80,82,78,95,80,85,"agua",null],58:["growlithe",190,55,70,45,70,50,60,"fuego",null],
+      59:["arcanine",75,90,110,80,100,80,95,"fuego",null],60:["poliwag",255,40,50,40,40,40,90,"agua",null],61:["poliwhirl",120,65,65,65,50,50,90,"agua",null],
+      62:["poliwrath",45,90,95,95,70,90,70,"agua","lucha"],63:["abra",200,25,20,15,105,55,90,"psiquico",null],64:["kadabra",100,40,35,30,120,70,105,"psiquico",null],
+      65:["alakazam",50,55,50,45,135,95,120,"psiquico",null],69:["bellsprout",255,50,75,35,70,30,40,"planta","veneno"],70:["weepinbell",120,65,90,50,85,45,55,"planta","veneno"],
+      71:["victreebel",45,80,105,65,100,70,70,"planta","veneno"],72:["tentacool",190,40,40,35,50,100,70,"agua","veneno"],73:["tentacruel",60,80,70,65,80,120,100,"agua","veneno"],
+      74:["geodude",255,40,80,100,30,30,20,"roca","tierra"],75:["graveler",120,55,95,115,45,45,35,"roca","tierra"],76:["golem",45,80,120,130,55,65,45,"roca","tierra"],
+      77:["ponyta",190,50,85,55,65,65,90,"fuego",null],78:["rapidash",60,65,100,70,80,80,105,"fuego",null],79:["slowpoke",190,90,65,65,40,40,15,"agua","psiquico"],
+      80:["slowbro",75,95,75,110,100,80,30,"agua","psiquico"],81:["magnemite",190,25,35,70,95,55,45,"electrico","acero"],82:["magneton",60,50,60,95,120,70,70,"electrico","acero"],
+      84:["doduo",190,35,85,45,35,35,75,"normal","volador"],85:["dodrio",45,60,110,70,60,60,110,"normal","volador"],86:["seel",190,65,45,55,45,70,45,"agua",null],
+      87:["dewgong",75,90,70,80,70,95,70,"agua","hielo"],88:["grimer",190,80,80,50,40,50,25,"veneno",null],89:["muk",75,105,105,75,65,100,50,"veneno",null],
+      90:["shellder",190,30,65,100,45,25,40,"agua",null],91:["cloyster",60,50,95,180,85,45,70,"agua","hielo"],92:["gastly",190,30,35,30,100,35,80,"fantasma","veneno"],
+      93:["haunter",90,45,50,45,115,55,95,"fantasma","veneno"],94:["gengar",45,60,65,60,130,75,110,"fantasma","veneno"],95:["onix",45,35,45,160,30,45,70,"roca","tierra"],
+      96:["drowzee",190,60,48,45,43,90,42,"psiquico",null],97:["hypno",75,85,73,70,73,115,67,"psiquico",null],98:["krabby",225,30,105,90,25,25,50,"agua",null],
+      99:["kingler",60,55,130,115,50,50,75,"agua",null],100:["voltorb",190,40,30,50,55,55,100,"electrico",null],101:["electrode",60,60,50,70,80,80,150,"electrico",null],
+      102:["exeggcute",90,60,40,80,60,45,40,"planta","psiquico"],103:["exeggutor",45,95,95,85,125,75,55,"planta","psiquico"],104:["cubone",190,50,50,95,40,50,35,"tierra",null],
+      105:["marowak",75,60,80,110,50,80,45,"tierra",null],109:["koffing",190,40,65,95,60,45,35,"veneno",null],110:["weezing",60,65,90,120,85,70,60,"veneno",null],
+      111:["rhyhorn",120,80,85,95,30,30,25,"tierra","roca"],112:["rhydon",60,105,130,120,45,45,40,"tierra","roca"],114:["tangela",45,65,55,115,100,40,60,"planta",null],
+      116:["horsea",225,30,40,70,70,25,60,"agua",null],117:["seadra",75,55,65,95,95,45,85,"agua",null],118:["goldeen",225,45,67,60,35,50,63,"agua",null],
+      119:["seaking",60,80,92,65,65,80,68,"agua",null],120:["staryu",225,30,45,55,70,55,85,"agua",null],121:["starmie",60,60,75,85,100,85,115,"agua","psiquico"],
+      122:["mr-mime",45,40,45,65,100,120,90,"psiquico","hada"],123:["scyther",45,70,110,80,55,80,105,"bicho","volador"],124:["jynx",45,65,50,35,115,95,95,"hielo","psiquico"],
+      125:["electabuzz",45,65,83,57,95,85,105,"electrico",null],126:["magmar",45,65,95,57,100,85,93,"fuego",null],127:["pinsir",45,65,125,100,55,70,85,"bicho",null],
+      129:["magikarp",255,20,10,55,15,20,80,"agua",null],130:["gyarados",45,95,125,79,60,100,81,"agua","volador"],131:["lapras",45,130,85,80,85,95,60,"agua","hielo"],
+      133:["eevee",45,55,55,50,45,65,55,"normal",null],134:["vaporeon",45,130,65,60,110,95,65,"agua",null],135:["jolteon",45,65,65,60,110,95,130,"electrico",null],
+      136:["flareon",45,65,130,60,95,110,65,"fuego",null],138:["omanyte",45,35,40,100,90,55,35,"roca","agua"],139:["omastar",45,70,60,125,115,70,55,"roca","agua"],
+      140:["kabuto",45,30,80,90,55,45,55,"roca","agua"],141:["kabutops",45,60,115,105,65,70,80,"roca","agua"],142:["aerodactyl",45,80,105,65,60,75,130,"roca","volador"],
+      145:["zapdos",3,90,90,85,125,90,100,"electrico","volador"],163:["hoothoot",255,60,30,30,36,56,50,"normal","volador"],164:["noctowl",90,100,50,50,86,96,70,"normal","volador"],
+      165:["ledyba",255,40,20,30,40,80,55,"bicho","volador"],166:["ledian",90,55,35,50,55,110,85,"bicho","volador"],167:["spinarak",255,40,60,40,40,40,30,"bicho","veneno"],
+      168:["ariados",90,70,90,70,60,70,40,"bicho","veneno"],169:["crobat",90,85,90,80,70,80,130,"veneno","volador"],170:["chinchou",190,75,38,38,56,56,67,"agua","electrico"],
+      171:["lanturn",75,125,58,58,76,76,67,"agua","electrico"],172:["pichu",190,20,40,15,35,35,60,"electrico",null],175:["togepi",190,35,20,65,40,65,20,"hada",null],
+      176:["togetic",75,55,40,85,80,105,40,"hada","volador"],177:["natu",190,40,50,45,70,45,70,"psiquico","volador"],178:["xatu",75,65,75,70,95,70,95,"psiquico","volador"],
+      179:["mareep",235,55,40,40,65,45,35,"electrico",null],180:["flaaffy",120,70,55,55,80,60,45,"electrico",null],181:["ampharos",45,90,75,85,115,90,55,"electrico",null],
+      182:["bellossom",45,75,80,95,90,100,50,"planta",null],183:["marill",190,70,20,50,20,50,40,"agua","hada"],184:["azumarill",75,100,50,80,60,80,50,"agua","hada"],
+      185:["sudowoodo",65,70,100,115,30,65,30,"roca",null],186:["politoed",45,90,75,75,90,100,70,"agua",null],187:["hoppip",255,35,35,40,35,55,50,"planta","volador"],
+      188:["skiploom",120,55,45,50,45,65,80,"planta","volador"],189:["jumpluff",45,75,55,70,55,95,110,"planta","volador"],191:["sunkern",235,30,30,30,30,30,30,"planta",null],
+      192:["sunflora",120,75,75,55,105,85,30,"planta",null],193:["yanma",75,65,65,45,75,45,95,"bicho","volador"],194:["wooper",255,55,45,45,25,25,15,"agua","tierra"],
+      195:["quagsire",90,95,85,85,65,65,35,"agua","tierra"],196:["espeon",45,65,65,60,130,95,110,"psiquico",null],197:["umbreon",45,95,65,110,60,130,65,"siniestro",null],
+      198:["murkrow",30,60,85,42,85,42,91,"siniestro","volador"],199:["slowking",70,95,75,80,100,110,30,"agua","psiquico"],200:["misdreavus",45,60,60,60,85,85,85,"fantasma",null],
+      201:["unown",225,48,72,48,72,48,48,"psiquico",null],202:["wobbuffet",45,190,33,58,33,58,33,"psiquico",null],203:["girafarig",60,70,80,65,90,65,85,"normal","psiquico"],
+      204:["pineco",190,50,65,90,35,35,15,"bicho",null],205:["forretress",75,75,90,140,60,60,40,"bicho","acero"],207:["gligar",60,65,75,105,35,65,85,"tierra","volador"],
+      208:["steelix",25,75,85,200,55,65,30,"acero","tierra"],211:["qwilfish",45,65,95,85,55,55,85,"agua","veneno"],212:["scizor",25,70,130,100,55,80,65,"bicho","acero"],
+      213:["shuckle",190,20,10,230,10,230,5,"bicho","roca"],214:["heracross",45,80,125,75,40,95,85,"bicho","lucha"],215:["sneasel",60,55,95,55,35,75,115,"siniestro","hielo"],
+      218:["slugma",190,40,40,40,70,40,20,"fuego",null],219:["magcargo",75,60,50,120,90,80,30,"fuego","roca"],220:["swinub",225,50,50,40,30,30,50,"hielo","tierra"],
+      221:["piloswine",75,100,100,80,60,60,50,"hielo","tierra"],222:["corsola",60,65,55,95,65,95,35,"agua","roca"],223:["remoraid",190,35,65,35,65,35,65,"agua",null],
+      224:["octillery",75,75,105,75,105,75,45,"agua",null],225:["delibird",45,45,55,45,65,45,75,"hielo","volador"],226:["mantine",25,85,40,70,80,140,70,"agua","volador"],
+      227:["skarmory",25,65,80,140,40,70,70,"acero","volador"],228:["houndour",120,45,60,30,80,50,65,"siniestro","fuego"],229:["houndoom",45,75,90,50,110,80,95,"siniestro","fuego"],
+      230:["kingdra",45,75,95,95,95,95,85,"agua","dragon"],231:["phanpy",120,90,60,60,40,40,40,"tierra",null],232:["donphan",60,90,120,120,60,60,50,"tierra",null],
+      238:["smoochum",45,45,30,15,85,65,65,"hielo","psiquico"],239:["elekid",45,45,63,37,65,55,95,"electrico",null],240:["magby",45,45,75,37,70,55,83,"fuego",null],
+      244:["entei",3,115,115,85,90,75,100,"fuego",null],245:["suicune",3,100,75,115,90,115,85,"agua",null],246:["larvitar",45,50,64,50,45,50,41,"roca","tierra"],
+      247:["pupitar",45,70,84,70,65,70,51,"roca","tierra"],248:["tyranitar",45,100,134,110,95,100,61,"roca","siniestro"],251:["celebi",45,100,100,100,100,100,100,"psiquico","planta"],
+      261:["poochyena",255,35,55,35,30,30,35,"siniestro",null],262:["mightyena",127,70,90,70,60,60,70,"siniestro",null],265:["wurmple",255,45,45,35,20,30,20,"bicho",null],
+      266:["silcoon",120,50,35,55,25,25,15,"bicho",null],267:["beautifly",45,60,70,50,100,50,65,"bicho","volador"],268:["cascoon",120,50,35,55,25,25,15,"bicho",null],
+      269:["dustox",45,60,50,70,50,90,65,"bicho","veneno"],270:["lotad",255,40,30,30,40,50,30,"agua","planta"],271:["lombre",120,60,50,50,60,70,50,"agua","planta"],
+      272:["ludicolo",45,80,70,70,90,100,70,"agua","planta"],273:["seedot",255,40,40,50,30,30,30,"planta",null],274:["nuzleaf",120,70,70,40,60,40,60,"planta","siniestro"],
+      275:["shiftry",45,90,100,60,90,60,80,"planta","siniestro"],276:["taillow",200,40,55,30,30,30,85,"normal","volador"],277:["swellow",45,60,85,60,75,50,125,"normal","volador"],
+      278:["wingull",190,40,30,30,55,30,85,"agua","volador"],279:["pelipper",45,60,50,100,95,70,65,"agua","volador"],280:["ralts",235,28,25,25,45,35,40,"psiquico","hada"],
+      281:["kirlia",120,38,35,35,65,55,50,"psiquico","hada"],282:["gardevoir",45,68,65,65,125,115,80,"psiquico","hada"],283:["surskit",200,40,30,32,50,52,65,"bicho","agua"],
+      284:["masquerain",75,70,60,62,100,82,80,"bicho","volador"],285:["shroomish",255,60,40,60,40,60,35,"planta",null],286:["breloom",90,60,130,80,60,60,70,"planta","lucha"],
+      290:["nincada",255,31,45,90,30,30,40,"bicho","tierra"],291:["ninjask",120,61,90,45,50,50,160,"bicho","volador"],292:["shedinja",45,1,90,45,30,30,40,"bicho","fantasma"],
+      298:["azurill",150,50,20,40,20,40,20,"normal","hada"],299:["nosepass",255,30,45,135,45,90,30,"roca",null],302:["sableye",45,50,75,75,65,65,50,"siniestro","fantasma"],
+      304:["aron",180,50,70,100,40,40,30,"acero","roca"],305:["lairon",90,60,90,140,50,50,40,"acero","roca"],306:["aggron",45,70,110,180,60,60,50,"acero","roca"],
+      309:["electrike",120,40,45,40,65,40,65,"electrico",null],310:["manectric",45,70,75,60,105,60,105,"electrico",null],311:["plusle",200,60,50,40,85,75,95,"electrico",null],
+      312:["minun",200,60,40,50,75,85,95,"electrico",null],313:["volbeat",150,65,73,75,47,85,85,"bicho",null],314:["illumise",150,65,47,75,73,85,85,"bicho",null],
+      315:["roselia",150,50,60,45,100,80,65,"planta","veneno"],316:["gulpin",225,70,43,53,43,53,40,"veneno",null],317:["swalot",75,100,73,83,73,83,55,"veneno",null],
+      318:["carvanha",225,45,90,20,65,20,65,"agua","siniestro"],319:["sharpedo",60,70,120,40,95,40,95,"agua","siniestro"],320:["wailmer",125,130,70,35,70,35,60,"agua",null],
+      321:["wailord",60,170,90,45,90,45,60,"agua",null],322:["numel",255,60,60,40,65,45,35,"fuego","tierra"],323:["camerupt",150,70,100,70,105,75,40,"fuego","tierra"],
+      324:["torkoal",90,70,85,140,85,70,20,"fuego",null],325:["spoink",255,60,25,35,70,80,60,"psiquico",null],326:["grumpig",60,80,45,65,90,110,80,"psiquico",null],
+      328:["trapinch",255,45,100,45,45,45,10,"tierra",null],329:["vibrava",120,50,70,50,50,50,70,"tierra","dragon"],330:["flygon",45,80,100,80,80,80,100,"tierra","dragon"],
+      331:["cacnea",190,50,85,40,85,40,35,"planta",null],332:["cacturne",60,70,115,60,115,60,55,"planta","siniestro"],333:["swablu",255,45,40,60,40,75,50,"normal","volador"],
+      334:["altaria",45,75,70,90,70,105,80,"dragon","volador"],336:["seviper",90,73,100,60,100,60,65,"veneno",null],337:["lunatone",45,90,55,65,95,85,70,"roca","psiquico"],
+      338:["solrock",45,90,95,85,55,65,70,"roca","psiquico"],341:["corphish",205,43,80,65,50,35,35,"agua",null],342:["crawdaunt",155,63,120,85,90,55,55,"agua","siniestro"],
+      343:["baltoy",255,40,40,55,40,70,55,"tierra","psiquico"],344:["claydol",90,60,70,105,70,120,75,"tierra","psiquico"],345:["lileep",45,66,41,77,61,87,23,"roca","planta"],
+      346:["cradily",45,86,81,97,81,107,43,"roca","planta"],347:["anorith",45,45,95,50,40,50,75,"roca","bicho"],348:["armaldo",45,75,125,100,70,80,45,"roca","bicho"],
+      349:["feebas",255,20,15,20,10,55,80,"agua",null],350:["milotic",60,95,60,79,100,125,81,"agua",null],353:["shuppet",225,44,75,35,63,33,45,"fantasma",null],
+      354:["banette",45,64,115,65,83,63,65,"fantasma",null],355:["duskull",190,20,40,90,30,90,25,"fantasma",null],356:["dusclops",90,40,70,130,60,130,25,"fantasma",null],
+      357:["tropius",200,99,68,83,72,87,51,"planta","volador"],358:["chimecho",45,75,50,80,95,90,65,"psiquico",null],359:["absol",30,65,130,60,75,60,75,"siniestro",null],
+      360:["wynaut",125,95,23,48,23,48,23,"psiquico",null],361:["snorunt",190,50,50,50,50,50,50,"hielo",null],362:["glalie",75,80,80,80,80,80,80,"hielo",null],
+      363:["spheal",255,70,40,50,55,50,25,"hielo","agua"],364:["sealeo",120,90,60,70,75,70,45,"hielo","agua"],365:["walrein",45,110,80,90,95,90,65,"hielo","agua"],
+      366:["clamperl",255,35,64,85,74,55,32,"agua",null],367:["huntail",60,55,104,105,94,75,52,"agua",null],368:["gorebyss",60,55,84,105,114,75,52,"agua",null],
+      369:["relicanth",25,100,90,130,45,65,55,"agua","roca"],370:["luvdisc",225,43,30,55,40,65,97,"agua",null],374:["beldum",3,40,55,80,35,60,30,"acero","psiquico"],
+      375:["metang",3,60,75,100,55,80,50,"acero","psiquico"],376:["metagross",3,80,135,130,95,90,70,"acero","psiquico"],396:["starly",255,40,55,30,30,30,60,"normal","volador"],
+      397:["staravia",120,55,75,50,40,40,80,"normal","volador"],398:["staraptor",45,85,120,70,50,60,100,"normal","volador"],401:["kricketot",255,37,25,41,25,41,25,"bicho",null],
+      402:["kricketune",45,77,85,51,55,51,65,"bicho",null],403:["shinx",235,45,65,34,40,34,45,"electrico",null],404:["luxio",120,60,85,49,60,49,60,"electrico",null],
+      405:["luxray",45,80,120,79,95,79,70,"electrico",null],406:["budew",255,40,30,35,50,70,55,"planta","veneno"],407:["roserade",75,60,70,65,125,105,90,"planta","veneno"],
+      408:["cranidos",45,67,125,40,30,30,58,"roca",null],409:["rampardos",45,97,165,60,65,50,58,"roca",null],410:["shieldon",45,30,42,118,42,88,30,"roca","acero"],
+      411:["bastiodon",45,60,52,168,47,138,30,"roca","acero"],415:["combee",120,30,30,42,30,42,70,"bicho","volador"],416:["vespiquen",45,70,80,102,80,102,40,"bicho","volador"],
+      417:["pachirisu",200,60,45,70,45,90,95,"electrico",null],418:["buizel",190,55,65,35,60,30,85,"agua",null],419:["floatzel",75,85,105,55,85,50,115,"agua",null],
+      420:["cherubi",190,45,35,45,62,53,35,"planta",null],421:["cherrim",75,70,60,70,87,78,85,"planta",null],422:["shellos",190,76,48,48,57,62,34,"agua",null],
+      423:["gastrodon",75,111,83,68,92,82,39,"agua","tierra"],425:["drifloon",125,90,50,34,60,44,70,"fantasma","volador"],426:["drifblim",60,150,80,44,90,54,80,"fantasma","volador"],
+      429:["mismagius",45,60,60,60,105,105,105,"fantasma",null],430:["honchkrow",30,100,125,52,105,52,71,"siniestro","volador"],433:["chingling",120,45,30,50,65,50,45,"psiquico",null],
+      434:["stunky",225,63,63,47,41,41,74,"veneno","siniestro"],435:["skuntank",60,103,93,67,71,61,84,"veneno","siniestro"],436:["bronzor",255,57,24,86,24,86,23,"acero","psiquico"],
+      437:["bronzong",90,67,89,116,79,116,33,"acero","psiquico"],438:["bonsly",255,50,80,95,10,45,10,"roca",null],439:["mime-jr",145,20,25,45,70,90,60,"psiquico","hada"],
+      441:["chatot",30,76,65,45,92,42,91,"normal","volador"],442:["spiritomb",100,50,92,108,92,108,35,"fantasma","siniestro"],443:["gible",45,58,70,45,40,45,42,"dragon","tierra"],
+      444:["gabite",45,68,90,65,50,55,82,"dragon","tierra"],445:["garchomp",45,108,130,95,80,85,102,"dragon","tierra"],449:["hippopotas",140,68,72,78,38,42,32,"tierra",null],
+      450:["hippowdon",60,108,112,118,68,72,47,"tierra",null],451:["skorupi",120,40,50,90,30,55,65,"veneno","bicho"],452:["drapion",45,70,90,110,60,75,95,"veneno","siniestro"],
+      453:["croagunk",140,48,61,40,61,40,50,"veneno","lucha"],454:["toxicroak",75,83,106,65,86,65,85,"veneno","lucha"],455:["carnivine",200,74,100,72,90,72,46,"planta",null],
+      456:["finneon",190,49,49,56,49,61,66,"agua",null],457:["lumineon",75,69,69,76,69,86,91,"agua",null],458:["mantyke",25,45,20,50,60,120,50,"agua","volador"],
+      461:["weavile",45,70,120,65,45,85,125,"siniestro","hielo"],462:["magnezone",30,70,70,115,130,90,60,"electrico","acero"],464:["rhyperior",30,115,140,130,55,55,40,"tierra","roca"],
+      465:["tangrowth",30,100,100,125,110,50,50,"planta",null],466:["electivire",30,75,123,67,95,85,95,"electrico",null],467:["magmortar",30,75,95,67,125,95,83,"fuego",null],
+      468:["togekiss",30,85,50,95,120,115,80,"hada","volador"],469:["yanmega",30,86,76,86,116,56,95,"bicho","volador"],470:["leafeon",45,65,110,130,60,65,95,"planta",null],
+      471:["glaceon",45,65,60,110,130,95,65,"hielo",null],472:["gliscor",30,75,95,125,45,75,95,"tierra","volador"],473:["mamoswine",50,110,130,80,70,60,80,"hielo","tierra"],
+      475:["gallade",45,68,125,65,65,115,80,"psiquico","lucha"],476:["probopass",60,60,55,145,75,150,40,"roca","acero"],477:["dusknoir",45,45,100,135,65,135,45,"fantasma",null],
+      478:["froslass",75,70,80,70,80,70,110,"hielo","fantasma"],479:["rotom",45,50,50,77,95,77,91,"electrico","fantasma"],491:["darkrai",3,70,90,90,135,90,125,"siniestro",null],
+  };
+  // evoluciones por nivel: especie → [[a qué especie, nivel, condición]]
+  const EVO_RESPALDO = {
+      10:[[11,7,""]],11:[[12,10,""]],13:[[14,7,""]],14:[[15,10,""]],
+      16:[[17,18,""]],17:[[18,36,""]],21:[[22,20,""]],23:[[24,22,""]],
+      27:[[28,22,""]],29:[[30,16,""]],32:[[33,16,""]],41:[[42,22,""]],
+      43:[[44,21,""]],46:[[47,24,""]],48:[[49,31,""]],50:[[51,26,""]],
+      54:[[55,33,""]],60:[[61,25,""]],63:[[64,16,""]],69:[[70,21,""]],
+      72:[[73,30,""]],74:[[75,25,""]],77:[[78,40,""]],79:[[80,37,""]],
+      81:[[82,30,""]],84:[[85,31,""]],86:[[87,34,""]],88:[[89,38,""]],
+      92:[[93,25,""]],96:[[97,26,""]],98:[[99,28,""]],100:[[101,30,""]],
+      104:[[105,28,""]],109:[[110,35,""]],111:[[112,42,""]],116:[[117,32,""]],
+      118:[[119,33,""]],129:[[130,20,""]],138:[[139,40,""]],140:[[141,40,""]],
+      163:[[164,20,""]],165:[[166,18,""]],167:[[168,22,""]],170:[[171,27,""]],
+      177:[[178,25,""]],179:[[180,15,""]],180:[[181,30,""]],183:[[184,18,""]],
+      187:[[188,18,""]],188:[[189,27,""]],194:[[195,20,""]],204:[[205,31,""]],
+      218:[[219,38,""]],220:[[221,33,""]],223:[[224,25,""]],228:[[229,24,""]],
+      231:[[232,25,""]],238:[[124,30,""]],239:[[125,30,""]],240:[[126,30,""]],
+      246:[[247,30,""]],247:[[248,55,""]],261:[[262,18,""]],265:[[266,7,""],[268,7,""]],
+      266:[[267,10,""]],268:[[269,10,""]],270:[[271,14,""]],273:[[274,14,""]],
+      276:[[277,22,""]],278:[[279,25,""]],280:[[281,20,""]],281:[[282,30,""]],
+      283:[[284,22,""]],285:[[286,23,""]],290:[[291,20,""]],304:[[305,32,""]],
+      305:[[306,42,""]],309:[[310,26,""]],316:[[317,26,""]],318:[[319,30,""]],
+      320:[[321,40,""]],322:[[323,33,""]],325:[[326,32,""]],328:[[329,35,""]],
+      329:[[330,45,""]],331:[[332,32,""]],333:[[334,35,""]],341:[[342,30,""]],
+      343:[[344,36,""]],345:[[346,40,""]],347:[[348,40,""]],353:[[354,37,""]],
+      355:[[356,37,""]],360:[[202,15,""]],361:[[362,42,""]],363:[[364,32,""]],
+      364:[[365,44,""]],374:[[375,20,""]],375:[[376,45,""]],396:[[397,14,""]],
+      397:[[398,34,""]],401:[[402,10,""]],403:[[404,15,""]],404:[[405,30,""]],
+      408:[[409,30,""]],410:[[411,30,""]],415:[[416,21,"hembra"]],418:[[419,26,""]],
+      420:[[421,25,""]],422:[[423,30,""]],425:[[426,28,""]],434:[[435,34,""]],
+      436:[[437,33,""]],443:[[444,24,""]],444:[[445,48,""]],449:[[450,34,""]],
+      451:[[452,40,""]],453:[[454,37,""]],456:[[457,31,""]],
+  };
+  const nombreEsp = n => (ESP[n] && ESP[n][0]) || '';
+  // «los raros salen el triple» (marea baja): por el ritmo de captura, que es como el juego reparte la rareza
+  // (común ≥ 190, poco común ≥ 60, rara por debajo; p. ej. Gyarados y Omanyte, con 45, son raros y Corsola, con 60, no)
+  const esRara = n => !!ESP[n] && ESP[n][1] < 55;
+  const normN = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+  let idsPorNombre = null;
+  const idDeNombre = nombre => {
+    if (!idsPorNombre) { idsPorNombre = {}; for (const n of Object.keys(ESP)) idsPorNombre[normN(ESP[n][0])] = +n; }
+    return idsPorNombre[normN(nombre)] || null;
+  };
+  // Las islas con otro formato, ya normalizadas: { id, regla, companeros, dificil, jefe, zonas: { id: { sp, total… } }, orden }
+  function normalizarIsla(id, t) {
+    const zonas = {}, orden = [];
+    for (const z of t.z) { zonas[z[0]] = { id: z[0], nombre: z[1], desde: z[2], lo: z[3], hi: z[4], sp: z[5], total: z[5].reduce((a, s) => a + s[1], 0) }; orden.push(z[0]); }
+    return { id, nombre: t.n, regla: t.r, companeros: t.c, dificil: t.d, jefe: t.j && { nombre: t.j.n, desde: t.j.d, coste: t.j.c, equipo: t.j.e }, zonas, orden };
+  }
+  // Las tablas de la propia página (el módulo con las islas, entre los trozos de webpack). Se ejecuta ese módulo con un «require»
+  // de mentira: solo declara constantes. Si algo no cuadra se ignora y valen las de arriba.
+  let tablasWeb = null, tablasWebProbado = false;
+  function leerTablasWeb() {
+    if (tablasWebProbado) return;
+    tablasWebProbado = true;
+    try {
+      const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+      const trozos = W.webpackChunk_N_E;
+      if (!trozos || typeof trozos.length !== 'number') return;
+      const defs = (o, d) => { for (const k in d) Object.defineProperty(o, k, { get: d[k], enumerable: true }); };
+      const falso = Object.assign(() => { throw new Error('require'); }, { d: defs, r() {}, n: x => x, o: (o, k) => Object.prototype.hasOwnProperty.call(o, k) });
+      for (let i = 0; i < trozos.length; i++) {
+        const mods = trozos[i] && trozos[i][1];
+        if (!mods || typeof mods !== 'object') continue;
+        for (const id of Object.keys(mods)) {
+          const f = mods[id];
+          if (typeof f !== 'function') continue;
+          const src = Function.prototype.toString.call(f);
+          if (src.length < 2000 || src.length > 120000 || !src.includes('zonaDificil') || !src.includes('premiosJefe') || /[^\w$.]\w{1,2}\(\d{3,6}\)/.test(src)) continue;
+          const m = { exports: {} };
+          try { f(m, m.exports, falso); } catch { continue; }
+          const Ef = Object.values(m.exports).find(v => v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).some(x => x && Array.isArray(x.zonas) && x.jefe));
+          if (!Ef) continue;
+          const out = {};
+          for (const [k, v] of Object.entries(Ef)) {
+            try {
+              if (!v || !Array.isArray(v.zonas) || !v.zonas.length || !v.jefe || !Array.isArray(v.jefe.equipo)) continue;
+              const t = {
+                n: v.nombre, r: v.regla && v.regla.id, c: v.companeros, d: v.zonaDificil,
+                j: { n: v.jefe.nombre, d: v.jefe.desdeDia, c: v.jefe.costeMarea, e: v.jefe.equipo.map(x => [x.id, x.nivel]) },
+                z: v.zonas.map(z => [z.id, z.nombre, z.desdeDia, z.nivel[0], z.nivel[1], z.especies.map(e => [e.id, e.peso])]),
+              };
+              const bien = t.z.every(z => typeof z[0] === 'string' && z[5].length && z[5].every(s => Number.isFinite(s[0]) && s[1] > 0)) && Array.isArray(t.c);
+              if (bien) out[k] = t;
+            } catch { /* esa isla no */ }
+          }
+          if (Object.keys(out).length) { tablasWeb = out; return; }
+        }
+      }
+    } catch (e) { console.warn('[axi] tablas de la web', e); }
+  }
+  const tablaMemo = {};
+  function tablaIsla(est) {
+    const id = est && est.isla && est.isla.id;
+    if (!id) return null;
+    leerTablasWeb();
+    const fuente = (tablasWeb && tablasWeb[id]) || ISLAS_RESPALDO[id];
+    if (!fuente) return null;
+    if (!tablaMemo[id] || tablaMemo[id].f !== fuente) tablaMemo[id] = { f: fuente, t: normalizarIsla(id, fuente) };
+    return tablaMemo[id].t;
+  }
+  // Lo que cambia hoy en la isla según la regla de la semana (la página lo cuenta en «Ahora mismo»):
+  //   mareas vivas → marea alta (+1 nivel) o baja (los raros ×3) · enjambre → una especie ×5 · sequía → una zona arde (+3 niveles
+  //   y +50 % de experiencia) · rayos y niebla → al azar durante la exploración (nada que planear)
+  const REGLAS = { enjambre: 'enjambre', sequia: 'sequia', mareas: 'mareas', mareasvivas: 'mareas', rayos: 'rayos', niebla: 'niebla' };
+  function efectoDeHoy(est, T = tablaIsla(est)) {
+    const e = est.efectoHoy || {};
+    const d = `${e.titulo || ''} ${e.detalle || ''}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/×/g, 'x');
+    const regla = (T && T.regla) || REGLAS[normN(est.isla && est.isla.regla && est.isla.regla.titulo)] || '';
+    const out = { regla, alta: false, baja: false, enjambre: null, arde: null, texto: String(e.detalle || '').trim() };
+    if (regla === 'mareas') {
+      const lit = d.match(/marea (alta|baja)/);
+      out.baja = lit ? lit[1] === 'baja' : /charca|raros?[^.]{0,40}(triple|doble|x\s*3)/.test(d);
+      out.alta = lit ? lit[1] === 'alta' : !out.baja && /lo grande|nivel por encima/.test(d);
+    } else if (regla === 'enjambre') {
+      const m = String(e.sprite || '').match(/(\d+)\.(?:png|webp|gif)/i);
+      let n = m ? +m[1] : null;
+      if (!n && d.trim() && T) {                                         // si no hay sprite, por el nombre entre las especies de las zonas abiertas
+        const dd = ' ' + d.replace(/[^a-z0-9]+/g, ' ') + ' ';
+        for (const z of est.zonas || []) {
+          if (!z.abierta || !T.zonas[z.id]) continue;
+          const hit = T.zonas[z.id].sp.find(([id]) => { const nm = nombreEsp(id).replace(/-/g, ' '); return nm.length > 2 && dd.includes(' ' + nm + ' '); });
+          if (hit) { n = hit[0]; break; }
+        }
+      }
+      out.enjambre = n;
+    } else if (regla === 'sequia') {
+      const llano = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/^(el|la|los|las)\s+/, '');
+      const z = (est.zonas || []).find(x => d.includes(llano(x.nombre))) || (est.zonas || []).find(x => new RegExp('(^|[^a-z])' + x.id + '([^a-z]|$)').test(d));
+      out.arde = z ? z.id : null;
+    }
+    return out;
+  }
+  // «Marea alta (+1 nivel)», «Enjambre: Beedrill ×5»… para el panel
+  function textoEfecto(est, ef) {
+    if (ef.regla === 'mareas') return ef.alta ? '🌊 Marea alta (rivales +1 nivel)' : ef.baja ? '🏖️ Marea baja (los raros salen ×3)' : '';
+    if (ef.regla === 'enjambre') return ef.enjambre ? `🐝 Enjambre: ${nombreEsp(ef.enjambre) ? nombreEsp(ef.enjambre).replace(/(^|-)(\w)/g, (_, a, b) => a + b.toUpperCase()) : '#' + ef.enjambre} sale ×5` : '';
+    if (ef.regla === 'sequia') { const z = (est.zonas || []).find(x => x.id === ef.arde); return z ? `☀️ Sequía en ${z.nombre} (+3 niveles, +50 % de experiencia)` : ''; }
+    if (ef.regla === 'rayos') return '⚡ De vez en cuando cae un rayo (rival +3 niveles, el doble de experiencia)';
+    if (ef.regla === 'niebla') return '🌫️ En la niebla a veces sale algo de una zona aún cerrada';
+    return '';
+  }
+
+  /* ------------------------------------------------------------------ *
    *  DATOS DE LA ISLA: los mismos que usa la página (equipo, caja, día, tope de nivel)
    * ------------------------------------------------------------------ */
   const fibraDe = el => { if (!el) return null; const k = Object.keys(el).find(x => x.startsWith('__reactFiber$')); return k ? el[k] : null; };
@@ -369,6 +675,10 @@
   }
   const idDeUrl = u => parseInt((String(u).match(/\/(\d+)\/?$/) || [])[1], 10);
   const bonitoEn = n => n.split('-').map(x => x.charAt(0).toUpperCase() + x.slice(1)).join('-');
+  // las evoluciones por nivel ya vienen con el script (y las de PokéAPI, si hacen falta otras, se piden y se guardan)
+  for (const n of Object.keys(ESP)) {
+    if (!evos[n]) evos[n] = (EVO_RESPALDO[n] || []).map(([a2, nivel, cond]) => ({ a: a2, nombre: bonitoEn(nombreEsp(a2) || String(a2)), nivel, cond }));
+  }
   let guardarT = null;
   async function pedirEvos(id) {
     if (evos[id] || pidiendo.has(id)) return;
@@ -421,7 +731,7 @@
     const destinos = (id, base = 0, paso = 1, visto = new Set([id])) => {
       const out = [];
       for (const e of evos[id] || []) {
-        if (visto.has(e.a)) continue;
+        if (visto.has(e.a) || e.a > DEX_MAX) continue;           // (lo que no está en la dex del juego no se puede conseguir)
         visto.add(e.a);
         const nivel = Math.max(base, e.nivel);
         if (!tengo.has(e.a)) out.push({ ...e, nivel, paso });
@@ -455,9 +765,21 @@
    *  semana, luego los que tienen algo nuevo en su línea aunque no lleguen, y solo si faltan, los demás). Entre los
    *  elegidos, los de más nivel delante (el 2.º y el 3.º también pelean).
    * ------------------------------------------------------------------ */
-  function equipoPropuesto(est, A) {
+  function equipoPropuesto(est, A, luchan) {
     const primero = est.equipo[0];
     if (!primero) return null;
+    if (luchan && luchan.length) {
+      // los que pelean ya están elegidos (los 3 mejores contra la zona); detrás, los que van a evolucionar por su prioridad y, si
+      // faltan, los de más nivel (en esos huecos no se pelea, solo se gana experiencia)
+      const huecos = Math.max(0, 6 - luchan.length), dentro = new Set(luchan.map(p => p.id)), otros = [];
+      for (const c of A.candidatos) {
+        if (otros.length >= huecos) break;
+        if (!dentro.has(c.p.id) && !otros.some(p => p.id === c.p.id)) otros.push(c.p);
+      }
+      const resto = est.equipo.filter(p => !dentro.has(p.id) && !otros.some(q => q.id === p.id)).sort((a, b) => b.nivel - a.nivel);
+      while (otros.length < huecos && resto.length) otros.push(resto.shift());
+      return [...luchan, ...otros].slice(0, 6);
+    }
     const elegidos = [];
     for (const c of A.candidatos) {
       if (elegidos.length >= 5) break;
@@ -470,17 +792,17 @@
     return [primero, ...elegidos];
   }
   let ordenando = false;
-  async function ordenarEquipo() {
+  async function ordenarEquipo(propuesto, mensaje) {
     if (ordenando) return;
     const est = estadoIsla(), fn = guardarEquipoFn();
     const msg = t => { const p = document.querySelector('#axi-panel .axi-msg'); if (p) p.textContent = t; };
     if (!est || !fn) { msg('⚠️ No encuentro cómo cambiar el equipo en esta página.'); return; }
-    const prop = equipoPropuesto(est, analizar(est));
+    const prop = propuesto || equipoPropuesto(est, analizar(est));
     if (!prop) return;
     const ids = prop.map(p => p.id);
     if (ids.join() === est.equipo.map(p => p.id).join()) { msg('✔ El equipo ya está así.'); return; }
     ordenando = true;
-    try { fn(ids, 'Equipo ordenado para evolucionar a especies nuevas.'); msg('✔ Equipo cambiado.'); }
+    try { fn(ids, mensaje || 'Equipo ordenado para evolucionar a especies nuevas.'); msg('✔ Equipo cambiado.'); }
     catch (e) { console.warn('[axi]', e); msg('⚠️ No se pudo: ' + (e && e.message)); }
     finally { setTimeout(() => { ordenando = false; programar(); }, 1500); }
   }
@@ -590,7 +912,16 @@
     if (!b || !enIsla() || !/^\s*Explorar\s*·/.test(b.textContent || '')) return;
     const est = estadoIsla(); if (!est) return;
     const x = botonesZona(est).find(o => o.b === b);
-    if (x) ssPut(SS_ZONA, x.z.id);
+    if (x) { ssPut(SS_ZONA, x.z.id); tomarFoto(est, x.z.id); }
+  }, true);
+  // al seguir tras un combate (tú o el modo automático) se apunta cómo salió y cuánta experiencia dio
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('button');
+    if (!b || !enIsla() || !/^\s*Seguir\s*$/.test(b.textContent || '')) return;
+    const txt = (document.querySelector('main') || {}).innerText || '';
+    const res = /Te han ganado/.test(txt) ? 'p' : /Empate/.test(txt) ? 'e' : /Ganaste/.test(txt) ? 'g' : null;
+    const m = txt.match(/\+\s*([\d.,]+)\s*de experiencia/i);
+    if (res) cerrarFoto(res, m ? parseInt(m[1].replace(/[.,]/g, ''), 10) : null);
   }, true);
   // la zona de donde viene: la última que se exploró en esta pestaña; si no se sabe y solo hay una abierta, esa
   function zonaDelEncuentro(est) {
@@ -636,30 +967,274 @@
    *  tienes, los variocolor y los repetidos (a todos), ordena el equipo para evolucionar a especies nuevas, lucha
    *  contra el jefe cuando el equipo llega y para cuando se acaba la marea.
    * ------------------------------------------------------------------ */
-  const COMPANERO_PREFERIDO = ['Corphish', 'Surskit', 'Swinub'];   // Corphish: Agua (aguanta a Suicune y su escolta) y Crawdaunt pega fuerte
   const autoOn = () => ssGet(SS_AUTO) === '1';
-  let autoPaso = false, autoMsg = '', ultimoOrden = 0, reordenar = true, esperaJefe = 0;
+  let autoPaso = false, autoMsg = '', ultimoOrden = 0, reordenar = true, esperaJefe = 0, fallosOrden = 0, trioAnterior = { k: '', t: 0 };
   // el registro sobrevive a las recargas de la pestaña
   const autoLog = (() => { try { return JSON.parse(sessionStorage.getItem((EN_FONDO_AX ? 'axi-auto-log-fondo' : 'axi-auto-log')) || '[]'); } catch { return []; } })();
   const alog = t => { autoLog.push(t); if (autoLog.length > 30) autoLog.shift(); ssPut((EN_FONDO_AX ? 'axi-auto-log-fondo' : 'axi-auto-log'), JSON.stringify(autoLog)); console.log('[axi] ' + t); pintarAuto(); };
   const espera = ms => new Promise(r => setTimeout(r, ms));
   const botonTexto = re => $$('main button, div.fixed button').find(b => !b.closest('#axi-auto, #axi-panel') && !b.disabled && re.test((b.textContent || '').trim()));
-  /* Puntos del ranking: 10 por cada especie distinta que llegues a tener, 1 por victoria, los variocolor y 200 por vencer al
-   * jefe. Cada exploración cuesta 1 de marea. Así que una zona vale lo que da, de media, una exploración suya:
-   *   P(ganar) × (1 + 10 × la probabilidad de que salga una especie que aún no tengo × la de capturarla)
-   * con lo visto en esa zona; y como al principio no se sabe qué sale, un extra por lo poco que se ha explorado.
-   * Además van primero: la zona del premio «Por explorar X» (fichas de avatar, solo hay que pisarla una vez) y las zonas
-   * que aún no se conocen (hasta explorarlas 4 veces no se sabe qué sale, y las viejas siempre les ganaban). */
+  /* ------------------------------------------------------------------ *
+   *  🧠 CEREBRO. Puntos del ranking: 10 por cada especie distinta que llegues a tener (capturada o por evolución), 1 por
+   *  victoria, 15 por variocolor y 200 por vencer al jefe. Cada exploración cuesta 1 de marea (se acumulan hasta 45 y suben
+   *  15 dos veces al día), así que una zona vale lo que da, de media, una exploración suya. Con las tablas exactas del juego
+   *  (qué sale en cada zona y con qué peso) y lo que cambia hoy (efectoDeHoy):
+   *    P(ganar) × ( 1 por la victoria
+   *                 + Σ P(sale la especie) × P(capturarla) × lo que vale tenerla (10 si no la tienes, algo más si de ella
+   *                   evoluciona otra que tampoco tienes)
+   *                 + niveles que da la victoria × lo que vale un nivel para todo el equipo (evoluciones pendientes y jefe) )
+   *  P(ganar) sale de simular el combate del juego (tu trío contra lo que sale ahí) mezclado con lo visto en la zona; P(capturar)
+   *  es la que enseña el juego al salir y, antes de verla, una estimada por el ritmo de captura de la especie.
+   *  Además va primero la zona del premio «Por explorar X» (fichas de avatar, basta pisarla una vez).
+   * ------------------------------------------------------------------ */
   function zonaDificilPendiente(est) {
-    const m = (((document.querySelector('main') || {}).innerText) || '').match(/Por explorar ([^.\n]+)\./i);
-    const z = m && est.zonas.find(x => x.nombre === m[1].trim());
+    const T = tablaIsla(est);
+    let z = T && T.dificil ? est.zonas.find(x => x.id === T.dificil) : null;
+    if (!z) {
+      const m = (((document.querySelector('main') || {}).innerText) || '').match(/Por explorar ([^.\n]+)\./i);
+      z = m && est.zonas.find(x => x.nombre === m[1].trim());
+    }
     return z && z.abierta && !(est.zonasVisitadas || []).includes(z.id) ? z.id : null;
   }
-  function zonaElegida(est) {
-    const fz = fauna(est);
-    const ops = botonesZona(est).filter(o => !o.b.disabled);
-    if (!ops.length) return null;
-    const dificil = zonaDificilPendiente(est);
+  // los pesos de las especies de una zona con lo de hoy: el enjambre sale ×5 y con marea baja los raros ×3
+  const pesosZona = (zt, ef) => zt.sp.map(([n, w]) => [n, w * (ef.enjambre === n ? 5 : 1) * (ef.baja && esRara(n) ? 3 : 1)]);
+  // cuántas especies que no tienes alcanza n subiendo de nivel esta semana (por su línea)
+  function evoNuevas(n, tengo, topeMax, visto = new Set([n])) {
+    let c = 0;
+    for (const e of evos[n] || []) {
+      if (visto.has(e.a) || e.a > DEX_MAX || e.nivel > topeMax) continue;
+      visto.add(e.a);
+      if (!tengo.has(e.a)) c++;
+      c += evoNuevas(e.a, tengo, topeMax, visto);
+    }
+    return c;
+  }
+  // lo que vale que te salga y captures la especie n
+  function valorEspecie(n, tengo, cuantos, topeMax) {
+    const nu = Math.min(2, evoNuevas(n, tengo, topeMax));
+    if (!tengo.has(n)) return 10 + 3 * nu;                      // la especie, y lo que puede llegar a ser
+    return cuantos[n] === 1 ? 2 * nu : 0;                       // un repetido solo sirve para evolucionar sin quedarte sin la especie
+  }
+  const capturaBase = n => 0.3 + 0.65 * (ESP[n] ? ESP[n][1] : 100) / 255;     // antes de ver la que enseña el juego
+  // el juego enseña la probabilidad al salir cada bicho: si se ve que va por encima o por debajo de la estimada, se corrige
+  function escalaCaptura(fz) {
+    let s = 0, c = 0;
+    for (const zs of Object.values(fz.zonas || {})) {
+      for (const [nombre, e] of Object.entries(zs)) {
+        const n = idDeNombre(nombre);
+        if (n && ESP[n] && e.prob) { s += e.prob / 100 / capturaBase(n); c++; }
+      }
+    }
+    return c >= 6 ? Math.min(1.6, Math.max(0.4, s / c)) : 1;
+  }
+  const probCaptura = (n, visto, escala) => visto && visto.prob ? Math.min(0.99, visto.prob / 100) : Math.min(0.95, Math.max(0.1, capturaBase(n) * escala));
+  // niveles de lo que sale en la zona hoy (con la marea alta +1 y con el sol de la sequía +3)
+  const nivelesZona = (z, ef) => { const m = (ef.alta ? 1 : 0) + (ef.arde === z.id ? 3 : 0); return [...new Set([z.nivel[0] + m, z.nivel[1] + m])]; };
+  // ¿se puede cambiar el equipo desde aquí? (se mira una vez cada 10 s: buscar la función de la página cuesta algo)
+  let ordenable = { t: 0, v: false };
+  const sePuedeOrdenar = () => { if (Date.now() - ordenable.t > 10000) ordenable = { t: Date.now(), v: !!guardarEquipoFn() }; return ordenable.v; };
+  /* Los 3 que pelean: de todo lo que tienes (equipo y caja) los mejores contra lo que sale en la zona, simulando el combate (ver SIMULADOR
+   * DEL JEFE). Pelean los tres primeros y la experiencia es para los seis del equipo, así que los otros tres huecos son para los que van a
+   * evolucionar. Devuelve el mejor trío con su probabilidad de ganar y la del trío que pelea ahora. */
+  const memoTrio = new Map();
+  function trioDeZona(est, zt, niv, ef) {
+    const actual = est.equipo.slice(0, 3);
+    if (!actual.length || actual.some(p => !baseEsp[p.speciesId])) return null;
+    const pool = [...est.equipo, ...est.caja].filter(p => baseEsp[p.speciesId]);
+    const k = `${pool.map(p => p.id + ':' + p.nivel).sort().join()}|${actual.map(p => p.id).join()}|${zt.id}|${niv.join('-')}|${ef.enjambre || ''}${ef.baja ? 'b' : ''}`;
+    if (memoTrio.has(k)) return memoTrio.get(k);
+    // lo que sale (hasta el 85 % de los pesos) y a qué niveles
+    for (const [n] of zt.sp) if (!baseEsp[n]) pedirTipos(n);          // (una especie que no venga con el script se pide a PokéAPI)
+    const pes = pesosZona(zt, ef).filter(([n]) => baseEsp[n]).sort((a, b) => b[1] - a[1]);
+    if (!pes.length) return null;
+    const tot = pes.reduce((a, x) => a + x[1], 0), sel = [];
+    let cum = 0;
+    for (const x of pes) { sel.push(x); cum += x[1]; if (cum >= 0.85 * tot) break; }
+    const rivs = sel.flatMap(([n, w]) => niv.map(L => ({ w: w / niv.length, L, r: luchador(baseEsp[n], L, tiposEsp[n] || []) })));
+    const lu = new Map(pool.map(p => [p.id, luchador(baseEsp[p.speciesId], p.nivel, tiposDe(p))]));
+    const prueba = (ps, n) => {
+      const t = ps.map(p => lu.get(p.id));
+      let a = 0, b = 0;
+      for (const x of rivs) { a += x.w * simulaTrio(t, [x.r], n).p; b += x.w; }
+      return b ? a / b : 0;
+    };
+    const fuerteDelante = ps => [...ps].sort((a, b) => b.nivel - a.nivel);
+    // a primera vista: los más prometedores contra lo más frecuente, y siempre los que ya pelean
+    const rapidos = rivs.slice(0, 6).map(x => ({ nivel: x.L, tipos: x.r.tipos }));
+    const cand = [...new Map([...pool.map(p => ({ p, v: notaContraJefe(p, rapidos) })).sort((a, b) => b.v - a.v).slice(0, 6).map(x => [x.p.id, x.p]), ...actual.map(p => [p.id, p])]).values()];
+    const m = Math.min(3, cand.length), combos = [];
+    for (let i = 0; i < cand.length; i++) {
+      if (m === 1) { combos.push([cand[i]]); continue; }
+      for (let j = i + 1; j < cand.length; j++) {
+        if (m === 2) { combos.push([cand[i], cand[j]]); continue; }
+        for (let l = j + 1; l < cand.length; l++) combos.push([cand[i], cand[j], cand[l]]);
+      }
+    }
+    const probados = combos.map(c => { const t = fuerteDelante(c); return { trio: t, p: prueba(t, 3) }; }).sort((a, b) => b.p - a.p).slice(0, 3).map(x => ({ trio: x.trio, p: prueba(x.trio, 14) })).sort((a, b) => b.p - a.p);
+    const r = { trio: probados[0].trio, p: probados[0].p, pActual: prueba(actual, 14) };
+    if (memoTrio.size > 60) memoTrio.clear();
+    memoTrio.set(k, r);
+    return r;
+  }
+  // El equipo para explorar esa zona: los 3 mejores delante (si mejoran de verdad al trío de ahora; si no, los de ahora) y detrás
+  // los que van a evolucionar. null si no se sabe.
+  function equipoParaZona(est, zonaId) {
+    const T = tablaIsla(est), zt = T && T.zonas[zonaId], z = est.zonas.find(x => x.id === zonaId), A = analizar(est);
+    if (!zt || !z) return equipoPropuesto(est, A);
+    const ef = efectoDeHoy(est, T), tz = sePuedeOrdenar() ? trioDeZona(est, zt, nivelesZona(z, ef), ef) : null;
+    const luchan = tz && tz.p >= tz.pActual + 0.05 ? tz.trio : est.equipo.slice(0, 3);
+    return equipoPropuesto(est, A, luchan);
+  }
+  // Lo que se ha visto de verdad esta semana: resultado de cada combate y niveles que subió el equipo con cada victoria
+  const LS_HIST = 'axi-hist';
+  function histGet(est) { const t = lsGet(LS_HIST, {}); return t[claveSemana(est)] || []; }
+  function histPut(est, lista) {
+    const t = lsGet(LS_HIST, {}), k = claveSemana(est);
+    t[k] = lista.slice(-300);
+    for (const o of Object.keys(t)) if (o !== k && Object.keys(t).length > 3) delete t[o];
+    lsPut(LS_HIST, t);
+  }
+  function dlMedio(est, zonaId) {
+    const h = histGet(est).filter(x => (!zonaId || x.z === zonaId) && x.r === 'g' && typeof x.dl === 'number').slice(-8);
+    return h.length >= 3 ? h.reduce((a, x) => a + x.dl, 0) / h.length : null;
+  }
+  // Cuánto sube el equipo con cada victoria: se mira el nivel (con su barra de progreso) de cada uno antes de explorar y después del combate
+  let foto = null;
+  const nivelesDe = est => { const o = {}; for (const p of est.equipo) o[p.id] = { v: p.nivel + (p.progreso || 0) / 100, t: !!p.topado }; return o; };
+  function tomarFoto(est, zona) { foto = { zona, dia: est.dia, niv: nivelesDe(est), t: Date.now() }; }
+  function cerrarFoto(res, exp) {
+    const f = foto;
+    foto = null;
+    if (!f || Date.now() - f.t > 180000) return;
+    setTimeout(() => {                                  // (el estado de la página tarda un momento en ponerse al día)
+      try {
+        const est = estadoIsla();
+        if (!est) return;
+        const ahora = nivelesDe(est);
+        let suma = 0, cuantos = 0;
+        for (const [id, a] of Object.entries(f.niv)) { const b = ahora[id]; if (b && !a.t) { suma += b.v - a.v; cuantos++; } }
+        const h = histGet(est);
+        h.push({ z: f.zona, d: f.dia, r: res, x: exp, dl: res === 'g' && cuantos ? +(suma / cuantos).toFixed(3) : null, t: Date.now() });
+        histPut(est, h);
+      } catch { /* nada */ }
+    }, 1500);
+  }
+  // Lo que vale que TODO el equipo suba un nivel: lo que adelanta las evoluciones pendientes (10 por cada una, repartidos entre los
+  // niveles que le faltan) y, según se acerca el jefe sin vencer, lo que sube la probabilidad de vencerlo (200 puntos) al llegar al
+  // tope de la semana, repartido entre los niveles que faltan
+  let sensMemo = { k: '', v: 0 };
+  function valorJefePorNivel(est) {
+    try {
+      const J = est.jefe;
+      if (!J || J.vencido || est.dia < 3) return 0;
+      const riv = rivalesJefe(J), sim = riv && mejorTrio(est, riv);
+      if (!sim) return 0;
+      const topeMax = Math.max(...Object.values(topesSemana(est)));
+      const k = sim.trio.map(p => p.id + ':' + p.nivel).join() + '|' + riv.map(r => r.n + ':' + r.nivel).join() + '|' + topeMax;
+      if (sensMemo.k !== k) {
+        const rivs = riv.map(r => luchador(baseEsp[r.n], r.nivel, r.tipos));
+        const arriba = sim.trio.map(p => luchador(baseEsp[p.speciesId], Math.max(p.nivel, topeMax), tiposDe(p)));
+        const media = sim.trio.reduce((a, p) => a + p.nivel, 0) / 3;
+        const pFin = simulaTrio(arriba, rivs, 300).p;
+        sensMemo = { k, v: Math.max(0, pFin - sim.p) / Math.max(2, topeMax - media) };
+      }
+      const sube = sim.trio.filter(p => est.equipo.some(q => q.id === p.id) && !p.topado).length / 3;     // los de la caja y los topados no ganan nivel hoy
+      return 200 * sensMemo.v * sube * Math.min(1, (est.dia - 2) / 4);
+    } catch { return 0; }
+  }
+  function valorNivel(est, A) {
+    let v = 0;
+    for (const p of est.equipo) {
+      if (p.topado) continue;
+      const info = A.porPokemon[p.id], c = info && info.nuevas.find(x => x.alcanzable);
+      if (c) v += 10 / Math.max(1, c.nivel - p.nivel);
+    }
+    return v + valorJefePorNivel(est);
+  }
+  /* Lo que sube la probabilidad de vencer al jefe (200 puntos y sus premios) por cada exploración en una zona: lo que se captura allí
+   * entra en la caja y puede ser lo que lo venza. Es lo que más pesa en los últimos días: lo que sale en la última zona (nivel 30-38)
+   * es mucho más fuerte que un equipo que sube despacio, y con unos pocos de los de tipo bueno el jefe pasa de imposible a probable.
+   * Se prueba con 10 tandas inventadas de 8 exploraciones (gana con la probabilidad de la zona, captura con la de cada especie, a su
+   * nivel) mirando cuánto mejora el mejor trío contra el jefe. Las tandas salen siempre igual para el mismo caso (no hay ruido). */
+  const memoChase = new Map();
+  const hashStr = t => { let h = 0; for (let i = 0; i < t.length; i++) h = (Math.imul(h, 31) + t.charCodeAt(i)) | 0; return h; };
+  function subeJefePorExploracion(est, z, zt, niv, ef, pGana, capt) {
+    try {
+      const J = est.jefe;
+      if (!J || J.vencido || est.dia < 5 || niv[niv.length - 1] < 20) return 0;
+      const riv = rivalesJefe(J), base = riv && mejorTrio(est, riv);
+      if (!base || base.p >= 0.97) return 0;
+      const pool = [...est.equipo, ...est.caja];
+      const k = `${hashStr(pool.map(p => p.id + ':' + p.nivel).sort().join())}|${base.p.toFixed(2)}|${z.id}|${niv.join('-')}|${ef.enjambre || ''}${ef.baja ? 'b' : ''}|${Math.round(pGana * 20)}|${J.nombre}`;
+      if (memoChase.has(k)) return memoChase.get(k);
+      let semilla = hashStr(k);
+      const rnd = () => { semilla = (semilla + 0x6D2B79F5) | 0; let t = Math.imul(semilla ^ (semilla >>> 15), 1 | semilla); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+      const pes = pesosZona(zt, ef), tot = pes.reduce((a, x) => a + x[1], 0), M = 8, K = 10;
+      let suma = 0;
+      for (let r = 0; r < K; r++) {
+        const nuevos = [];
+        for (let i = 0; i < M; i++) {
+          if (rnd() > pGana) continue;
+          let x = rnd() * tot, sp = pes[0][0];
+          for (const [n, w] of pes) { x -= w; if (x <= 0) { sp = n; break; } }
+          if (!ESP[sp] || rnd() > (capt[sp] ?? 0.4)) continue;
+          const nivel = niv[0] + Math.floor(rnd() * (niv[niv.length - 1] - niv[0] + 1));
+          nuevos.push({ id: 'v' + r + '_' + i, speciesId: sp, nombre: nombreEsp(sp), nivel: Math.min(nivel, est.topeNivel), tipo1: ESP[sp][8], tipo2: ESP[sp][9], topado: false });
+        }
+        if (!nuevos.length) { suma += base.p; continue; }
+        const sim = mejorTrio({ ...est, caja: [...est.caja, ...nuevos] }, riv, true);
+        suma += sim ? Math.max(sim.p, base.p) : base.p;
+      }
+      const v = Math.max(0, suma / K - base.p) / M;
+      if (memoChase.size > 40) memoChase.clear();
+      memoChase.set(k, v);
+      return v;
+    } catch (e) { console.warn('[axi] jefe por exploración', e); return 0; }
+  }
+  const memoZonas = new Map();
+  /* Puntos esperados por exploración de cada zona abierta. `op.efecto` prueba otro estado (p. ej. la marea baja) y `op.sinBonus` quita
+   * el premio de la zona difícil. Devuelve null si no se conoce la isla (entonces vale zonaElegidaPorVisto). */
+  function puntuarZonas(est, op = {}) {
+    const T = tablaIsla(est);
+    if (!T || !Array.isArray(est.zonas) || !Array.isArray(est.equipo) || !Array.isArray(est.caja)) return null;
+    const ef = op.efecto || efectoDeHoy(est, T);
+    const k = [claveSemana(est), est.dia, est.exploraciones, est.capturadas, est.puntos, est.jefe && est.jefe.vencido, est.equipo.map(p => `${p.id}:${p.nivel}:${p.topado ? 1 : 0}`).join(), est.zonas.map(z => +!!z.abierta).join(''), (est.zonasVisitadas || []).length, ef.texto, ef.alta, ef.baja, ef.enjambre, ef.arde, op.sinBonus ? 1 : 0, est.caja.length, histGet(est).length].join('|');
+    if (memoZonas.has(k)) return memoZonas.get(k);
+    const A = analizar(est), fz = fauna(est), tengo = A.tengo, cuantos = {};
+    for (const p of [...est.equipo, ...est.caja]) cuantos[p.speciesId] = (cuantos[p.speciesId] || 0) + 1;
+    const puedeOrdenar = sePuedeOrdenar(), escala = escalaCaptura(fz), nivelValor = valorNivel(est, A), dificil = op.sinBonus ? null : zonaDificilPendiente(est), lm = Math.max(5, fuerzaEquipo(est));
+    const out = [];
+    for (const z of est.zonas) {
+      const zt = T.zonas[z.id];
+      if (!z.abierta || !zt) continue;
+      const arde = ef.arde === z.id, niv = nivelesZona(z, ef);
+      const pes = pesosZona(zt, ef), tot = pes.reduce((a, x) => a + x[1], 0);
+      const vistos = {};
+      for (const [nm, e] of Object.entries(fz.zonas[z.id] || {})) vistos[normN(nm)] = e;
+      let captura = 0, pNueva = 0;
+      const nuevas = [], capt = {};
+      for (const [n, w] of pes) {
+        const pr = w / tot, pc = probCaptura(n, vistos[normN(nombreEsp(n))], escala);
+        capt[n] = pc;
+        captura += pr * pc * valorEspecie(n, tengo, cuantos, A.topeMax);
+        if (!tengo.has(n)) { pNueva += pr * pc; nuevas.push({ n, p: pr, pc }); }
+      }
+      nuevas.sort((a, b) => b.p * b.pc - a.p * a.pc);
+      const st = fz.stats[z.id] || { g: 0, p: 0 }, tz = trioDeZona(est, zt, niv, ef), prior = tz ? (puedeOrdenar ? tz.p : tz.pActual) : null;
+      const pGana = prior == null ? (st.g + 1) / (st.g + st.p + 2) : (st.g + 4 * prior) / (st.g + st.p + 4);     // el cálculo pesa como 4 combates vistos
+      const lr = (niv[0] + niv[niv.length - 1]) / 2;
+      const dl = dlMedio(est, z.id) ?? (Math.min(0.5, 3 * lr / (lm * lm)) * (arde ? 1.5 : 1));     // niveles que sube el equipo con cada victoria aquí
+      const jefe = 200 * subeJefePorExploracion(est, z, zt, niv, ef, pGana, capt);          // (si ya no quedan opciones de vencerlo, 0)
+      const evBase = pGana * (1 + captura + dl * nivelValor) + jefe;
+      out.push({ id: z.id, nombre: z.nombre, icono: z.icono, niv, pGana, pNueva, captura, dl, xp: dl * nivelValor, jefe, nuevas, evBase, ev: evBase + (z.id === dificil ? 80 : 0), arde, prior, premio: z.id === dificil, trio: tz && (puedeOrdenar && tz.p >= tz.pActual + 0.05 ? tz.trio : est.equipo.slice(0, 3)).map(p => `${p.nombre} Nv.${p.nivel}`) });
+    }
+    if (memoZonas.size > 24) memoZonas.clear();
+    memoZonas.set(k, out);
+    return out;
+  }
+  // el viejo criterio, solo con lo visto en cada zona (si no se conocen las tablas de esta isla)
+  function zonaElegidaPorVisto(est, ops) {
+    const fz = fauna(est), dificil = zonaDificilPendiente(est);
     const nota = ({ z }) => {
       const vistos = fz.zonas[z.id] || {}, st = fz.stats[z.id] || { g: 0, p: 0 };
       const visitas = Object.values(vistos).reduce((a, e) => a + e.n, 0);
@@ -672,6 +1247,41 @@
       return ev + desconocido + sinConocer + (z.id === dificil ? 80 : 0);
     };
     return ops.sort((a, b) => nota(b) - nota(a))[0];
+  }
+  function zonaElegida(est) {
+    const ops = botonesZona(est).filter(o => !o.b.disabled);
+    if (!ops.length) return null;
+    let P = null;
+    try { P = puntuarZonas(est); } catch (e) { console.warn('[axi] puntuar zonas', e); }
+    if (P && P.length) {
+      const mejor = P.filter(x => ops.some(o => o.z.id === x.id)).sort((a, b) => b.ev - a.ev)[0];
+      if (mejor) return ops.find(o => o.z.id === mejor.id);
+    }
+    return zonaElegidaPorVisto(est, ops);
+  }
+  /* Compañero de la semana (empieza en nivel 5 y es el primero del equipo): vale 10 por él y 10 por cada evolución por nivel que le dé
+   * tiempo a hacer con los topes de cada día (algo menos cuanto más tarde), y un poco por lo fuertes que son sus estadísticas. Las
+   * elecciones de siempre para cada isla ganan los empates. */
+  const COMPANERO_POR_ISLA = { selva: 290, brasa: 240, coral: 341, tormenta: 179, sombra: 261 };
+  function valorCompanero(est, c) {
+    const diaPara = n => { for (let d = 1; d <= (est.dias || 7); d++) if ((TOPES_DIA[d - 1] || 99) >= n) return d; return null; };
+    let v = 10;
+    const sube = (id, visto = new Set([id])) => {
+      for (const e of evos[id] || []) {
+        if (visto.has(e.a) || e.a > DEX_MAX) continue;
+        visto.add(e.a);
+        const d = diaPara(e.nivel);
+        if (d) v += 10 * (1 - 0.1 * (d - 1));
+        sube(e.a, visto);
+      }
+    };
+    sube(c.id);
+    const bst = ESP[c.id] ? ESP[c.id].slice(2, 8).reduce((a, b) => a + b, 0) : 300;
+    return v + (bst - 300) / 40 + (c.id === COMPANERO_POR_ISLA[est.isla && est.isla.id] ? 6 : 0);
+  }
+  function elegirCompanero(est) {
+    const op = (est.companeros || []).filter(c => c && c.nombre);
+    return op.length ? op.map(c => ({ c, v: valorCompanero(est, c) })).sort((a, b) => b.v - a.v)[0].c : null;
   }
   function fuerzaEquipo(est) { const tres = est.equipo.slice(0, 3); return tres.length ? tres.reduce((a, p) => a + p.nivel, 0) / tres.length : 0; }
   /* ------------------------------------------------------------------ *
@@ -712,6 +1322,11 @@
   const LS_BASE = 'axi-base';
   const baseEsp = lsGet(LS_BASE, {});       // { nº: [ps, ataque, defensa, ataque esp., defensa esp., velocidad] } · de PokéAPI
   const fallosBase = {};                    // nº → cuándo falló la última vez (no se vuelve a pedir en 5 min)
+  // los tipos y estadísticas de las especies de la isla ya vienen con el script: no hace falta esperar a PokéAPI para el jefe
+  for (const n of Object.keys(ESP)) {
+    if (!tiposEsp[n] || !tiposEsp[n].length) tiposEsp[n] = [ESP[n][8], ESP[n][9]].filter(Boolean);
+    if (!baseEsp[n]) baseEsp[n] = ESP[n].slice(2, 8);
+  }
   async function pedirTipos(n) {
     if ((tiposEsp[n] && baseEsp[n]) || pidiendoTipos.has(n) || Date.now() - (fallosBase[n] || 0) < 300000) return;
     pidiendoTipos.add(n);
@@ -776,8 +1391,8 @@
     const fis = !at.propio || a.fis, A = fis ? a.atk : a.esp, D = fis ? b.def : b.esp;
     return ((2 * a.L / 5 + 2) * 30.5 * A / D / 50 + 2) * (at.propio ? 1.5 : 1) * at.e;
   }
-  const golpesMemo = new Map();
-  function golpeMemo(a, b) { let m = golpesMemo.get(a); if (!m) golpesMemo.set(a, (m = new Map())); let v = m.get(b); if (v === undefined) m.set(b, (v = golpeDe(a, b))); return v; }
+  const golpesMemo = new WeakMap();
+  function golpeMemo(a, b) { let m = golpesMemo.get(a); if (!m) golpesMemo.set(a, (m = new WeakMap())); let v = m.get(b); if (v === undefined) m.set(b, (v = golpeDe(a, b))); return v; }
   // veces que gana el trío `mios` al equipo `rivs` (listas de luchadores) en `n` combates con críticos y variación de daño
   function simulaTrio(mios, rivs, n = 60) {
     let gana = 0, margen = 0;
@@ -801,7 +1416,7 @@
   }
   // El mejor trío (y su orden) de todo lo que tienes. null si aún faltan datos de PokéAPI de alguno (se piden)
   let jefeMemo = { k: '', r: null };
-  function mejorTrio(est, riv) {
+  function mejorTrio(est, riv, sinMemoria) {
     const todos = [...est.equipo, ...est.caja];
     const rivs = riv.filter(r => r.n && baseEsp[r.n] && r.tipos).map(r => luchador(baseEsp[r.n], r.nivel, r.tipos));
     if (!rivs.length || rivs.length < riv.length) return null;
@@ -811,7 +1426,7 @@
     const listos = cand.filter(p => baseEsp[p.speciesId]);
     if (listos.length < Math.min(3, cand.length)) return null;
     const k = listos.map(p => p.id + ':' + p.nivel).join() + '|' + riv.map(r => r.n + ':' + r.nivel).join();
-    if (jefeMemo.k === k) return jefeMemo.r;
+    if (!sinMemoria && jefeMemo.k === k) return jefeMemo.r;
     const lu = new Map(listos.map(p => [p.id, luchador(baseEsp[p.speciesId], p.nivel, tiposDe(p))]));
     let mejores = [];
     for (const a of listos) for (const b of listos) for (const c of listos) {
@@ -822,7 +1437,7 @@
     mejores.sort((x, y) => y.p - x.p || y.margen - x.margen);
     mejores = mejores.slice(0, 4).map(m => ({ ...m, ...simulaTrio(m.trio.map(p => lu.get(p.id)), rivs, 300) })).sort((x, y) => y.p - x.p || y.margen - x.margen);
     const r = { trio: mejores[0].trio, p: mejores[0].p, margen: mejores[0].margen };
-    jefeMemo = { k, r };
+    if (!sinMemoria) jefeMemo = { k, r };
     return r;
   }
   // los 3 que pelean contra el jefe (por simulación; si aún no hay datos, por la nota rápida), y detrás el resto del equipo
@@ -832,6 +1447,15 @@
     const tres = sim ? sim.trio : todos.map(p => ({ p, v: notaContraJefe(p, riv) })).sort((a, b) => b.v - a.v || b.p.nivel - a.p.nivel).slice(0, 3).map(x => x.p);
     const resto = (equipoPropuesto(est, analizar(est)) || est.equipo).filter(p => !tres.some(t => t.id === p.id));
     return [...tres, ...resto].slice(0, Math.max(3, Math.min(6, est.equipo.length)));
+  }
+  // Un intento contra el jefe cuesta su coste de marea (3) y vale 200 × la probabilidad de vencerlo; esa marea en exploraciones
+  // valdría 3 × los puntos de una exploración (la mejor zona, sin contar el premio de la zona difícil, que se cobra una vez).
+  // Se ataca cuando lo primero supera a lo segundo; con un suelo (1-3 %) por si la simulación se queda corta.
+  function umbralJefe(est) {
+    let ev = 4;
+    try { const P = puntuarZonas(est, { sinBonus: true }); if (P && P.length) ev = Math.max(...P.map(x => x.evBase)); } catch { /* nada */ }
+    const coste = (est.jefe && est.jefe.costeMarea) || 3;
+    return Math.min(0.25, Math.max(est.dia >= est.dias ? 0.01 : 0.03, coste * ev / 200));
   }
   /* ------------------------------------------------------------------ *
    *  CUÁNDO GASTAR LA MAREA. Con cada subida cambia el mar: con marea alta salen los grandes (un nivel por encima) y con
@@ -845,14 +1469,19 @@
     lsPut(LS_PROXIMA, t ? { t, que, info: `${que} a las ${new Date(t).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`, hecho: Date.now() } : { t: 0, sinMas: true, que: 'no hay más subidas', info: 'no hay más subidas de marea', hecho: Date.now() });
   }
   function esperarMareaBaja(est) {
-    const d = (est.efectoHoy && est.efectoHoy.detalle) || '';
-    const alta = /lo grande|nivel por encima/i.test(d), baja = /raros?[^.]{0,40}(triple|doble|×\s*3|x\s*3)/i.test(d);
-    if (!alta || baja) return false;
+    const ef = efectoDeHoy(est);
+    if (ef.regla !== 'mareas' || !ef.alta || ef.baja) return false;
     if (est.capturadas >= est.especiesIsla || !est.siguienteMareaEn) return false;
     if (est.marea + est.mareaPorSubida > est.mareaTope) return false;                       // la siguiente subida se perdería
     const sube = Date.parse(est.siguienteMareaEn) - Date.now();
     const fin = est.temporada && est.temporada.finEn ? Date.parse(est.temporada.finEn) - Date.now() : Infinity;
     if (fin < sube + 13 * 3600e3) return false;                                              // no daría tiempo a gastarla
+    // ¿compensa de verdad? puntos esperados por exploración con la marea alta de ahora y con la baja de después
+    try {
+      const alta = puntuarZonas(est, { efecto: { ...ef, alta: true, baja: false }, sinBonus: true });
+      const baja = puntuarZonas(est, { efecto: { ...ef, alta: false, baja: true }, sinBonus: true });
+      if (alta && baja && alta.length && baja.length) return Math.max(...baja.map(x => x.evBase)) >= 1.1 * Math.max(...alta.map(x => x.evBase));
+    } catch (e) { console.warn('[axi] marea', e); }
     return true;
   }
   async function pasoAuto() {
@@ -868,12 +1497,12 @@
       // resultado del combate
       const seguir = botonTexto(/^Seguir$/);
       if (seguir) {
-        const perdio = /Te han ganado/.test(txtMain);
+        const perdio = /Te han ganado|Empate: nadie cae/.test(txtMain);
         if (perdio) apuntarResultado(est, false);
         const evo = (txtMain.match(/✨ ¡[^!]+ ha evolucionado en [^!]+!/g) || []);
         for (const e of evo) alog(e);
         if (evo.length) reordenar = true;
-        if (perdio) alog(`💥 Derrota en ${(est.zonas.find(z => z.id === ssGet(SS_ZONA)) || {}).nombre || 'la zona'}.`);
+        if (perdio) alog(`${/Empate/.test(txtMain) ? '🤝 Empate' : '💥 Derrota'} en ${(est.zonas.find(z => z.id === ssGet(SS_ZONA)) || {}).nombre || 'la zona'}.`);
         await espera(700); seguir.click(); await espera(900); return;
       }
       // ¿lo capturo?
@@ -895,7 +1524,7 @@
       }
       // compañero de la semana
       if (est.necesitaCompanero) {
-        const nombre = COMPANERO_PREFERIDO.find(n => est.companeros.some(c => c.nombre === n)) || (est.companeros[0] || {}).nombre;
+        const nombre = (elegirCompanero(est) || est.companeros[0] || {}).nombre;
         const b = nombre && $$('main button').find(x => (x.textContent || '').trim().startsWith(nombre));
         if (b) { alog(`🤝 Elijo a ${nombre} de compañero.`); b.click(); await espera(2500); }
         return;
@@ -927,7 +1556,7 @@
         // hoy) o el último día, se intenta igual.
         const poder = tres.reduce((a, p) => a + notaContraJefe(p, riv), 0) / tres.length;
         const pGana = sim ? sim.p : null;
-        if (pGana != null ? pGana >= (est.dia >= est.dias ? 0.02 : 0.05) : poder >= -2 || tres.every(p => p.nivel >= est.topeNivel) || est.dia >= est.dias) {
+        if (pGana != null ? pGana >= umbralJefe(est) : poder >= -2 || tres.every(p => p.nivel >= est.topeNivel) || est.dia >= est.dias) {
           if (prop.map(p => p.id).join() !== est.equipo.map(p => p.id).join()) {
             const fn = guardarEquipoFn();
             if (fn && Date.now() - ultimoOrden > 5000) {
@@ -946,12 +1575,6 @@
             b.click(); await espera(2500); return;
           }
         }
-      }
-      // equipo: para evolucionar a especies nuevas (el 1.º se queda)
-      if (reordenar && Date.now() - ultimoOrden > 15000 && est.equipo.length) {
-        ultimoOrden = Date.now(); reordenar = false;
-        const prop = equipoPropuesto(est, analizar(est));
-        if (prop && prop.map(p => p.id).join() !== est.equipo.map(p => p.id).join()) { await ordenarEquipo(); alog('🔀 Equipo ordenado: ' + prop.map(p => p.nombre).join(', ') + '.'); await espera(2000); return; }
       }
       // explorar
       if (est.marea < est.costeExplorar) {
@@ -972,6 +1595,27 @@
       }
       const z = zonaElegida(est);
       if (!z) return;
+      // el equipo para esa zona: delante los 3 mejores contra ella (de todo lo que tienes, equipo y caja) y detrás los que van a
+      // evolucionar a especies nuevas (los 6 se llevan la experiencia). Se cambia al capturar o evolucionar alguien, tras el jefe y
+      // cuando otro trío mejora de verdad al de ahora.
+      if (est.equipo.length && Date.now() - ultimoOrden > 12000 && fallosOrden < 3) {
+        let prop = null;
+        try { prop = equipoParaZona(est, z.z.id); } catch (e) { console.warn('[axi] equipo para la zona', e); }       // (si falla, se explora con el equipo que hay)
+        const ahora = est.equipo.map(p => p.id), pelean = ids => ids.slice(0, 3).sort().join();
+        // (si sale el mismo trío del que se acaba de cambiar, es ruido de la simulación: no se vuelve a cambiar)
+        const vuelta = prop && pelean(prop.map(p => p.id)) === trioAnterior.k && Date.now() - trioAnterior.t < 600000;
+        if (prop && !vuelta && prop.map(p => p.id).join() !== ahora.join() && (reordenar || pelean(prop.map(p => p.id)) !== pelean(ahora))) {
+          if (pelean(prop.map(p => p.id)) !== pelean(ahora)) trioAnterior = { k: pelean(ahora), t: Date.now() };
+          ultimoOrden = Date.now(); reordenar = false;
+          await ordenarEquipo(prop, 'Equipo listo para explorar.');
+          alog(`🔀 Equipo para ${z.z.nombre}: pelean ${prop.slice(0, 3).map(p => `${p.nombre} Nv.${p.nivel}`).join(', ')}; detrás ${prop.slice(3).map(p => p.nombre).join(', ') || '—'}.`);
+          await espera(2500);
+          const tras = estadoIsla();
+          if (tras && tras.equipo.map(p => p.id).join() !== prop.map(p => p.id).join() && ++fallosOrden >= 3) alog('⚠️ No consigo cambiar el equipo: sigo con el que hay.');
+          return;
+        }
+        reordenar = false;
+      }
       ssPut(SS_ZONA, z.z.id);
       await espera(600 + Math.random() * 700);
       if (!autoOn()) return;
@@ -995,6 +1639,7 @@
         <button type="button" class="axi-go boton-principal w-full !py-2.5 text-sm"></button>
         <div class="axi-log ${K_LOG}"></div>
         <p class="axi-jefe text-[11px] font-bold leading-snug text-tinta-600" hidden></p>
+        <p class="axi-plan text-[11px] font-bold leading-snug text-tinta-600" hidden></p>
         <details class="rounded-card border-2 border-crema-200 bg-crema-50 p-2"><summary class="cursor-pointer text-[11px] font-extrabold text-tinta-600">🗺️ Qué sale en cada zona</summary><div class="axi-fauna space-y-2 pt-2"></div></details>`;
       c.querySelector('.axi-go').addEventListener('click', e => { e.preventDefault(); if (autoOn()) { ssPut(SS_AUTO, null); alog('⏹ Parado.'); } else { ssPut(SS_AUTO, '1'); ssPut(SS_AUTO + '-robot', null); reordenar = true; kPedirPermiso(); alog('▶ En marcha.'); } pintarAuto(); });
     }
@@ -1018,13 +1663,28 @@
       } catch (e) { console.warn('[axi] jefe', e); }
       kSet(pj, t); pj.hidden = !t;
     }
+    // el plan de hoy: lo que cambia (el efecto de la regla de la semana) y la mejor zona con sus probabilidades
+    let P = [];
+    try { P = puntuarZonas(est) || []; } catch (e) { console.warn('[axi] plan', e); }
+    const pp = c.querySelector('.axi-plan');
+    if (pp) {
+      let t = '';
+      if (P.length) {
+        const hoy = textoEfecto(est, efectoDeHoy(est)), mejor = [...P].sort((a, b) => b.ev - a.ev)[0];
+        t = `${hoy ? hoy + '. ' : ''}📊 Mejor zona ahora: ${mejor.icono} ${mejor.nombre}${mejor.premio ? ' (la primera vez da premio)' : ''}: sale una especie nueva y la captures el ${Math.round(mejor.pNueva * 100)} % de las veces y ganas ≈ ${Math.round(mejor.pGana * 100)} %.${mejor.trio ? ` Pelean: ${mejor.trio.join(', ')}.` : ''}`;
+      }
+      kSet(pp, t); pp.hidden = !t;
+    }
     // fauna por zona
     const fz = fauna(est);
     const html = est.zonas.map(z => {
       const vistos = Object.entries(fz.zonas[z.id] || {}).sort((a, b) => b[1].n - a[1].n), st = fz.stats[z.id];
-      const cab = `<p class="text-[11px] font-extrabold text-tinta-600">${esc(z.icono)} ${esc(z.nombre)} <span class="text-tinta-400">${z.abierta ? `· ${vistos.length} especies vistas${st ? ` · ${st.g}✔ ${st.p}✖` : ''}` : `· se abre el día ${z.desdeDia}`}</span></p>`;
+      const pz = P.find(x => x.id === z.id);
+      const cab = `<p class="text-[11px] font-extrabold text-tinta-600">${esc(z.icono)} ${esc(z.nombre)} <span class="text-tinta-400">${z.abierta ? `· ${vistos.length} especies vistas${st ? ` · ${st.g}✔ ${st.p}✖` : ''}${pz ? ` · nuevas ${Math.round(pz.pNueva * 100)} %` : ''}` : `· se abre el día ${z.desdeDia}`}</span></p>`;
+      const pct = x => { const v = x * 100; return (v < 10 ? v.toFixed(1).replace('.', ',') : Math.round(v)) + ' %'; };
+      const faltan = pz && pz.nuevas.length ? `<p class="pt-1 text-[10px] font-extrabold text-tinta-500">Te faltan ${pz.nuevas.length} de las que salen aquí (qué tan a menudo salen):</p><div>${pz.nuevas.slice(0, 14).map(x => `<span title="${esc(bonitoEn(nombreEsp(x.n) || '#' + x.n))} · sale el ${pct(x.p)} de las veces · capturarla ≈ ${Math.round(x.pc * 100)} %" style="display:inline-flex;align-items:center;gap:2px;padding:1px 6px 1px 1px;margin:1px;border-radius:999px;font-size:10px;font-weight:800;opacity:.85;background:rgb(var(--lienzo));border:2px dashed rgb(var(--crema-200))"><img src="/sprites/${x.n}.png" alt="" style="width:22px;height:22px;image-rendering:pixelated">${esc(bonitoEn(nombreEsp(x.n) || '#' + x.n))} ${pct(x.p)}</span>`).join('')}</div>` : '';
       const chips = vistos.map(([n, e]) => `<span title="${esc(n)} · Nv.${e.min}${e.max !== e.min ? '–' + e.max : ''} · salió ${e.n} ${e.n === 1 ? 'vez' : 'veces'} · ${e.prob}%" style="display:inline-flex;align-items:center;gap:2px;padding:1px 6px 1px 1px;margin:1px;border-radius:999px;font-size:10px;font-weight:800;background:${tengoNombre(est, n) ? 'rgb(var(--hoja-50))' : 'rgb(var(--lienzo))'};border:2px solid ${tengoNombre(est, n) ? 'rgb(var(--hoja-200))' : 'rgb(var(--crema-200))'}"><img src="${esc(e.sprite)}" alt="" style="width:22px;height:22px;image-rendering:pixelated">${esc(n)}${e.shiny ? ' ✨' : ''}${tengoNombre(est, n) ? ' ✔' : ''}</span>`).join('');
-      return cab + (z.abierta ? `<div>${chips || '<span class="text-[10px] text-tinta-400">Aún no has explorado aquí.</span>'}</div>` : '');
+      return cab + (z.abierta ? `<div>${chips || '<span class="text-[10px] text-tinta-400">Aún no has explorado aquí.</span>'}</div>${faltan}` : '');
     }).join('');
     // las que ya tienes en la isla y no están apuntadas en ninguna zona (de antes de que el script las viera)
     const apuntadas = new Set(Object.values(fz.zonas).flatMap(z => Object.keys(z)));
@@ -1042,7 +1702,7 @@
   }
   setInterval(() => { if (!enIsla()) return; const est = estadoIsla(); if (est && est.encuentro) apuntarEncuentro(est); pintarAuto(); pasoAuto(); }, 1500);
   setTimeout(autoDesdeEnlace, 1000);
-  window.__axIsla = { estadoIsla, fauna, zonaElegida, analizar };
+  window.__axIsla = { estadoIsla, fauna, zonaElegida, analizar, puntuarZonas, efectoDeHoy, tablaIsla, leerTablasWeb, elegirCompanero, valorCompanero, umbralJefe, esperarMareaBaja, trioDeZona, equipoParaZona, nivelesZona, textoEfecto, histGet, dlMedio, rivalesJefe, mejorTrio, valorNivel, valorJefePorNivel, equipoPropuesto, ISLAS_RESPALDO, ESP, EVO_RESPALDO, tablasWeb: () => tablasWeb };
 
   let prog = null;
   function programar() {
