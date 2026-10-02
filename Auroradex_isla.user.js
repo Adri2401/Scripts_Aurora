@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.7.0
+// @version      2.7.1
 // @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura a todos (también los repetidos), ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -711,8 +711,9 @@
   const pidiendoTipos = new Set();
   const LS_BASE = 'axi-base';
   const baseEsp = lsGet(LS_BASE, {});       // { nº: [ps, ataque, defensa, ataque esp., defensa esp., velocidad] } · de PokéAPI
+  const fallosBase = {};                    // nº → cuándo falló la última vez (no se vuelve a pedir en 5 min)
   async function pedirTipos(n) {
-    if ((tiposEsp[n] && baseEsp[n]) || pidiendoTipos.has(n)) return;
+    if ((tiposEsp[n] && baseEsp[n]) || pidiendoTipos.has(n) || Date.now() - (fallosBase[n] || 0) < 300000) return;
     pidiendoTipos.add(n);
     try {
       const d = await pedirJSON('https://pokeapi.co/api/v2/pokemon/' + n + '/');
@@ -720,7 +721,7 @@
       const g = k => ((d.stats || []).find(x => x.stat.name === k) || {}).base_stat || 50;
       baseEsp[n] = ['hp', 'attack', 'defense', 'special-attack', 'special-defense', 'speed'].map(g);
     }
-    catch (e) { console.warn('[axi] tipos de', n, e); if (!tiposEsp[n]) tiposEsp[n] = []; }
+    catch (e) { console.warn('[axi] tipos de', n, e); fallosBase[n] = Date.now(); if (!tiposEsp[n]) tiposEsp[n] = []; }
     finally { pidiendoTipos.delete(n); }
     lsPut(LS_TIPOS, Object.assign(lsGet(LS_TIPOS, {}), tiposEsp));
     lsPut(LS_BASE, Object.assign(lsGet(LS_BASE, {}), baseEsp));
@@ -728,7 +729,8 @@
   // null mientras falten los tipos de alguno (se piden y se espera al siguiente repaso)
   function rivalesJefe(J) {
     const out = (J.equipo || []).map(x => { const n = +((String(x.sprite || '').match(/(\d+)\.png/) || [])[1]); return { ...x, n, tipos: n ? tiposEsp[n] : [] }; });
-    const faltan = out.filter(x => x.n && (!x.tipos || !baseEsp[x.n]));
+    out.forEach(x => { if (x.n && !baseEsp[x.n]) pedirTipos(x.n); });       // (las estadísticas son para el simulador; si no llegan, se sigue sin él)
+    const faltan = out.filter(x => x.n && !x.tipos);
     faltan.forEach(x => pedirTipos(x.n));
     return faltan.length ? null : out;
   }
