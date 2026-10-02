@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.6.0
+// @version      2.7.0
 // @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura a todos (también los repetidos), ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -831,6 +831,28 @@
     const resto = (equipoPropuesto(est, analizar(est)) || est.equipo).filter(p => !tres.some(t => t.id === p.id));
     return [...tres, ...resto].slice(0, Math.max(3, Math.min(6, est.equipo.length)));
   }
+  /* ------------------------------------------------------------------ *
+   *  CUÁNDO GASTAR LA MAREA. Con cada subida cambia el mar: con marea alta salen los grandes (un nivel por encima) y con
+   *  marea baja «los raros salen el triple». Las especies que faltan son casi todas raras, así que lo mejor es gastar la
+   *  marea con la baja y dejar pasar la alta, siempre que quepa la siguiente subida (el tope es de 45: pasado el tope se
+   *  pierde) y que la isla no se hunda antes de poder gastarla. Se dice cuándo volver (lo lee el robot de Diarias).
+   * ------------------------------------------------------------------ */
+  const LS_PROXIMA = 'axi-proxima';
+  function proximaVisita(est, que) {
+    const t = est.siguienteMareaEn ? Date.parse(est.siguienteMareaEn) + 60e3 : null;
+    lsPut(LS_PROXIMA, t ? { t, que, info: `${que} a las ${new Date(t).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`, hecho: Date.now() } : { t: 0, sinMas: true, que: 'no hay más subidas', info: 'no hay más subidas de marea', hecho: Date.now() });
+  }
+  function esperarMareaBaja(est) {
+    const d = (est.efectoHoy && est.efectoHoy.detalle) || '';
+    const alta = /lo grande|nivel por encima/i.test(d), baja = /raros?[^.]{0,40}(triple|doble|×\s*3|x\s*3)/i.test(d);
+    if (!alta || baja) return false;
+    if (est.capturadas >= est.especiesIsla || !est.siguienteMareaEn) return false;
+    if (est.marea + est.mareaPorSubida > est.mareaTope) return false;                       // la siguiente subida se perdería
+    const sube = Date.parse(est.siguienteMareaEn) - Date.now();
+    const fin = est.temporada && est.temporada.finEn ? Date.parse(est.temporada.finEn) - Date.now() : Infinity;
+    if (fin < sube + 13 * 3600e3) return false;                                              // no daría tiempo a gastarla
+    return true;
+  }
   async function pasoAuto() {
     if (autoPaso || !autoOn() || !enIsla()) return;
     const est = estadoIsla();
@@ -934,8 +956,16 @@
         const sig = est.siguienteMareaEn ? Math.max(0, Math.round((Date.parse(est.siguienteMareaEn) - Date.now()) / 60000)) : null;
         alog(`🌊 Marea gastada (${est.marea}/${est.mareaTope}). Sube +${est.mareaPorSubida}${sig != null ? ` en ${sig} min` : ''}. Especies: ${est.capturadas}/${est.especiesIsla} · ${est.puntos} pts.`);
         lsPut(LS_AUTO_ULT, { t: Date.now(), log: autoLog.slice(-15) });
+        proximaVisita(est, 'nueva marea');
         ssPut(SS_AUTO, null); pintarAuto();
         kAviso({ tipo: 'fin', app: 'Isla Espejismo', icono: '🏝️', titulo: 'Marea gastada', lineas: [`${est.capturadas}/${est.especiesIsla} especies · ${est.puntos} pts`] });
+        return;
+      }
+      if (ssGet(SS_AUTO + '-robot') === '1' && esperarMareaBaja(est)) {      // (solo con el robot de Diarias: si pulsas tú «Jugar», juega)
+        alog(`⏳ Marea alta (salen los grandes): espero a la baja, que saca los raros el triple. Guardo la marea (${est.marea}/${est.mareaTope}).`);
+        lsPut(LS_AUTO_ULT, { t: Date.now(), log: autoLog.slice(-15) });
+        proximaVisita(est, 'volver con la marea baja');
+        ssPut(SS_AUTO, null); pintarAuto();
         return;
       }
       const z = zonaElegida(est);
@@ -964,7 +994,7 @@
         <div class="axi-log ${K_LOG}"></div>
         <p class="axi-jefe text-[11px] font-bold leading-snug text-tinta-600" hidden></p>
         <details class="rounded-card border-2 border-crema-200 bg-crema-50 p-2"><summary class="cursor-pointer text-[11px] font-extrabold text-tinta-600">🗺️ Qué sale en cada zona</summary><div class="axi-fauna space-y-2 pt-2"></div></details>`;
-      c.querySelector('.axi-go').addEventListener('click', e => { e.preventDefault(); if (autoOn()) { ssPut(SS_AUTO, null); alog('⏹ Parado.'); } else { ssPut(SS_AUTO, '1'); reordenar = true; kPedirPermiso(); alog('▶ En marcha.'); } pintarAuto(); });
+      c.querySelector('.axi-go').addEventListener('click', e => { e.preventDefault(); if (autoOn()) { ssPut(SS_AUTO, null); alog('⏹ Parado.'); } else { ssPut(SS_AUTO, '1'); ssPut(SS_AUTO + '-robot', null); reordenar = true; kPedirPermiso(); alog('▶ En marcha.'); } pintarAuto(); });
     }
     if (c.nextElementSibling !== ancla) ancla.insertAdjacentElement('beforebegin', c);
     const b = c.querySelector('.axi-go'), t = autoOn() ? '■ Parar' : `▶ Jugar la isla sola (marea ${est.marea}/${est.mareaTope})`;
