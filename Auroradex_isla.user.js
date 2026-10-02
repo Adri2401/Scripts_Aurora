@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.4.0
+// @version      2.5.0
 // @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura a todos (también los repetidos), ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -653,8 +653,11 @@
       const visitas = Object.values(vistos).reduce((a, e) => a + e.n, 0);
       const faltan = Object.keys(vistos).filter(n => !tengoNombre(est, n)).length;
       const perder = st.g + st.p ? st.p / (st.g + st.p) : 0;
-      // lo que no se ha visto aún promete; lo visto y no capturado, más; perder mucho allí, resta
-      return faltan * 3 + Math.max(0, 6 - visitas) * 1.5 + (z.desdeDia || 1) * 0.3 - perder * 8;
+      // lo que no se ha visto aún promete; lo visto y no capturado, más; perder mucho allí, resta.
+      // Una zona que aún no se conoce (menos de 4 exploraciones esta semana) va PRIMERO: hasta explorarla no se sabe qué sale
+      // (y las zonas viejas, con lo que les falta ya apuntado, siempre ganaban a la nueva); la que se abre hoy, un poco más
+      const nueva = Math.max(0, 4 - visitas) * 12, abreHoy = est.dia && z.desdeDia === est.dia ? 10 : 0;
+      return faltan * 3 + Math.max(0, 6 - visitas) * 1.5 + (z.desdeDia || 1) * 0.3 - perder * 8 + nueva + abreHoy;
     };
     return ops.sort((a, b) => nota(b) - nota(a))[0];
   }
