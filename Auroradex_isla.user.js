@@ -305,6 +305,7 @@
    *  valen los de la web, que son los buenos si algún día cambian; si no, valen estos.
    * ------------------------------------------------------------------ */
   const TOPES_DIA = [12, 16, 20, 24, 30, 34, 38], DEX_MAX = 649;
+  const VALOR_JEFE = 250;       // vencer al jefe: 200 puntos + sus premios (marco, burbuja y ficha de avatar), que también se quieren
   // r: regla de la semana · c: compañeros · d: zona difícil · j: jefe (nombre, día, coste de marea, [especie, nivel]…)
   // z: zonas [id, nombre, abre el día, nivel mín., nivel máx., [[especie, peso]…]]
   const ISLAS_RESPALDO = {
@@ -498,7 +499,7 @@
   // «los raros salen el triple» (marea baja): por el ritmo de captura, que es como el juego reparte la rareza
   // (común ≥ 190, poco común ≥ 60, rara por debajo; p. ej. Gyarados y Omanyte, con 45, son raros y Corsola, con 60, no)
   const esRara = n => !!ESP[n] && ESP[n][1] < 55;
-  const normN = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+  const normN = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
   let idsPorNombre = null;
   const idDeNombre = nombre => {
     if (!idsPorNombre) { idsPorNombre = {}; for (const n of Object.keys(ESP)) idsPorNombre[normN(ESP[n][0])] = +n; }
@@ -568,7 +569,7 @@
   const REGLAS = { enjambre: 'enjambre', sequia: 'sequia', mareas: 'mareas', mareasvivas: 'mareas', rayos: 'rayos', niebla: 'niebla' };
   function efectoDeHoy(est, T = tablaIsla(est)) {
     const e = est.efectoHoy || {};
-    const d = `${e.titulo || ''} ${e.detalle || ''}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/×/g, 'x');
+    const d = `${e.titulo || ''} ${e.detalle || ''}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/×/g, 'x');
     const regla = (T && T.regla) || REGLAS[normN(est.isla && est.isla.regla && est.isla.regla.titulo)] || '';
     const out = { regla, alta: false, baja: false, enjambre: null, arde: null, texto: String(e.detalle || '').trim() };
     if (regla === 'mareas') {
@@ -588,7 +589,7 @@
       }
       out.enjambre = n;
     } else if (regla === 'sequia') {
-      const llano = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/^(el|la|los|las)\s+/, '');
+      const llano = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^(el|la|los|las)\s+/, '');
       const z = (est.zonas || []).find(x => d.includes(llano(x.nombre))) || (est.zonas || []).find(x => new RegExp('(^|[^a-z])' + x.id + '([^a-z]|$)').test(d));
       out.arde = z ? z.id : null;
     }
@@ -968,7 +969,7 @@
    *  contra el jefe cuando el equipo llega y para cuando se acaba la marea.
    * ------------------------------------------------------------------ */
   const autoOn = () => ssGet(SS_AUTO) === '1';
-  let autoPaso = false, autoMsg = '', ultimoOrden = 0, reordenar = true, esperaJefe = 0, fallosOrden = 0, trioAnterior = { k: '', t: 0 };
+  let autoPaso = false, autoMsg = '', ultimoOrden = 0, reordenar = true, esperaJefe = 0, fallosOrden = 0, trioAnterior = { k: '', t: 0 }, intentosCaptura = { firma: '', n: 0 };
   // el registro sobrevive a las recargas de la pestaña
   const autoLog = (() => { try { return JSON.parse(sessionStorage.getItem((EN_FONDO_AX ? 'axi-auto-log-fondo' : 'axi-auto-log')) || '[]'); } catch { return []; } })();
   const alog = t => { autoLog.push(t); if (autoLog.length > 30) autoLog.shift(); ssPut((EN_FONDO_AX ? 'axi-auto-log-fondo' : 'axi-auto-log'), JSON.stringify(autoLog)); console.log('[axi] ' + t); pintarAuto(); };
@@ -1139,7 +1140,7 @@
         sensMemo = { k, v: Math.max(0, pFin - sim.p) / Math.max(2, topeMax - media) };
       }
       const sube = sim.trio.filter(p => est.equipo.some(q => q.id === p.id) && !p.topado).length / 3;     // los de la caja y los topados no ganan nivel hoy
-      return 200 * sensMemo.v * sube * Math.min(1, (est.dia - 2) / 4);
+      return VALOR_JEFE * sensMemo.v * sube * Math.min(1, (est.dia - 2) / 4);
     } catch { return 0; }
   }
   function valorNivel(est, A) {
@@ -1221,10 +1222,10 @@
       }
       nuevas.sort((a, b) => b.p * b.pc - a.p * a.pc);
       const st = fz.stats[z.id] || { g: 0, p: 0 }, tz = trioDeZona(est, zt, niv, ef), prior = tz ? (puedeOrdenar ? tz.p : tz.pActual) : null;
-      const pGana = prior == null ? (st.g + 1) / (st.g + st.p + 2) : (st.g + 4 * prior) / (st.g + st.p + 4);     // el cálculo pesa como 4 combates vistos
+      const pGana = prior == null ? (st.g + 1) / (st.g + st.p + 2) : (st.g + 3 * prior) / (st.g + st.p + 3);     // el cálculo pesa como 3 combates vistos
       const lr = (niv[0] + niv[niv.length - 1]) / 2;
       const dl = dlMedio(est, z.id) ?? (Math.min(0.5, 3 * lr / (lm * lm)) * (arde ? 1.5 : 1));     // niveles que sube el equipo con cada victoria aquí
-      const jefe = 200 * subeJefePorExploracion(est, z, zt, niv, ef, pGana, capt);          // (si ya no quedan opciones de vencerlo, 0)
+      const jefe = VALOR_JEFE * subeJefePorExploracion(est, z, zt, niv, ef, pGana, capt);          // (si ya no quedan opciones de vencerlo, 0)
       const evBase = pGana * (1 + captura + dl * nivelValor) + jefe;
       out.push({ id: z.id, nombre: z.nombre, icono: z.icono, niv, pGana, pNueva, captura, dl, xp: dl * nivelValor, jefe, nuevas, evBase, ev: evBase + (z.id === dificil ? 80 : 0), arde, prior, premio: z.id === dificil, trio: tz && (puedeOrdenar && tz.p >= tz.pActual + 0.05 ? tz.trio : est.equipo.slice(0, 3)).map(p => `${p.nombre} Nv.${p.nivel}`) });
     }
@@ -1448,14 +1449,14 @@
     const resto = (equipoPropuesto(est, analizar(est)) || est.equipo).filter(p => !tres.some(t => t.id === p.id));
     return [...tres, ...resto].slice(0, Math.max(3, Math.min(6, est.equipo.length)));
   }
-  // Un intento contra el jefe cuesta su coste de marea (3) y vale 200 × la probabilidad de vencerlo; esa marea en exploraciones
+  // Un intento contra el jefe cuesta su coste de marea (3) y vale (200 puntos y sus premios) × la probabilidad de vencerlo; esa marea en exploraciones
   // valdría 3 × los puntos de una exploración (la mejor zona, sin contar el premio de la zona difícil, que se cobra una vez).
   // Se ataca cuando lo primero supera a lo segundo; con un suelo (1-3 %) por si la simulación se queda corta.
   function umbralJefe(est) {
     let ev = 4;
     try { const P = puntuarZonas(est, { sinBonus: true }); if (P && P.length) ev = Math.max(...P.map(x => x.evBase)); } catch { /* nada */ }
     const coste = (est.jefe && est.jefe.costeMarea) || 3;
-    return Math.min(0.25, Math.max(est.dia >= est.dias ? 0.01 : 0.03, coste * ev / 200));
+    return Math.min(0.25, Math.max(est.dia >= est.dias ? 0.01 : 0.03, coste * ev / VALOR_JEFE));
   }
   /* ------------------------------------------------------------------ *
    *  CUÁNDO GASTAR LA MAREA. Con cada subida cambia el mar: con marea alta salen los grandes (un nivel por encima) y con
@@ -1509,12 +1510,17 @@
       if (est.encuentro) {
         apuntarEncuentro(est);
         // se captura siempre (la captura es gratis): también los repetidos
-        const en = est.encuentro, quiero = true;
+        const en = est.encuentro;
+        // si el juego no deja capturar (p. ej. la caja llena) y sigue el mismo bicho tras 3 intentos, se deja ir para no insistir
+        const firma = `${en.nombre}|${en.nivel}|${est.exploraciones}`;
+        intentosCaptura = firma === intentosCaptura.firma ? { firma, n: intentosCaptura.n + 1 } : { firma, n: 1 };
+        const quiero = intentosCaptura.n <= 3;
+        if (!quiero) alog(`⚠️ No consigo capturar a ${en.nombre}: lo dejo ir.`);
         const b = botonTexto(quiero ? /^Capturar$/ : /^Dejarlo ir$/);
         if (!b) return;
         await espera(700 + Math.random() * 600);
         b.click();
-        alog(`🎯 ${en.nombre}${en.esShiny ? ' ✨' : ''} Nv.${en.nivel}${en.yaLaTienes ? ' (repetido)' : ''}: lo intento (${en.probabilidad}%).`);
+        if (quiero) alog(`🎯 ${en.nombre}${en.esShiny ? ' ✨' : ''} Nv.${en.nivel}${en.yaLaTienes ? ' (repetido)' : ''}: lo intento (${en.probabilidad}%).`);
         if (quiero) reordenar = true;
         await espera(1500);
         const tras = estadoIsla();
@@ -1690,8 +1696,11 @@
     const apuntadas = new Set(Object.values(fz.zonas).flatMap(z => Object.keys(z)));
     const sinZona = [...new Map([...est.equipo, ...est.caja].map(p => [p.nombre, p])).values()].filter(p => !apuntadas.has(p.nombre));
     const htmlSin = sinZona.length ? `<p class="text-[11px] font-extrabold text-tinta-600">✔ Ya las tienes (sin zona apuntada) · ${sinZona.length}</p><div>${sinZona.map(p => `<span style="display:inline-flex;align-items:center;gap:2px;padding:1px 6px 1px 1px;margin:1px;border-radius:999px;font-size:10px;font-weight:800;background:rgb(var(--hoja-50));border:2px solid rgb(var(--hoja-200))"><img src="${esc(p.sprite)}" alt="" style="width:22px;height:22px;image-rendering:pixelated">${esc(p.nombre)}${p.esShiny ? ' ✨' : ''}</span>`).join('')}</div>` : '';
+    // lo medido de verdad esta semana (con eso el cerebro corrige sus cálculos)
+    const hh = histGet(est), dlm = dlMedio(est, null);
+    const htmlMedido = hh.length ? `<p class="text-[10px] font-extrabold text-tinta-500">📈 Medido esta semana: ${hh.filter(x => x.r === 'g').length}✔ ${hh.filter(x => x.r !== 'g').length}✖${dlm != null ? ` · el equipo sube ≈ ${dlm.toFixed(2).replace('.', ',')} niveles por victoria` : ''}</p>` : '';
     const fa = c.querySelector('.axi-fauna');
-    if (fa.dataset.h !== html + htmlSin) { fa.dataset.h = html + htmlSin; fa.innerHTML = html + htmlSin; }
+    if (fa.dataset.h !== htmlMedido + html + htmlSin) { fa.dataset.h = htmlMedido + html + htmlSin; fa.innerHTML = htmlMedido + html + htmlSin; }
   }
   // /isla?auto=1: empieza solo (lo usa el bot)
   function autoDesdeEnlace() {
