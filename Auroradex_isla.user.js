@@ -1007,7 +1007,7 @@
     if (!tengo.has(n)) return 10 + 3 * nu;                      // la especie, y lo que puede llegar a ser
     return cuantos[n] === 1 ? 2 * nu : 0;                       // un repetido solo sirve para evolucionar sin quedarte sin la especie
   }
-  const capturaBase = n => 0.3 + 0.65 * (ESP[n] ? ESP[n][1] : 100) / 255;     // antes de ver la que enseña el juego
+  const capturaBase = n => 0.4 + 0.55 * (ESP[n] ? ESP[n][1] : 100) / 255;     // antes de ver la que enseña el juego (ajustada con capturas reales: 46 % con ritmo 25, 49 % con 45, 49-55 % con 75)
   // el juego enseña la probabilidad al salir cada bicho: si se ve que va por encima o por debajo de la estimada, se corrige
   function escalaCaptura(fz) {
     let s = 0, c = 0;
@@ -1078,7 +1078,7 @@
     return equipoPropuesto(est, A, luchan);
   }
   // Lo que se ha visto de verdad esta semana: resultado de cada combate y niveles que subió el equipo con cada victoria
-  const LS_HIST = 'axi-hist';
+  const LS_HIST = 'axi-hist', MODELO_V = 2;      // MODELO_V: versión del simulador de combate con el que se hicieron las previsiones apuntadas
   let histVer = 0;          // sube con cada combate apuntado (para no recalcular lo aprendido de más)
   function histGet(est) { const t = lsGet(LS_HIST, {}); return t[claveSemana(est)] || []; }
   function histPut(est, lista) {
@@ -1096,7 +1096,7 @@
   let calibMemo = { k: -1, v: 0 };
   function desvioGana() {
     if (calibMemo.k === histVer) return calibMemo.v;
-    const t = lsGet(LS_HIST, {}), todos = Object.values(t).flat().filter(x => typeof x.pr === 'number' && (x.r === 'g' || x.r === 'p' || x.r === 'e'));
+    const t = lsGet(LS_HIST, {}), todos = Object.values(t).flat().filter(x => typeof x.pr === 'number' && x.mv === MODELO_V && (x.r === 'g' || x.r === 'p' || x.r === 'e'));
     let d = 0;
     if (todos.length >= 3) {
       // regresión logística con un solo parámetro (el desplazamiento) y una cautela que lo ata a 0 mientras haya pocos datos:
@@ -1145,7 +1145,7 @@
         let suma = 0, cuantos = 0;
         for (const [id, a] of Object.entries(f.niv)) { const b = ahora[id]; if (b && !a.t) { suma += b.v - a.v; cuantos++; } }
         const h = histGet(est);
-        h.push({ z: f.zona, d: f.dia, r: res, x: exp, dl: res === 'g' && cuantos ? +(suma / cuantos).toFixed(3) : null, pr: f.pr, t: Date.now() });
+        h.push({ z: f.zona, d: f.dia, r: res, x: exp, dl: res === 'g' && cuantos ? +(suma / cuantos).toFixed(3) : null, pr: f.pr, mv: MODELO_V, t: Date.now() });
         histPut(est, h);
       } catch { /* nada */ }
     }, 1500);
@@ -1257,7 +1257,7 @@
       const lr = (niv[0] + niv[niv.length - 1]) / 2;
       const dl = dlMedio(est, z.id) ?? (Math.min(0.5, 3 * lr / (lm * lm)) * (arde ? 1.5 : 1));     // niveles que sube el equipo con cada victoria aquí
       const jefe = VALOR_JEFE * subeJefePorExploracion(est, z, zt, niv, ef, pGana, capt);          // (si ya no quedan opciones de vencerlo, 0)
-      let evBase = pGana * (1 + captura + dl * nivelValor) + jefe;
+      let evBase = pGana * (1 + captura) + dl * nivelValor * (pGana + 0.35 * (1 - pGana)) + jefe;     // (perdiendo también se gana experiencia: ≈ 1/3 de lo que da ganar)
       if (!Number.isFinite(evBase)) evBase = 0;                                          // (por si algún dato viniera mal: esa zona no gana)
       out.push({ id: z.id, nombre: z.nombre, icono: z.icono, niv, pGana, pNueva, captura, dl, xp: dl * nivelValor, jefe, nuevas, evBase, ev: evBase + (z.id === dificil ? 80 : 0), arde, prior, premio: z.id === dificil, trio: tz && (puedeOrdenar && tz.p >= tz.pActual + 0.05 ? tz.trio : est.equipo.slice(0, 3)).map(p => `${p.nombre} Nv.${p.nivel}`) });
     }
@@ -1427,6 +1427,10 @@
   const golpesMemo = new WeakMap();
   function golpeMemo(a, b) { let m = golpesMemo.get(a); if (!m) golpesMemo.set(a, (m = new WeakMap())); let v = m.get(b); if (v === undefined) m.set(b, (v = golpeDe(a, b))); return v; }
   // veces que gana el trío `mios` al equipo `rivs` (listas de luchadores) en `n` combates con críticos y variación de daño
+  // Lo que pegan de verdad frente al modelo (117 golpes de 8 combates reales de la isla, sin contar críticos): de media los tuyos
+  // el 85 % y los suyos el 115 % del daño que da la fórmula (los suyos usan movimientos de más potencia), y cada golpe varía ±35 %
+  // (un 20 % de desviación) según el movimiento que toque. Eso hace los combates menos seguros de lo que decía el modelo viejo.
+  const ESC_GOLPE = { mio: 0.85, suyo: 1.15 };
   function simulaTrio(mios, rivs, n = 60) {
     let gana = 0, margen = 0;
     for (let k = 0; k < n; k++) {
@@ -1437,7 +1441,7 @@
         const aPrimero = a.x.spe > b.x.spe || (a.x.spe === b.x.spe && Math.random() < 0.5);
         for (const [at, df] of aPrimero ? [[a, b], [b, a]] : [[b, a], [a, b]]) {
           if (at.v <= 0 || df.v <= 0) continue;
-          df.v -= golpeMemo(at.x, df.x) * (0.85 + Math.random() * 0.15) * (Math.random() < 0.09 ? 1.64 : 1);
+          df.v -= golpeMemo(at.x, df.x) * (at === a ? ESC_GOLPE.mio : ESC_GOLPE.suyo) * (0.65 + Math.random() * 0.7) * (Math.random() < 0.09 ? 1.64 : 1);
         }
         if (a.v <= 0) i++;
         if (b.v <= 0) j++;
@@ -1552,15 +1556,16 @@
         apuntarEncuentro(est);
         // se captura siempre (la captura es gratis): también los repetidos
         const en = est.encuentro;
-        // si el juego no deja capturar (p. ej. la caja llena) y sigue el mismo bicho tras 3 intentos, se deja ir para no insistir
+        // si el juego no deja capturar (p. ej. la caja llena) y sigue el mismo bicho tras 3 clics, se deja ir para no insistir.
+        // Solo cuentan los clics de verdad: si la página tarda (botones desactivados mientras procesa), se espera sin más
         const firma = `${en.nombre}|${en.nivel}|${est.exploraciones}`;
-        intentosCaptura = firma === intentosCaptura.firma ? { firma, n: intentosCaptura.n + 1 } : { firma, n: 1 };
-        const quiero = intentosCaptura.n <= 3;
-        if (!quiero) alog(`⚠️ No consigo capturar a ${en.nombre}: lo dejo ir.`);
+        if (firma !== intentosCaptura.firma) intentosCaptura = { firma, n: 0, avisado: false };
+        const quiero = intentosCaptura.n < 3;
         const b = botonTexto(quiero ? /^Capturar$/ : /^Dejarlo ir$/);
         if (!b) return;
+        if (!quiero && !intentosCaptura.avisado) { intentosCaptura.avisado = true; alog(`⚠️ No consigo capturar a ${en.nombre}: lo dejo ir.`); }
         await espera(700 + Math.random() * 600);
-        b.click();
+        b.click(); intentosCaptura.n++;
         if (quiero) alog(`🎯 ${en.nombre}${en.esShiny ? ' ✨' : ''} Nv.${en.nivel}${en.yaLaTienes ? ' (repetido)' : ''}: lo intento (${en.probabilidad}%).`);
         if (quiero) reordenar = true;
         await espera(1500);
@@ -1756,7 +1761,7 @@
   }
   setInterval(() => { if (!enIsla()) return; const est = estadoIsla(); if (est && est.encuentro) apuntarEncuentro(est); vigilarResultado(); pintarAuto(); pasoAuto(); }, 1500);
   setTimeout(autoDesdeEnlace, 1000);
-  window.__axIsla = { desvioGana, estadoIsla, fauna, zonaElegida, analizar, puntuarZonas, efectoDeHoy, tablaIsla, leerTablasWeb, elegirCompanero, valorCompanero, umbralJefe, esperarMareaBaja, trioDeZona, equipoParaZona, nivelesZona, luchador, simulaTrio, baseEsp, tiposEsp, tiposDe, textoEfecto, histGet, dlMedio, rivalesJefe, mejorTrio, valorNivel, valorJefePorNivel, equipoPropuesto, ISLAS_RESPALDO, ESP, EVO_RESPALDO, tablasWeb: () => tablasWeb };
+  window.__axIsla = { ESC_GOLPE, desvioGana, estadoIsla, fauna, zonaElegida, analizar, puntuarZonas, efectoDeHoy, tablaIsla, leerTablasWeb, elegirCompanero, valorCompanero, umbralJefe, esperarMareaBaja, trioDeZona, equipoParaZona, nivelesZona, luchador, simulaTrio, baseEsp, tiposEsp, tiposDe, textoEfecto, histGet, dlMedio, rivalesJefe, mejorTrio, valorNivel, valorJefePorNivel, equipoPropuesto, ISLAS_RESPALDO, ESP, EVO_RESPALDO, tablasWeb: () => tablasWeb };
 
   let prog = null;
   function programar() {
