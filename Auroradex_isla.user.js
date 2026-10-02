@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.5.0
+// @version      2.6.0
 // @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero, gasta la marea en la zona que más especies nuevas promete, captura a todos (también los repetidos), ordena el equipo para evolucionar y lucha contra el jefe cuando el equipo llega; /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: recuerda cada Pokémon que sale en cada zona (veces, niveles y si ya lo tienes). Cada especie distinta que tengas en la isla da 10 puntos, así que dice a quién meter en el equipo para que evolucione a una especie que aún no tienes (a qué nivel, cuántos le faltan y qué día lo permite el tope), y a quién sacar porque su evolución ya la tienes o no evoluciona subiendo de nivel. Las evoluciones salen de PokéAPI (solo se manda el nº de la especie) y se guardan.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -638,26 +638,38 @@
    * ------------------------------------------------------------------ */
   const COMPANERO_PREFERIDO = ['Corphish', 'Surskit', 'Swinub'];   // Corphish: Agua (aguanta a Suicune y su escolta) y Crawdaunt pega fuerte
   const autoOn = () => ssGet(SS_AUTO) === '1';
-  let autoPaso = false, autoMsg = '', ultimoOrden = 0, reordenar = true;
+  let autoPaso = false, autoMsg = '', ultimoOrden = 0, reordenar = true, esperaJefe = 0;
   // el registro sobrevive a las recargas de la pestaña
   const autoLog = (() => { try { return JSON.parse(sessionStorage.getItem((EN_FONDO_AX ? 'axi-auto-log-fondo' : 'axi-auto-log')) || '[]'); } catch { return []; } })();
   const alog = t => { autoLog.push(t); if (autoLog.length > 30) autoLog.shift(); ssPut((EN_FONDO_AX ? 'axi-auto-log-fondo' : 'axi-auto-log'), JSON.stringify(autoLog)); console.log('[axi] ' + t); pintarAuto(); };
   const espera = ms => new Promise(r => setTimeout(r, ms));
   const botonTexto = re => $$('main button, div.fixed button').find(b => !b.closest('#axi-auto, #axi-panel') && !b.disabled && re.test((b.textContent || '').trim()));
+  /* Puntos del ranking: 10 por cada especie distinta que llegues a tener, 1 por victoria, los variocolor y 200 por vencer al
+   * jefe. Cada exploración cuesta 1 de marea. Así que una zona vale lo que da, de media, una exploración suya:
+   *   P(ganar) × (1 + 10 × la probabilidad de que salga una especie que aún no tengo × la de capturarla)
+   * con lo visto en esa zona; y como al principio no se sabe qué sale, un extra por lo poco que se ha explorado.
+   * Además van primero: la zona del premio «Por explorar X» (fichas de avatar, solo hay que pisarla una vez) y las zonas
+   * que aún no se conocen (hasta explorarlas 4 veces no se sabe qué sale, y las viejas siempre les ganaban). */
+  function zonaDificilPendiente(est) {
+    const m = (((document.querySelector('main') || {}).innerText) || '').match(/Por explorar ([^.\n]+)\./i);
+    const z = m && est.zonas.find(x => x.nombre === m[1].trim());
+    return z && z.abierta && !(est.zonasVisitadas || []).includes(z.id) ? z.id : null;
+  }
   function zonaElegida(est) {
     const fz = fauna(est);
     const ops = botonesZona(est).filter(o => !o.b.disabled);
     if (!ops.length) return null;
+    const dificil = zonaDificilPendiente(est);
     const nota = ({ z }) => {
       const vistos = fz.zonas[z.id] || {}, st = fz.stats[z.id] || { g: 0, p: 0 };
       const visitas = Object.values(vistos).reduce((a, e) => a + e.n, 0);
-      const faltan = Object.keys(vistos).filter(n => !tengoNombre(est, n)).length;
-      const perder = st.g + st.p ? st.p / (st.g + st.p) : 0;
-      // lo que no se ha visto aún promete; lo visto y no capturado, más; perder mucho allí, resta.
-      // Una zona que aún no se conoce (menos de 4 exploraciones esta semana) va PRIMERO: hasta explorarla no se sabe qué sale
-      // (y las zonas viejas, con lo que les falta ya apuntado, siempre ganaban a la nueva); la que se abre hoy, un poco más
-      const nueva = Math.max(0, 4 - visitas) * 12, abreHoy = est.dia && z.desdeDia === est.dia ? 10 : 0;
-      return faltan * 3 + Math.max(0, 6 - visitas) * 1.5 + (z.desdeDia || 1) * 0.3 - perder * 8 + nueva + abreHoy;
+      const pGana = (st.g + 1) / (st.g + st.p + 2);
+      let nuevo = 0;
+      for (const [n, e] of Object.entries(vistos)) if (!tengoNombre(est, n)) nuevo += (e.n / Math.max(1, visitas)) * ((e.prob || 50) / 100);
+      const ev = pGana * (1 + 10 * Math.min(1, nuevo));
+      const desconocido = 6 / (1 + visitas / 3);                       // lo que aún puede salir y no se ha visto
+      const sinConocer = Math.max(0, 4 - visitas) * 12;
+      return ev + desconocido + sinConocer + (z.id === dificil ? 80 : 0);
     };
     return ops.sort((a, b) => nota(b) - nota(a))[0];
   }
@@ -697,36 +709,125 @@
   const LS_TIPOS = 'axi-tipos';
   const tiposEsp = lsGet(LS_TIPOS, {});     // { nº: ['agua', 'hielo'] } · [] = no se pudo saber
   const pidiendoTipos = new Set();
+  const LS_BASE = 'axi-base';
+  const baseEsp = lsGet(LS_BASE, {});       // { nº: [ps, ataque, defensa, ataque esp., defensa esp., velocidad] } · de PokéAPI
   async function pedirTipos(n) {
-    if (tiposEsp[n] || pidiendoTipos.has(n)) return;
+    if ((tiposEsp[n] && baseEsp[n]) || pidiendoTipos.has(n)) return;
     pidiendoTipos.add(n);
-    try { const d = await pedirJSON('https://pokeapi.co/api/v2/pokemon/' + n + '/'); tiposEsp[n] = d.types.map(t => EN_ES[t.type.name]).filter(Boolean); }
-    catch (e) { console.warn('[axi] tipos de', n, e); tiposEsp[n] = []; }
+    try {
+      const d = await pedirJSON('https://pokeapi.co/api/v2/pokemon/' + n + '/');
+      tiposEsp[n] = d.types.map(t => EN_ES[t.type.name]).filter(Boolean);
+      const g = k => ((d.stats || []).find(x => x.stat.name === k) || {}).base_stat || 50;
+      baseEsp[n] = ['hp', 'attack', 'defense', 'special-attack', 'special-defense', 'speed'].map(g);
+    }
+    catch (e) { console.warn('[axi] tipos de', n, e); if (!tiposEsp[n]) tiposEsp[n] = []; }
+    finally { pidiendoTipos.delete(n); }
     lsPut(LS_TIPOS, Object.assign(lsGet(LS_TIPOS, {}), tiposEsp));
+    lsPut(LS_BASE, Object.assign(lsGet(LS_BASE, {}), baseEsp));
   }
   // null mientras falten los tipos de alguno (se piden y se espera al siguiente repaso)
   function rivalesJefe(J) {
     const out = (J.equipo || []).map(x => { const n = +((String(x.sprite || '').match(/(\d+)\.png/) || [])[1]); return { ...x, n, tipos: n ? tiposEsp[n] : [] }; });
-    const faltan = out.filter(x => x.n && !x.tipos);
+    const faltan = out.filter(x => x.n && (!x.tipos || !baseEsp[x.n]));
     faltan.forEach(x => pedirTipos(x.n));
     return faltan.length ? null : out;
   }
+  // Cuánto aguanta y pega un Pokémon contra el equipo del jefe, en «veces que le gana» (log2 de la razón de poder). Las
+  // estadísticas crecen con el nivel, así que lo que pega por turno va como el nivel y lo que aguanta también: la razón de
+  // poder es (nivel mío / nivel suyo)² × (lo que le pegan mis tipos) / (lo que me pegan los suyos). Un tipo que pega al
+  // doble vale como unos 20 niveles a estas alturas, no 3. 0 = igualados; +1 = el doble de poder; −2 = la cuarta parte.
   function notaContraJefe(p, riv) {
-    const mios = tiposDe(p);
-    if (!riv.length || !mios.length) return p.nivel;
-    const lg = x => Math.log2(Math.max(0.25, x));
-    let ofe = 0, def = 0;
-    for (const r of riv) {
-      if (!r.tipos.length) continue;
-      ofe += lg(Math.max(...mios.map(t => eficacia(t, r.tipos))));
-      def += lg(Math.max(...r.tipos.map(t => eficacia(t, mios))));
-    }
-    return p.nivel + (3 * ofe - 3 * def) / riv.length;
+    const mios = tiposDe(p), L = Math.max(1, p.nivel);
+    const rs = (riv || []).filter(r => r.nivel);
+    if (!rs.length || !mios.length) return Math.log2(L) - 5;
+    let suma = 0, peso = 0;
+    rs.forEach((r, i) => {
+      const w = i === rs.length - 1 ? 2 : 1;                          // el último (el jefe de verdad) pesa doble
+      const out = r.tipos.length ? Math.max(...mios.map(t => eficacia(t, r.tipos))) : 1;
+      const inn = r.tipos.length ? Math.max(...r.tipos.map(t => eficacia(t, mios))) : 1;
+      suma += w * (2 * Math.log2(L / r.nivel) + Math.log2(Math.max(0.25, out)) - Math.log2(Math.max(0.25, inn)));
+      peso += w;
+    });
+    return suma / peso;
   }
-  // los 3 que pelean contra el jefe, y detrás el resto del equipo de evolucionar (6 como mucho)
-  function equipoJefe(est, riv) {
+  /* ------------------------------------------------------------------ *
+   *  SIMULADOR DEL JEFE. El combate del juego (el mismo que en la Torre): estadísticas por nivel y especie, daño
+   *  ((2·N/5+2)·30,5·A/D/50+2) × 1,5 si es de su tipo × (1,65 por cada tipo débil, 0,6 por cada tipo que resiste), críticos,
+   *  pega primero el más rápido, y cuando uno cae entra el siguiente (pelean los tres primeros de cada lado). Con eso se
+   *  prueban todos los tríos y órdenes posibles de tu equipo y caja contra el equipo del jefe y se elige el que más veces gana.
+   * ------------------------------------------------------------------ */
+  const efJ = (t, tipos) => { let m = 1; for (const x of tipos) { const v = (TABLA[t] || {})[x] ?? 1; m *= v === 0 ? 0 : v > 1 ? 1.65 : v < 1 ? 0.6 : 1; } return m; };
+  function luchador(base, nivel, tipos) {
+    const L = nivel, st = x => Math.floor(2 * x * L / 100) + 5;
+    return { L, tipos, hp: Math.floor(3 * base[0] * L / 100) + L + 14, atk: st(base[1]), def: st(base[2]), esp: st(Math.round((base[3] + base[4]) / 2)), spe: st(base[5]), fis: base[1] >= base[3] };
+  }
+  function ataqueDe(a, b) {
+    let m = null;
+    for (const t of a.tipos) { const e = efJ(t, b.tipos); if (!m || e > m.e) m = { t, e, propio: true }; }
+    if (!m) return { t: 'normal', e: efJ('normal', b.tipos), propio: false };
+    if (m.e < 1) { const en = efJ('normal', b.tipos); if (en > m.e) return { t: 'normal', e: en, propio: a.tipos.includes('normal') }; }
+    return m;
+  }
+  function golpeDe(a, b) {
+    const at = ataqueDe(a, b);
+    if (at.e === 0) return b.hp / 16;                                   // si no le afecta nada, Forcejeo
+    const fis = !at.propio || a.fis, A = fis ? a.atk : a.esp, D = fis ? b.def : b.esp;
+    return ((2 * a.L / 5 + 2) * 30.5 * A / D / 50 + 2) * (at.propio ? 1.5 : 1) * at.e;
+  }
+  const golpesMemo = new Map();
+  function golpeMemo(a, b) { let m = golpesMemo.get(a); if (!m) golpesMemo.set(a, (m = new Map())); let v = m.get(b); if (v === undefined) m.set(b, (v = golpeDe(a, b))); return v; }
+  // veces que gana el trío `mios` al equipo `rivs` (listas de luchadores) en `n` combates con críticos y variación de daño
+  function simulaTrio(mios, rivs, n = 60) {
+    let gana = 0, margen = 0;
+    for (let k = 0; k < n; k++) {
+      const A = mios.map(x => ({ x, v: x.hp })), B = rivs.map(x => ({ x, v: x.hp }));
+      let i = 0, j = 0;
+      for (let t = 0; t < 500 && i < A.length && j < B.length; t++) {
+        const a = A[i], b = B[j];
+        const aPrimero = a.x.spe > b.x.spe || (a.x.spe === b.x.spe && Math.random() < 0.5);
+        for (const [at, df] of aPrimero ? [[a, b], [b, a]] : [[b, a], [a, b]]) {
+          if (at.v <= 0 || df.v <= 0) continue;
+          df.v -= golpeMemo(at.x, df.x) * (0.85 + Math.random() * 0.15) * (Math.random() < 0.09 ? 1.64 : 1);
+        }
+        if (a.v <= 0) i++;
+        if (b.v <= 0) j++;
+      }
+      if (j >= B.length) gana++;
+      margen += A.reduce((s2, q) => s2 + Math.max(0, q.v) / q.x.hp, 0) / A.length - B.reduce((s2, q) => s2 + Math.max(0, q.v) / q.x.hp, 0) / B.length;
+    }
+    return { p: gana / n, margen: margen / n };
+  }
+  // El mejor trío (y su orden) de todo lo que tienes. null si aún faltan datos de PokéAPI de alguno (se piden)
+  let jefeMemo = { k: '', r: null };
+  function mejorTrio(est, riv) {
     const todos = [...est.equipo, ...est.caja];
-    const tres = todos.map(p => ({ p, v: notaContraJefe(p, riv) })).sort((a, b) => b.v - a.v || b.p.nivel - a.p.nivel).slice(0, 3).map(x => x.p);
+    const rivs = riv.filter(r => r.n && baseEsp[r.n] && r.tipos).map(r => luchador(baseEsp[r.n], r.nivel, r.tipos));
+    if (!rivs.length || rivs.length < riv.length) return null;
+    // los candidatos con más posibilidades (por la nota rápida), con sus datos pedidos
+    const cand = todos.map(p => ({ p, v: notaContraJefe(p, riv) })).sort((a, b) => b.v - a.v).slice(0, 9).map(x => x.p);
+    for (const p of cand) if (!baseEsp[p.speciesId]) pedirTipos(p.speciesId);
+    const listos = cand.filter(p => baseEsp[p.speciesId]);
+    if (listos.length < Math.min(3, cand.length)) return null;
+    const k = listos.map(p => p.id + ':' + p.nivel).join() + '|' + riv.map(r => r.n + ':' + r.nivel).join();
+    if (jefeMemo.k === k) return jefeMemo.r;
+    const lu = new Map(listos.map(p => [p.id, luchador(baseEsp[p.speciesId], p.nivel, tiposDe(p))]));
+    let mejores = [];
+    for (const a of listos) for (const b of listos) for (const c of listos) {
+      if (a === b || a === c || b === c) continue;
+      const r = simulaTrio([lu.get(a.id), lu.get(b.id), lu.get(c.id)], rivs, 40);
+      mejores.push({ trio: [a, b, c], ...r });
+    }
+    mejores.sort((x, y) => y.p - x.p || y.margen - x.margen);
+    mejores = mejores.slice(0, 4).map(m => ({ ...m, ...simulaTrio(m.trio.map(p => lu.get(p.id)), rivs, 300) })).sort((x, y) => y.p - x.p || y.margen - x.margen);
+    const r = { trio: mejores[0].trio, p: mejores[0].p, margen: mejores[0].margen };
+    jefeMemo = { k, r };
+    return r;
+  }
+  // los 3 que pelean contra el jefe (por simulación; si aún no hay datos, por la nota rápida), y detrás el resto del equipo
+  // de evolucionar (6 como mucho)
+  function equipoJefe(est, riv, sim = mejorTrio(est, riv)) {
+    const todos = [...est.equipo, ...est.caja];
+    const tres = sim ? sim.trio : todos.map(p => ({ p, v: notaContraJefe(p, riv) })).sort((a, b) => b.v - a.v || b.p.nivel - a.p.nivel).slice(0, 3).map(x => x.p);
     const resto = (equipoPropuesto(est, analizar(est)) || est.equipo).filter(p => !tres.some(t => t.id === p.id));
     return [...tres, ...resto].slice(0, Math.max(3, Math.min(6, est.equipo.length)));
   }
@@ -779,20 +880,36 @@
       // jefe; 2 intentos al día). Primero se ponen delante esos 3 y luego se lucha.
       const J = est.jefe;
       const intentosHoy = lsGet('axi-jefe-hoy', {}), hoyK = new Date().toLocaleDateString('sv');
-      if (J && J.abierto && !J.vencido && est.marea >= (J.costeMarea || 3) && (intentosHoy[hoyK] || 0) < 2 && est.equipo.length) {
+      // vencerlo da 200 puntos (más que 20 especies nuevas) y cada intento solo cuesta marea (3): no hay tope de intentos al día
+      // salvo uno de cordura (6, y 12 el último día) por si el equipo no da la talla; cada intento que se pierde da experiencia
+      if (J && J.vencido && lsGet('axi-jefe-ok', '') !== claveSemana(est)) {
+        lsPut('axi-jefe-ok', claveSemana(est));
+        alog(`🏆 ¡${J.nombre.split(',')[0]} vencido! +200 puntos.`);
+        kAviso({ tipo: 'legendario', app: 'Isla Espejismo', icono: '👑', titulo: '¡Jefe vencido!', lineas: [J.nombre, 'ya cuentan sus 200 puntos en el ranking'] });
+      }
+      if (J && J.abierto && !J.vencido && est.marea >= (J.costeMarea || 3) && (intentosHoy[hoyK] || 0) < (est.dia >= est.dias ? 12 : 6) && est.equipo.length) {
         const riv = rivalesJefe(J);
         if (!riv) return;       // esperando a saber sus tipos
-        const nivelJefe = Math.max(...riv.map(x => x.nivel || 0));
-        const prop = equipoJefe(est, riv), tres = prop.slice(0, 3);
-        // (o, si ya no pueden subir más hoy porque están al tope del día, se intenta igual: perder solo cuesta marea)
-        const media = tres.reduce((a, p) => a + p.nivel, 0) / tres.length;
-        if (media >= nivelJefe - 3 || tres.every(p => p.nivel >= est.topeNivel) || est.dia >= est.dias) {
+        const sim = mejorTrio(est, riv);
+        if (!sim) {
+          // faltan datos de PokéAPI (estadísticas): se piden y se espera un poco; si no llegan, se sigue con la nota rápida
+          if (!esperaJefe) esperaJefe = Date.now();
+          if (Date.now() - esperaJefe < 25000) return;
+        } else esperaJefe = 0;
+        const prop = equipoJefe(est, riv, sim), tres = prop.slice(0, 3);
+        // probabilidad de vencerlo con el mejor trío (simulando el combate del juego, ver MEJOR TRÍO): se ataca si hay
+        // posibilidades (≥ 5 %: vencerlo vale 200 puntos y un intento solo cuesta 3 de marea); si no, se sube de nivel
+        // explorando (cada exploración da experiencia a todo el equipo). Con los tres al tope del día (no pueden subir más
+        // hoy) o el último día, se intenta igual.
+        const poder = tres.reduce((a, p) => a + notaContraJefe(p, riv), 0) / tres.length;
+        const pGana = sim ? sim.p : null;
+        if (pGana != null ? pGana >= (est.dia >= est.dias ? 0.02 : 0.05) : poder >= -2 || tres.every(p => p.nivel >= est.topeNivel) || est.dia >= est.dias) {
           if (prop.map(p => p.id).join() !== est.equipo.map(p => p.id).join()) {
             const fn = guardarEquipoFn();
             if (fn && Date.now() - ultimoOrden > 5000) {
               ultimoOrden = Date.now();
               fn(prop.map(p => p.id), 'Equipo listo para el jefe.');
-              alog(`🔀 Contra el jefe pelean: ${tres.map(p => `${p.nombre} Nv.${p.nivel}`).join(', ')}.`);
+              alog(`🔀 Contra el jefe pelean: ${tres.map(p => `${p.nombre} Nv.${p.nivel}`).join(', ')} (${pGana != null ? `probabilidad de ganar ≈ ${Math.round(pGana * 100)} %` : `poder ${poder >= 0 ? '+' : ''}${poder.toFixed(1)}`}).`);
               await espera(2500); return;
             }
             if (fn) return;
@@ -845,6 +962,7 @@
       c.innerHTML = `${kHead('🏝️', 'Isla sola', '')}
         <button type="button" class="axi-go boton-principal w-full !py-2.5 text-sm"></button>
         <div class="axi-log ${K_LOG}"></div>
+        <p class="axi-jefe text-[11px] font-bold leading-snug text-tinta-600" hidden></p>
         <details class="rounded-card border-2 border-crema-200 bg-crema-50 p-2"><summary class="cursor-pointer text-[11px] font-extrabold text-tinta-600">🗺️ Qué sale en cada zona</summary><div class="axi-fauna space-y-2 pt-2"></div></details>`;
       c.querySelector('.axi-go').addEventListener('click', e => { e.preventDefault(); if (autoOn()) { ssPut(SS_AUTO, null); alog('⏹ Parado.'); } else { ssPut(SS_AUTO, '1'); reordenar = true; kPedirPermiso(); alog('▶ En marcha.'); } pintarAuto(); });
     }
@@ -856,6 +974,18 @@
     const lg = c.querySelector('.axi-log'), lineas = [...autoLog.slice(-8), ...(autoMsg && autoOn() ? [autoMsg] : [])];
     const firmaLog = lineas.join('\n');
     if (lg.dataset.f !== firmaLog) { lg.dataset.f = firmaLog; lg.innerHTML = lineas.map(l => `<p>${esc(l)}</p>`).join(''); lg.scrollTop = lg.scrollHeight; }
+    // el jefe: qué probabilidad hay de vencerlo con tu mejor trío ahora (se simula el combate)
+    const pj = c.querySelector('.axi-jefe');
+    if (pj) {
+      let t = '';
+      try {
+        if (est.jefe && !est.jefe.vencido) {
+          const riv = rivalesJefe(est.jefe), sim = riv && mejorTrio(est, riv);
+          t = sim ? `👑 ${est.jefe.nombre.split(',')[0]}: ahora lo vences ≈ ${Math.round(sim.p * 100)} % (mejor trío: ${sim.trio.map(p => `${p.nombre} Nv.${p.nivel}`).join(', ')}). Vencerlo da 200 puntos.` : riv ? '👑 Calculando el combate contra el jefe…' : '';
+        }
+      } catch (e) { console.warn('[axi] jefe', e); }
+      kSet(pj, t); pj.hidden = !t;
+    }
     // fauna por zona
     const fz = fauna(est);
     const html = est.zonas.map(z => {
