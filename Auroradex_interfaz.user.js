@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.16.1
+// @version      1.16.2
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -15,6 +15,8 @@
   'use strict';
   // No corre en la ventana oculta donde el script de Diarias juega las diarias en segundo plano
   try { if (window.top !== window && window.name === 'axd-fondo') return; } catch { /* nada */ }
+  // Un marco aislado (sin acceso al almacenamiento de la pestaña) no tiene nada que hacer aquí: antes daba un error en la consola
+  try { void sessionStorage.length; } catch { return; }
 
   /* ── Espera a que Next.js/React termine de hidratar ─────────────────────────
    * Si se mete algo en el DOM antes, React da un error de hidratación (#418/#423),

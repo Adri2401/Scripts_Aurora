@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.23.0
+// @version      1.23.1
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas, el Valle (recoge con el almacén lleno para la hora punta ×2, gasta el Brillo y los puntos de investigación) y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -123,7 +123,7 @@
   const QUIEN = {
     id: 'quien',
     nombre: '📺 ¿Quién es ese Pokémon?',
-    detecta: () => $$('main h1').find(h => /qui[eé]n es ese pok[eé]mon/i.test(texto(h))),
+    detecta: () => h1Main().find(h => /qui[eé]n es ese pok[eé]mon/i.test(texto(h))),
     silueta: () => $$('main img').find(i => !ajeno(i) && /\/sprites\//.test(i.getAttribute('src') || '') && (/silueta/i.test(i.alt || '') || /brightness\(0\)/.test(i.className || ''))),
     opciones(img) {
       const sec = img.closest('section') || document;
@@ -207,7 +207,7 @@
   const POKEATHLON = {
     id: 'pokeathlon',
     nombre: '🏟️ Cúpula Pokéathlon',
-    detecta: () => $$('main h1').find(h => /pok[eé]athlon/i.test(texto(h))),
+    detecta: () => h1Main().find(h => /pok[eé]athlon/i.test(texto(h))),
     listo: () => lsGet('axd-pokeathlon', '') === hoy() && !$$('main button').some(b => !ajeno(b) && !b.disabled && /competir/i.test(texto(b))),
     // Cada prueba: su nombre, la cifra del rival y los botones de tus Pokémon con su cifra
     leer() {
@@ -350,7 +350,7 @@
   const MUELLE = {
     id: 'muelle',
     nombre: '🎣 El Muelle',
-    detecta: () => $$('main h1').find(h => /el muelle/i.test(texto(h))),
+    detecta: () => h1Main().find(h => /el muelle/i.test(texto(h))),
     async paso() {
       // el cartel del resultado (Clavado / Ha picado / Se escapó): tocar para seguir
       const cartel = $$('button').find(b => !ajeno(b) && visible(b) && /toca para seguir$/i.test(texto(b)));
@@ -380,7 +380,22 @@
 
   const principal = () => $$('main button.boton-principal').find(b => !ajeno(b) && !b.disabled && visible(b));
   // innerText (no textContent): separa los bloques, que si no se pegan («Hoy0Hoy se corre en…»)
-  const textoMain = () => { const m = document.querySelector('main'); return m ? (m.innerText || m.textContent || '').replace(/\s+/g, ' ').trim() : ''; };
+  // (se guarda mientras la página no cambie: en una página enorme —la Caja con miles de tarjetas— cada lectura fuerza el diseño
+  // entero, y tick() la pide muchas veces seguidas; con cualquier cambio de la página, o pasado medio segundo, se vuelve a leer)
+  let domV = 0, memoTxt = { v: -1, t: 0, m: null, s: '' };
+  try { new MutationObserver(() => { domV++; }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true }); } catch { /* nada */ }
+  // Los títulos de la página (todas las diarias se detectan por el suyo): una consulta por cambio de página, no una por diaria y tick
+  let memoH1 = { v: -1, t: 0, l: [] };
+  const h1Main = () => { if (memoH1.v !== domV || Date.now() - memoH1.t > 500) memoH1 = { v: domV, t: Date.now(), l: $$('main h1') }; return memoH1.l; };
+  const h1h2Main = () => $$('main h1, main h2');
+  const textoMain = () => {
+    const m = document.querySelector('main');
+    if (!m) return '';
+    if (memoTxt.m === m && memoTxt.v === domV && Date.now() - memoTxt.t < 500) return memoTxt.s;
+    const s = (m.innerText || m.textContent || '').replace(/\s+/g, ' ').trim();
+    memoTxt = { v: domV, t: Date.now(), m, s };
+    return s;
+  };
   // el valor que va debajo de una etiqueta («Hoy se corre en» → «Con obstáculos»)
   const etiqueta = re => $$('main p, main span').find(x => !ajeno(x) && re.test(texto(x)) && x.nextElementSibling);
   // el elegido entre varios botones iguales: el único con un aspecto distinto (el juego lo marca)
@@ -412,7 +427,7 @@
   const CARRERAS = {
     id: 'carreras',
     nombre: '🐀 Carreras de Rattata',
-    detecta: () => $$('main h1').find(h => /carreras de rattata/i.test(texto(h))),
+    detecta: () => h1Main().find(h => /carreras de rattata/i.test(texto(h))),
     // la pista: su nombre y su descripción
     pista() {
       const e = etiqueta(/^hoy se corre en$/i);
@@ -484,7 +499,7 @@
   const BUCEO = {
     id: 'buceo',
     nombre: '🤿 Rutas submarinas',
-    detecta: () => $$('main h1').find(h => /rutas submarinas/i.test(texto(h))),
+    detecta: () => h1Main().find(h => /rutas submarinas/i.test(texto(h))),
     async paso() {
       const zonas = $$('main button').filter(b => !ajeno(b) && !b.disabled && visible(b) && Object.values(ZONAS).some(re => re.test(texto(b))));
       if (zonas.length >= 2) {
@@ -506,7 +521,7 @@
   const TREN = {
     id: 'tren',
     nombre: '🚂 El Tren de Biscuit',
-    detecta: () => $$('main h1').find(h => /tren de biscuit/i.test(texto(h))),
+    detecta: () => h1Main().find(h => /tren de biscuit/i.test(texto(h))),
     otraRegion: () => /no lo ves llegar/i.test(textoMain()),
     // «Vagón de chatarra · N de 3 hoy»: las que quedan
     quedan() { const m = textoMain().match(/vag[oó]n de chatarra\s*(\d+)\s*de\s*(\d+)\s*hoy/i); return m ? +m[1] : null; },
@@ -531,7 +546,7 @@
     id: 'safari',
     nombre: '🌾 Safari',
     soloRuta: true, sinPanel: true,
-    detecta: () => ruta() === '/safari' && $$('main h1')[0],
+    detecta: () => ruta() === '/safari' && h1Main()[0],
     region() {
       const h = $$('main h1')[0], antes = h && h.previousElementSibling;
       return regionDe(texto(antes) || texto(h && h.parentElement).slice(0, 40));
@@ -604,7 +619,7 @@
     id: 'viaje',
     nombre: '🧭 Viaje',
     soloRuta: true, sinPanel: true,
-    detecta: () => $$('main h1').find(h => /las regiones/i.test(texto(h))),
+    detecta: () => h1Main().find(h => /las regiones/i.test(texto(h))),
     estoy() {
       const e = etiqueta(/^est[aá]s en$/i);
       if (e) return regionDe(texto(e.nextElementSibling));
@@ -650,7 +665,7 @@
   const CANTERA = {
     id: 'cantera',
     nombre: '⛏️ La Cantera',
-    detecta: () => $$('main h1').find(h => /^la cantera$/i.test(texto(h))),
+    detecta: () => h1Main().find(h => /^la cantera$/i.test(texto(h))),
     celdas: () => $$('main button[aria-label^="Celda "]').filter(b => !ajeno(b)),
     estado() {
       const bs = this.celdas();
@@ -756,7 +771,7 @@
   const ALBUM = {
     id: 'album',
     nombre: '📷 El Álbum de Braulio',
-    detecta: () => $$('main h1').find(h => /[aá]lbum de braulio/i.test(texto(h))),
+    detecta: () => h1Main().find(h => /[aá]lbum de braulio/i.test(texto(h))),
     hecho: '',
     async paso() {
       const estas = $$('main button').filter(b => !ajeno(b) && !b.disabled && visible(b) && /^esta$/i.test(texto(b)));
@@ -780,7 +795,7 @@
     id: 'casa',
     nombre: '🚪 La Casa Treta',
     soloRuta: true, sinPanel: true,
-    detecta: () => $$('main h1').find(h => /^la casa treta$/i.test(texto(h))),
+    detecta: () => h1Main().find(h => /^la casa treta$/i.test(texto(h))),
     otraRegion: () => /casa treta est[aá] en/i.test(textoMain()),
     // cerrada con 🔒 aunque estés en su región: solo se entra estando en su ruta del mapa (moverte por el mapa no lo hago)
     motivoFuera() { const m = textoMain().match(/la casa treta\s*(ruta \d+)/i); return `⏭ 🚪 La Casa Treta: solo se entra estando en la ${m ? m[1].replace(/^r/, 'R') : 'su ruta'}; esa te la dejo.`; },
@@ -1910,7 +1925,7 @@
   }
   const fondo = {
     reinicios: 0, vistaDesde: Date.now(), chequeando: false,
-    iframe() { return document.querySelector(`iframe[name="${FONDO_NOMBRE}"]`); },
+    iframe() { if (this._f && this._f.isConnected) return this._f; this._f = document.querySelector(`iframe[name="${FONDO_NOMBRE}"]`); return this._f; },   // (guardado: se pide cada segundo y en páginas grandes la búsqueda cuesta)
     crearIframe(ruta0 = '/menu') {
       let f = this.iframe();
       if (f) return f;
@@ -2256,7 +2271,9 @@
   esperarHidratacion().then(() => {
     arranqueDesdeEnlace();
     setInterval(tick, EN_FONDO ? 350 : 800);
-    try { new MutationObserver(() => tick()).observe(document.body, { childList: true, subtree: true }); } catch { /* nada */ }
+    // (los cambios de la página se agrupan: antes cada uno lanzaba un tick completo, y al cargar una página grande son cientos)
+    let tMo = 0;
+    try { new MutationObserver(() => { if (!tMo) tMo = setTimeout(() => { tMo = 0; tick(); }, EN_FONDO ? 40 : 120); }).observe(document.body, { childList: true, subtree: true }); } catch { /* nada */ }
     tick();
   });
   window.__axDiarias = { NOMBRES, DIARIAS, tick, pGanar, mejorReparto, leerMenu, iniciarRuta, CANTERA, propReact, fondo };

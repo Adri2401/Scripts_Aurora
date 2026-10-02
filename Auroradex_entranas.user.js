@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.17.0
+// @version      1.17.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  «🔁 En segundo plano hasta gastar los pases»: hace la bajada gratis y luego una tras otra con los Pases del monte en una ventana oculta mientras juegas a otra cosa, con una tarjeta que dice por dónde va. Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Bendiciones: nunca Veterano ni Reclutador, y las Afinidades de un tipo solo si ese tipo es mayoría en el equipo. Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -22,7 +22,7 @@
   const SSF = { on: PRE_F + 'on', fin: PRE_F + 'fin', bajadas: PRE_F + 'bajadas', estado: PRE_F + 'estado', t0: PRE_F + 't0', una: PRE_F + 'una' };
   const ssJ = k => { try { return JSON.parse(sessionStorage.getItem(k) || 'null'); } catch { return null; } };
   const ssW = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* nada */ } };
-  const VERSION = '1.17.0';
+  const VERSION = '1.17.1';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -2239,7 +2239,7 @@
       p.setAttribute('data-ax-ignore', '1');
       p.innerHTML = `<div class="fila"><span style="font-size:22px">⛏️</span><div style="flex:1"><p class="t">Entrañas · IA</p><p class="s">Graba todo, aprende y juega cada opción hacia delante antes de decidir.</p></div></div>
         <div class="tabs">${[['ahora', '⭐ Ahora'], ['saber', '📚 Saber'], ['mejoras', '💎 Mejoras'], ['historial', '📜 Bajadas'], ['datos', '⚙️ Datos']].map(([k, t]) => `<button type="button" data-t="${k}">${t}</button>`).join('')}</div>
-        <div class="cont"></div><details class="caja" open><summary class="s">Bitácora</summary><div class="log"></div></details>`;
+        <div class="cont"></div><details class="caja"${piloto ? ' open' : ''}><summary class="s">Bitácora</summary><div class="log"></div></details>`;
       p.querySelector('.log').innerHTML = registroLog.map(t => `<p>${kEsc(t)}</p>`).join('');
       p.addEventListener('click', e => {
         const b = e.target.closest('button'); if (!b) return;

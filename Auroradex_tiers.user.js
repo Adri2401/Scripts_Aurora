@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.34.0
+// @version      1.35.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier o por estadística (botón «📊 Stat»: cada toque pasa a PS, Ataque, Defensa, Especial, Velocidad y Total; pone el valor en cada uno, corona al mejor 👑 y dice quién la tiene más alta en el equipo y en la Caja), tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -540,28 +540,55 @@
       `background:${t.color};color:#fff;font-weight:900;font-size:${grande ? 14 : 10}px;line-height:1;box-shadow:0 0 0 2px rgba(255,255,255,.85),0 1px 3px rgba(0,0,0,.35);pointer-events:none`;
     return s;
   }
+  // Una tarjeta (Caja: el botón; Equipo: el hueco del sprite): pone su insignia de tier
+  function decorarUna(img) {
+    const num = numDe(img);
+    if (!num) return;
+    // Caja PC: el botón de la tarjeta · Equipo: el hueco del sprite (con el objeto abajo a la derecha)
+    const boton = img.closest('ul.grid li > button');
+    const hueco = !boton && img.closest('li[data-id]') ? img.parentElement : null;
+    const caja = boton || (hueco && hueco.classList.contains('relative') ? hueco : null);
+    if (!caja) return;
+    const tipos = tiposEn(boton || img.closest('li[data-id]'));
+    const firma = num + '|' + tipos.join('/');
+    if (caja.dataset.axtNum === firma && caja.querySelector(':scope > .axt-tier')) return;
+    const t = analizar(num, tipos);
+    if (!t) { pedir(num); return; }
+    const viejo = caja.querySelector(':scope > .axt-tier');
+    if (viejo) viejo.remove();
+    const s = insignia(t);
+    s.style.position = 'absolute';
+    if (boton) { s.style.right = '4px'; s.style.top = '4px'; }
+    else { s.style.left = '-6px'; s.style.top = '-6px'; }
+    caja.appendChild(s);
+    caja.dataset.axtNum = firma;
+    caja.dataset.axtSrc = img.getAttribute('src') || '';
+  }
+  // La Caja puede tener miles de tarjetas (3.686 en una cuenta real: ~250 ms de bloqueo solo para ponerles la insignia, y
+  // lo mismo cada vez que la página cambia). Solo se decoran las que están cerca de la pantalla (a medida que se acercan) y
+  // las ya puestas se comprueban con una lectura barata del sprite.
+  let ioTarjetas = null;
   function decorarTarjetas() {
-    for (const img of $$('main img[src*="/sprites/"]')) {
-      const num = numDe(img);
-      if (!num) continue;
-      // Caja PC: el botón de la tarjeta · Equipo: el hueco del sprite (con el objeto abajo a la derecha)
-      const boton = img.closest('ul.grid li > button');
-      const hueco = !boton && img.closest('li[data-id]') ? img.parentElement : null;
-      const caja = boton || (hueco && hueco.classList.contains('relative') ? hueco : null);
-      if (!caja) continue;
-      const tipos = tiposEn(boton || img.closest('li[data-id]'));
-      const firma = num + '|' + tipos.join('/');
-      if (caja.dataset.axtNum === firma && caja.querySelector(':scope > .axt-tier')) continue;
-      const t = analizar(num, tipos);
-      if (!t) { pedir(num); continue; }
-      const viejo = caja.querySelector(':scope > .axt-tier');
-      if (viejo) viejo.remove();
-      const s = insignia(t);
-      s.style.position = 'absolute';
-      if (boton) { s.style.right = '4px'; s.style.top = '4px'; }
-      else { s.style.left = '-6px'; s.style.top = '-6px'; }
-      caja.appendChild(s);
-      caja.dataset.axtNum = firma;
+    if (!ioTarjetas && 'IntersectionObserver' in window) {
+      ioTarjetas = new IntersectionObserver(es => {
+        for (const e of es) {
+          if (!e.isIntersecting) continue;
+          ioTarjetas.unobserve(e.target);
+          const img = e.target.querySelector('img[src*="/sprites/"]');
+          if (img) { try { decorarUna(img); } catch (err) { console.warn('[axt]', err); } }
+        }
+      }, { rootMargin: '900px 0px' });
+    }
+    // Equipo (pocos): directo
+    for (const img of $$('main li[data-id] img[src*="/sprites/"]')) decorarUna(img);
+    // Caja: las nuevas se observan; las ya puestas se rehacen solo si su sprite cambió
+    if (!ioTarjetas) { for (const img of $$('main ul.grid > li > button img[src*="/sprites/"]')) decorarUna(img); return; }
+    for (const b of $$('main ul.grid > li > button')) {
+      if (b.dataset.axtObs === undefined) { b.dataset.axtObs = ''; ioTarjetas.observe(b); continue; }
+      if (b.dataset.axtSrc !== undefined) {
+        const img = b.querySelector('img[src*="/sprites/"]');
+        if (img && img.getAttribute('src') !== b.dataset.axtSrc) { delete b.dataset.axtSrc; ioTarjetas.observe(b); }
+      }
     }
   }
 
@@ -720,8 +747,23 @@
     const html = `${st.e} Mayor ${st.n} · equipo: ${nom(mejorEq)} · caja: ${nom(mejorCaja)}`;
     if (r.innerHTML !== html) r.innerHTML = html;
   }
+  let ordenPuesto = false;      // ¿hay algo puesto en las tarjetas (orden o cifras) que haya que quitar al apagar el orden?
+  let ultOrden = { sig: '', t: 0 };
+  // sin orden activo solo se tocan los del equipo (la Caja puede tener miles de tarjetas)
+  function ordenarEquipoSolo() {
+    const lista = listaEquipo();
+    if (lista) for (const li of $$(':scope > li[data-id]', lista)) { const hueco = li.querySelector('button'); if (hueco) chipStat(hueco, null); }
+    const fila = $$('main div.flex').find(d => d.querySelector(':scope > .axt-stat'));
+    if (fila) resumenStat(fila, null);
+  }
   function ordenar() {
     const st = statSel();
+    if (!st && !ordenTier && !ordenPuesto) { ordenarEquipoSolo(); return; }
+    // con el orden puesto no se rehace en cada cambio de la página si no ha cambiado nada (misma cantidad, mismo modo, hace poco)
+    const sig = document.querySelectorAll('main ul.grid > li').length + '|' + ordenStat + '|' + ordenTier + '|' + (listaEquipo() ? $$(':scope > li[data-id]', listaEquipo()).map(li => li.dataset.id).join() : '');
+    if ((st || ordenTier) && ultOrden.sig === sig && Date.now() - ultOrden.t < 1500) return;
+    ultOrden = { sig, t: Date.now() };
+    ordenPuesto = !!(st || ordenTier);
     const porId = st ? datosPorId() : null;
     const tarjetas = [];
     for (const li of $$('main ul.grid > li')) {
@@ -3039,7 +3081,13 @@
       } catch (e) { console.warn('[axt]', e); }
     }, 250);
   }
+  // La Caja puede tener miles de tarjetas: el navegador no calcula las que están fuera de pantalla (de ~0,9 s de bloqueo a ~0,5 s al
+  // abrir el Equipo, y mucho menos al reordenar). 131 px = lo que mide una tarjeta.
+  const estiloCaja = document.createElement('style');
+  estiloCaja.textContent = 'html[data-axt-eq] main ul.grid > li{content-visibility:auto;contain-intrinsic-size:auto 131px}';
+  (document.head || document.documentElement).appendChild(estiloCaja);
   new MutationObserver(muts => {
+    document.documentElement.toggleAttribute('data-axt-eq', enEquipo());
     if (!enEquipo() && !enTorre() && !enTronos()) return;
     // se ignoran los cambios que hace este mismo script
     if (muts.every(m => (m.target.nodeType === 1 && m.target.closest('[data-ax-ignore]')) || [...m.addedNodes].every(n => n.nodeType === 1 && (n.classList.contains('axt-tier') || n.classList.contains('axt-ficha') || n.id === 'axt-equipo' || n.id === 'axt-torre' || n.id === 'axt-tronos' || n.id === 'axt-trono-ficha' || n.classList.contains('axt-trono') || n.classList.contains('axt-orden') || n.classList.contains('axt-predic') || n.classList.contains('axt-rec') || n.hasAttribute('data-ax-ignore'))))) return;
@@ -3047,6 +3095,7 @@
   }).observe(document.documentElement, { childList: true, subtree: true });
   // se espera a que la web termine de montarse (tocar el DOM antes provoca errores de hidratación de React)
   calcularCal();
+  document.documentElement.toggleAttribute('data-axt-eq', enEquipo());
   const arrancar = () => setTimeout(() => { listo = true; programar(); }, 1500);
   // con «Retar solo» puesto, se repasa cada pocos segundos aunque la página no cambie (espera entre retos)
   setInterval(() => { if (listo && ((enTorre() && autoTorre()) || (enTronos() && autoTronos()))) programar(); }, 5000);
