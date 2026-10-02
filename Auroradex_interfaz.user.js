@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Accesos Directos
 // @namespace    auroradex-accesos
-// @version      1.16.2
+// @version      1.17.0
 // @description  Accesos directos bajo el Equipo de exploración en cuatro bloques: Tiendas, PvE, PvP y Extra. Los de otra región viajan solos (el Frente Batalla va solo a Hoenn, al Muelle del Frente, embarca, cruza a la isla y entra por «El puerto»), los Safari se marcan como hechos al pulsarlos (y se reinician cada día), las actividades nuevas del Menú se colocan solas y algunos accesos enseñan su dato (fichas, monedas, Valle, marea, retos de la Torre y los Tronos).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1629,6 +1629,33 @@
       continuarZona();
     }, 300);
   }
+  /* ── Entrada suave de los paneles de los scripts ────────────────────────────────────────────────────────────────
+   * Los paneles (Entrañas, Salón, Valle, Huerto, Subsuelo, Pokédex…) se meten cuando la página ya está pintada (hay que esperar
+   * a que React hidrate), y empujaban de golpe el contenido de abajo 250-850 px: lo que estabas leyendo o a punto de tocar
+   * saltaba. Ahora crecen en 0,3 s (y si tu sistema pide menos movimiento, entran sin más). Solo los que van en el flujo de la
+   * página y solo la primera vez que aparecen. */
+  try {
+    if (!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+      const entra = el => {
+        if (el.dataset.axEntrada || !/^(ax[a-z]*-|mh-)/.test(el.id || '') || !el.hasAttribute('data-ax-ignore') || !/^(SECTION|DIV)$/.test(el.tagName)) return;
+        el.dataset.axEntrada = '1';
+        const cs = getComputedStyle(el);
+        if (cs.position === 'fixed' || cs.position === 'absolute' || cs.display === 'none') return;
+        const h = el.getBoundingClientRect().height;
+        if (h < 60 || h > 1200 || el.getBoundingClientRect().top > innerHeight * 1.5) return;
+        const antes = { o: el.style.overflow, h: el.style.height, op: el.style.opacity, t: el.style.transition };
+        el.style.overflow = 'hidden'; el.style.height = '0px'; el.style.opacity = '0';
+        const fin = () => { el.style.overflow = antes.o; el.style.height = antes.h; el.style.opacity = antes.op; el.style.transition = antes.t; };
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          el.style.transition = 'height .3s cubic-bezier(.22,1,.36,1), opacity .25s ease';
+          el.style.height = Math.max(h, el.scrollHeight) + 'px'; el.style.opacity = '1';   // (scrollHeight: el panel puede haberse rellenado ya)
+          setTimeout(fin, 360);
+        }));
+      };
+      new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) entra(n); }).observe(document.documentElement, { childList: true, subtree: true });
+    }
+  } catch { /* nada */ }
+
   esperarHidratacion().then(() => {
     observer.observe(document.body, { childList: true, subtree: true });
     continuarViajePendiente();
