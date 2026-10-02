@@ -1185,7 +1185,7 @@
   /* Lo que sube la probabilidad de vencer al jefe (200 puntos y sus premios) por cada exploración en una zona: lo que se captura allí
    * entra en la caja y puede ser lo que lo venza. Es lo que más pesa en los últimos días: lo que sale en la última zona (nivel 30-38)
    * es mucho más fuerte que un equipo que sube despacio, y con unos pocos de los de tipo bueno el jefe pasa de imposible a probable.
-   * Se prueba con 10 tandas inventadas de 8 exploraciones (gana con la probabilidad de la zona, captura con la de cada especie, a su
+   * Se prueba con 8 tandas inventadas de 8 exploraciones (gana con la probabilidad de la zona, captura con la de cada especie, a su
    * nivel) mirando cuánto mejora el mejor trío contra el jefe. Las tandas salen siempre igual para el mismo caso (no hay ruido). */
   const memoChase = new Map();
   const hashStr = t => { let h = 0; for (let i = 0; i < t.length; i++) h = (Math.imul(h, 31) + t.charCodeAt(i)) | 0; return h; };
@@ -1195,12 +1195,13 @@
       if (!J || J.vencido || est.dia < 5 || niv[niv.length - 1] < 20) return 0;
       const riv = rivalesJefe(J), base = riv && mejorTrio(est, riv);
       if (!base || base.p >= 0.97) return 0;
-      const pool = [...est.equipo, ...est.caja];
-      const k = `${hashStr(pool.map(p => p.id + ':' + p.nivel).sort().join())}|${base.p.toFixed(2)}|${z.id}|${niv.join('-')}|${ef.enjambre || ''}${ef.baja ? 'b' : ''}|${Math.round(pGana * 20)}|${J.nombre}`;
+      // solo cuentan los 12 mejores contra el jefe: capturar uno flojo no cambia nada y así no se recalcula en cada captura
+      const mejores = [...est.equipo, ...est.caja].map(p => ({ p, v: notaContraJefe(p, riv) })).sort((a, b) => b.v - a.v).slice(0, 12).map(x => x.p.id + ':' + x.p.nivel).sort().join();
+      const k = `${hashStr(mejores)}|${base.p.toFixed(2)}|${z.id}|${niv.join('-')}|${ef.enjambre || ''}${ef.baja ? 'b' : ''}|${Math.round(pGana * 20)}|${J.nombre}`;
       if (memoChase.has(k)) return memoChase.get(k);
       let semilla = hashStr(k);
       const rnd = () => { semilla = (semilla + 0x6D2B79F5) | 0; let t = Math.imul(semilla ^ (semilla >>> 15), 1 | semilla); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-      const pes = pesosZona(zt, ef), tot = pes.reduce((a, x) => a + x[1], 0), M = 8, K = 10;
+      const pes = pesosZona(zt, ef), tot = pes.reduce((a, x) => a + x[1], 0), M = 8, K = 8;
       let suma = 0;
       for (let r = 0; r < K; r++) {
         const nuevos = [];
@@ -1541,6 +1542,8 @@
         const evo = (txtMain.match(/✨ ¡[^!]+ ha evolucionado en [^!]+!/g) || []);
         for (const e of evo) alog(e);
         if (evo.length) reordenar = true;
+        const premio = (txtMain.match(/Te llevas a tu cuenta: ([^.\n]+)/) || [])[1];
+        if (premio) alog(`🎁 Te llevas a tu cuenta: ${premio.trim()}. Póntelos desde tu ficha.`);
         if (perdio) alog(`${/Empate/.test(txtMain) ? '🤝 Empate' : '💥 Derrota'} en ${(est.zonas.find(z => z.id === ssGet(SS_ZONA)) || {}).nombre || 'la zona'}.`);
         await espera(700); seguir.click(); await espera(900); return;
       }
@@ -1631,7 +1634,7 @@
         return;
       }
       if (ssGet(SS_AUTO + '-robot') === '1' && esperarMareaBaja(est)) {      // (solo con el robot de Diarias: si pulsas tú «Jugar», juega)
-        alog(`⏳ Marea alta (salen los grandes): espero a la baja, que saca los raros el triple. Guardo la marea (${est.marea}/${est.mareaTope}).`);
+        alog(`⏳ Marea alta: con la baja (los raros salen el triple y los rivales un nivel menos) se saca más. Guardo la marea (${est.marea}/${est.mareaTope}).`);
         lsPut(LS_AUTO_ULT, { t: Date.now(), log: autoLog.slice(-15) });
         proximaVisita(est, 'volver con la marea baja');
         ssPut(SS_AUTO, null); pintarAuto();
