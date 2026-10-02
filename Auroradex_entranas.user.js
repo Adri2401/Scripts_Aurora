@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Entrañas del Monte Plateado (IA)
 // @namespace    auroradex-entranas
-// @version      1.16.1
+// @version      1.17.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_entranas.user.js
 // @description  «🔁 En segundo plano hasta gastar los pases»: hace la bajada gratis y luego una tras otra con los Pases del monte en una ventana oculta mientras juegas a otra cosa, con una tarjeta que dice por dónde va. Solo en /entranas. Asistente con aprendizaje: graba todo lo que ve (cada Pokémon, movimiento, golpe, bendición, puerta, suceso, objeto y mejora; también los nuevos, que entiende por su texto), aprende de ello (nivel de los rivales por piso, qué sale en cada bioma, cuánto pega cada uno de verdad, qué hay detrás de cada puerta) y en cada decisión juega cada opción muchas veces hacia delante (Monte Carlo) antes de elegir: prestado, bendición o volver a tirar, puerta, reclutar y a quién dejar, y el orden del equipo (lo pone arrastrando). Bendiciones: nunca Veterano ni Reclutador, y las Afinidades de un tipo solo si ese tipo es mayoría en el equipo. Juega cada opción entera muchas veces antes de elegir: Élite hasta que tu principal (el prestado) esté al Nv.100 y, a partir de ahí, tesoros, misterios y descansos (no pelear de más); Sanguijuela hasta ×6, Botín al principio y solo reclutas buenos para los biomas (calidad al Nv.100 bioma a bioma). Dice qué mejora del campamento rinde más por esquirla y cuál sube más el techo. Con ▶ baja solo; se para ante lo que no conoce y nunca pulsa «Retirarse». Exporta e importa todo.
@@ -22,7 +22,7 @@
   const SSF = { on: PRE_F + 'on', fin: PRE_F + 'fin', bajadas: PRE_F + 'bajadas', estado: PRE_F + 'estado', t0: PRE_F + 't0', una: PRE_F + 'una' };
   const ssJ = k => { try { return JSON.parse(sessionStorage.getItem(k) || 'null'); } catch { return null; } };
   const ssW = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* nada */ } };
-  const VERSION = '1.16.0';
+  const VERSION = '1.17.0';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -378,6 +378,11 @@
   }
   if (!kb || kb.v !== ESQUEMA) kb = kbNueva();
   kb.templeObs = kb.templeObs || []; kb.subidaPuerta = kb.subidaPuerta || {};
+  kb.cal = kb.cal || { riv: 1.1, n: 0, s: 0, b: 0 };     // calibración del simulador con los guardianes de verdad (ver «calAprende»)
+  // 1.17: (1) el juego corta cada combate a los 150 golpes y el simulador no lo sabía: por eso creía que se llegaba siempre al 400 y se
+  //   cae en el ~200 (el muro es tumbar a los 3 guardianes a tiempo); (2) autocalibración con cada guardián real (kb.cal); (3) política
+  //   afinada con ese simulador (más ataque, pelear con curación); (4) decisiones ~4× más rápidas (cachés) y piloto ~2× más rápido;
+  //   (5) un fallo suelto ya no tira la bajada y las pantallas raras se recuperan recargando antes de rendirse.
   // 1.9: ajuste del daño por tramo de 30 pisos, medido en tus bajadas con Sangre de la veta 5/5
   if (!kb.kPisoV19) { kb.kPiso = Object.assign({"mio-F|0": {"n": 262, "s": 56.857}, "riv-E|0": {"n": 86, "s": -33.348}, "riv-F|0": {"n": 120, "s": -47.429}, "mio-F|1": {"n": 246, "s": -19.797}, "riv-E|1": {"n": 105, "s": 14.675}, "riv-F|1": {"n": 182, "s": 9.303}, "riv-F|2": {"n": 300, "s": 48.938}, "mio-F|2": {"n": 300, "s": -40.654}, "mio-E|2": {"n": 300, "s": -43.158}, "riv-E|2": {"n": 270, "s": 48.308}, "riv-F|3": {"n": 300, "s": 37.214}, "mio-F|3": {"n": 300, "s": -25.439}, "mio-E|3": {"n": 300, "s": -28.733}, "riv-E|3": {"n": 300, "s": 40.728}, "riv-F|4": {"n": 300, "s": 39.891}, "mio-F|4": {"n": 300, "s": -21.853}, "mio-E|4": {"n": 300, "s": -23.07}, "riv-E|4": {"n": 300, "s": 36.844}, "riv-F|5": {"n": 300, "s": 33.076}, "mio-F|5": {"n": 300, "s": -26.76}, "mio-E|5": {"n": 300, "s": -23.002}, "riv-E|5": {"n": 300, "s": 37.914}, "mio-E|1": {"n": 122, "s": -12.828}, "mio-E|0": {"n": 119, "s": 27.009}, "riv-F|6": {"n": 300, "s": 10.621}, "mio-E|6": {"n": 300, "s": 7.916}, "riv-E|6": {"n": 236, "s": 12.635}, "mio-F|6": {"n": 300, "s": 28.644}, "riv-F|7": {"n": 300, "s": 4.783}, "mio-E|7": {"n": 300, "s": 4.02}, "riv-E|7": {"n": 85, "s": 4.03}, "mio-F|7": {"n": 272, "s": 14.186}}, kb.kPiso || {}); kb.kPisoV19 = true; }
   // 1.9: lo que se hinchan los rivales solo se apuntaba hasta ×5 (piso ~145); se añade lo medido en tus bajadas hasta el 220
@@ -395,7 +400,7 @@
   // 1.6: la estrategia no se elige: siempre lo más óptimo según el laboratorio (miles de bajadas simuladas con tu base).
   // · progreso: esquirlas mientras Sangre de la veta no esté al máximo, luego bajar · Élite hasta que los tres que pelean
   //   (el prestado) esté al Nv.100 · Sanguijuela, lo que diga la IA (forzarla no cambia nada) · pensar a fondo · ordenar el equipo solo
-  Object.assign(conf, { prioridad: 'progreso', eliteHasta: 'principal', sanguijuelas: 0, esfuerzo: 'alto', reordenar: true, velocidad: 'normal' });
+  Object.assign(conf, { prioridad: 'progreso', eliteHasta: 'principal', sanguijuelas: 0, esfuerzo: 'alto', reordenar: true, velocidad: 'rapida' });
   // 1.5: «progreso» pasa a ser lo de por defecto (lo que más rápido lleva hondo, según el laboratorio)
   // en segundo plano: la bajada gratis y luego los Pases del monte, hasta que no quede ninguno (nunca energía)
   if (EN_FONDO_E) Object.assign(conf, { empezarGratis: true, usarPases: true });
@@ -458,11 +463,24 @@
   const ID_BIOMA = { 'galerias de roca': 'roca', 'lago subterraneo': 'lago', 'bosque de raices': 'bosque', 'cripta de niebla': 'cripta', 'glaciar de acero': 'glaciar', 'camara de magma': 'magma' };
   const idBioma = nombre => ID_BIOMA[norm(nombre)] || norm(nombre).replace(/[^a-z]+/g, '-');
   BIOMAS_BASE.forEach((b, i) => { const id = idBioma(b.nombre); if (!kb.biomas[id]) kb.biomas[id] = { ...b, orden: i }; });
-  const listaBiomas = () => Object.entries(kb.biomas).sort((a, b) => a[1].orden - b[1].orden).map(([id, b]) => ({ id, ...b, reglas: reglasBioma(b.efecto) }));
+  // (la lista se llama millones de veces al simular: se guarda y solo se rehace si cambia algún bioma)
+  let memoBiomas = { ref: null, sig: '', lista: null };
+  const listaBiomas = () => {
+    let sig = '';
+    for (const id in kb.biomas) { const b = kb.biomas[id]; sig += id + '\u0001' + b.orden + '\u0001' + b.efecto + '\u0002'; }
+    if (memoBiomas.ref !== kb.biomas || memoBiomas.sig !== sig) memoBiomas = { ref: kb.biomas, sig, lista: Object.entries(kb.biomas).sort((a, b) => a[1].orden - b[1].orden).map(([id, b]) => ({ id, ...b, reglas: reglasBioma(b.efecto) })) };
+    return memoBiomas.lista;
+  };
   const biomaDePiso = p => { const L = listaBiomas(); return L[Math.floor((Math.max(1, p) - 1) / 5) % L.length]; };
   const vueltaDePiso = p => Math.floor((Math.max(1, p) - 1) / (5 * listaBiomas().length)) + 1;
   // Reglas del bioma leídas de su texto (así un bioma nuevo con un efecto parecido se entiende solo)
+  const memoReglas = new Map();
   function reglasBioma(t) {
+    let r = memoReglas.get(t);
+    if (!r) { r = reglasBioma0(t); if (memoReglas.size > 200) memoReglas.clear(); memoReglas.set(t, r); }
+    return r;
+  }
+  function reglasBioma0(t) {
     const n = norm(t), r = {};
     let m;
     if ((m = n.match(/tus pokemon de tipo ([a-z]+) van un (\d+)% mas fuertes/))) r.tipoMio = { t: m[1], x: 1 + m[2] / 100 };
@@ -476,7 +494,15 @@
 
   /* ─── Efectos de bendiciones y mejoras, leídos de su texto ─── */
   const ESTAD = [['ps maximos', 'hp'], ['ps', 'hp'], ['ataque', 'atk'], ['especial', 'esp'], ['defensa', 'def'], ['velocidad', 'spe']];
+  // (el texto de una bendición o mejora no cambia: se lee una vez y se reutiliza; quien lo usa solo lo lee)
+  const memoEfecto = new Map();
   function efectoDe(desc) {
+    const k = desc == null ? '' : String(desc);
+    let e = memoEfecto.get(k);
+    if (e === undefined) { e = efectoDe0(k); if (memoEfecto.size > 400) memoEfecto.clear(); memoEfecto.set(k, e); }
+    return e;
+  }
+  function efectoDe0(desc) {
     const n = norm(desc), e = {};
     let m;
     if ((m = n.match(/\+(\d+(?:[.,]\d+)?)% (?:de )?([a-z ,]+?) a (todo el equipo|los de tipo ([a-z]+))/))) {
@@ -906,6 +932,9 @@
   }
   // Desde cierto piso los rivales, ya en Nv.100, se «hinchan» (más PS, ataque y defensas) un poco más en cada piso.
   // Se aprende de los PS de verdad de cada rival visto; al principio: +4% por piso desde el 46.
+  // Calibración global del simulador: cuánto más duros son los rivales hondos de lo que dice la medición (se aprende sola con
+  // cada guardián que se juega de verdad: ver «calAprende»). Con 1,1 el simulador cae de media donde cae el juego (piso ~200).
+  const CAL = { riv: kb.cal.riv };
   let memoHincha = { n: -1, a: 0, b: 0, ok: false };
   function hinchaRival(piso) {
     const pts = kb.hinchazon || [];
@@ -917,8 +946,8 @@
         if (n * sxx - sx * sx > 0) { const b = (n * sxy - sx * sy) / (n * sxx - sx * sx); memoHincha = { n: pts.length, a: (sy - b * sx) / n, b, ok: b > 0 }; }
       }
     }
-    if (memoHincha.ok) return Math.max(1, memoHincha.a + memoHincha.b * piso);
-    return 1 + 0.04 * Math.max(0, piso - 46);
+    const h = memoHincha.ok ? Math.max(1, memoHincha.a + memoHincha.b * piso) : 1 + 0.04 * Math.max(0, piso - 46);
+    return h > 1 ? 1 + (h - 1) * CAL.riv : h;
   }
   // (también la velocidad: comprobado en 1.171 cruces de tus combates hondos, quién pega primero se acierta el 91% así
   // y solo el 41% sin hinchar su velocidad)
@@ -951,6 +980,10 @@
     return danoBase(A, D, m.t, fis, reglas) * kLado((A.mio ? 'mio-' : 'riv-') + (fis ? 'F' : 'E'), A.mio ? D.piso : A.piso);
   }
   const HOLGAZAN = 289;
+  // El juego corta cada combate a los 150 golpes (los dos lados juntos): «El combate se alarga demasiado y el rival aprovecha
+  // para largarse» = derrota. Visto en 53 combates de guardián desde el piso 150 (147-150 golpes): con los rivales hinchados ×5 o
+  // más el muro NO es aguantar, es tumbar a los tres a tiempo. (Antes se simulaban hasta 600 golpes y siempre se llegaba al 400.)
+  const TOPE_GOLPES = 150;
   // Un combate: pelean los tres primeros que sigan en pie; el que gana sigue con lo que le queda. rng: dados (o null →
   // cuenta media). Devuelve si ganas; cambia la vida de los tuyos en `mios`.
   // out (opcional): out.prog = parte de los rivales que se ha tumbado (0..1), para medir lo cerca que se queda
@@ -959,20 +992,43 @@
     const memo = new Map();
     const dano = (x, y) => { const k = x.nombre + x.L + '>' + y.nombre + y.L; let d = memo.get(k); if (d === undefined) memo.set(k, (d = mejorAtaque(x, y, reglas) / y.hp)); return d; };
     const tirada = () => rng ? (0.8 + 0.4 * rng()) * (rng() < 0.09 ? 1.64 : 1) : 1.058;   // tirada de daño ±20% (lo visto) y críticos
-    let i = 0, j = 0, turno = 0, aguante = !!(ef && ef.aguante);
-    const golpeA = () => { B[j].v -= dano(A[i], B[j].l) * tirada() * (A[i].num === HOLGAZAN && turno % 2 ? 0 : 1); if (B[j].v <= 0) { j++; turno = 0; } };
+    let i = 0, j = 0, turno = 0, golpes = 0, aguante = !!(ef && ef.aguante);
+    const golpeA = () => { golpes++; B[j].v -= dano(A[i], B[j].l) * tirada() * (A[i].num === HOLGAZAN && turno % 2 ? 0 : 1); if (B[j].v <= 0) { j++; turno = 0; } };
     const golpeB = () => {
+      golpes++;
       A[i].vida -= dano(B[j].l, A[i]) * tirada() * (B[j].l.num === HOLGAZAN && turno % 2 ? 0 : 1);
       if (A[i].vida <= 0) { if (aguante) { A[i].vida = 1 / A[i].hp; aguante = false; } else { A[i].vida = 0; i++; turno = 0; } }
     };
-    for (let n = 0; i < A.length && j < B.length && n < 300; n++, turno++) {
+    for (let n = 0; i < A.length && j < B.length && golpes < TOPE_GOLPES; n++, turno++) {
       const a = A[i], b = B[j].l;
       const primero = a.spe > b.spe || (a.spe === b.spe && (rng ? rng() < 0.5 : true));
-      if (primero) { golpeA(); if (j < B.length && B[j].l === b) golpeB(); }
-      else { golpeB(); if (i < A.length && A[i] === a) golpeA(); }
+      if (primero) { golpeA(); if (j < B.length && B[j].l === b && golpes < TOPE_GOLPES) golpeB(); }
+      else { golpeB(); if (i < A.length && A[i] === a && golpes < TOPE_GOLPES) golpeA(); }
     }
     if (out) out.prog = j >= B.length ? 1 : (j + clamp(1 - B[j].v, 0, 1)) / B.length;
     return j >= B.length;
+  }
+
+  // ¿Se gana el guardián de este piso con el equipo que hay? (24 combates simulados con rivales del bioma)
+  function pGuardian(P) {
+    const S0 = estadoActual(P);
+    if (!S0.eq.length) return null;
+    const r = biomaDePiso(S0.piso).reglas, N = 24;
+    let g = 0;
+    for (let k = 0; k < N; k++) { const rng = rngDe(4001 + k * 37 + S0.piso); if (combate(S0.eq.map(x => ({ ...x })), rivalesDe(S0.piso, 'guardian', rng), r, rng, S0.ef)) g++; }
+    return g / N;
+  }
+  // Aprende de cada guardián real: si el simulador daba mucha opción y se perdió (o al revés), los rivales hondos pesan más
+  // (o menos) para que la próxima vez acierte. Aproximación estocástica con paso pequeño, acotada. Con muchos guardianes por
+  // bajada (uno cada 5 pisos) se afina en pocas bajadas, y lo hace siempre: el juego puede cambiar y se reajusta solo.
+  function calAprende(p, y, piso) {
+    const c = kb.cal = kb.cal || { riv: 1.1, n: 0, s: 0, b: 0 };
+    const antes = c.riv;
+    c.n++; c.s += y - p; c.b += (p - y) ** 2;
+    if (piso >= 60) { c.riv = clamp(c.riv * Math.exp(clamp(0.05 * (p - y), -0.03, 0.03)), 0.9, 1.5); CAL.riv = c.riv; }
+    apunta({ tipo: 'guardian', piso, p: +p.toFixed(2), y, riv: +c.riv.toFixed(3) });
+    if (Math.abs(c.riv - antes) > 0 && c.n % 10 === 0) log(`🎯 Calibración: tras ${c.n} guardianes, los rivales hondos pesan ×${c.riv.toFixed(2)} (acierto medio ${(100 * (1 - c.b / c.n)).toFixed(0)}%).`);
+    guardaKb();
   }
 
   /* ─── Lo que hay abajo (aprendido): nivel de los rivales por piso y especies de cada bioma ─── */
@@ -1064,7 +1120,10 @@
   // · Curar al ganar (Sanguijuela) vale mucho hasta que entre todo cura ~100% por victoria; luego ya no suma.
   // · Subir niveles vale poco (al 100 se llega igual y ahí no hace nada). Botín vale más cuanto más queda por bajar.
   // Ajustes de la estrategia (los que se afinan en el laboratorio: miles de bajadas simuladas con los mismos dados)
-  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 1, pDef: 0.5, pEsp: 0.5, pSpe: 0, recluta: 0.7, nivelesPeso: 0.5, curarPeleando: 0, pelearLleno: 0, antesGuardian: 0, misterioPrimero: 0, cobertura: 0, cobMin: 0.03, reclutaFalta: 0.5, faltaBloquea: 0, cambioMargen: 0.06, buscarRecluta: 0.8, sinAltarAntes: 0 };
+  // 1.17 (con el tope de 150 golpes y los rivales calibrados, 600 bajadas con dados nuevos): pOff 1→2,5 (el muro hondo es TUMBAR a
+  // los tres guardianes a tiempo, no aguantar: +7 pisos), pelearLleno 0→0,5 (con curación al ganar, pelear en vez de descansar: +8 pisos
+  // y +237 💎), cambioMargen 0,06→0,02 (más recambio de reclutas) · juntas: +17 pisos y +299 💎 por bajada.
+  const AJ = { eliteVida: 0.6, descansoVida: 0.55, descanso100: 0.9, curaPeso: 1.3, sangHasta: 0, botinPeso: 1, pHp: 1, pOff: 2.5, pDef: 0.5, pEsp: 0.5, pSpe: 0, recluta: 0.7, nivelesPeso: 0.5, curarPeleando: 0, pelearLleno: 0.5, antesGuardian: 0, misterioPrimero: 0, cobertura: 0, cobMin: 0.03, reclutaFalta: 0.5, faltaBloquea: 0, cambioMargen: 0.02, buscarRecluta: 0.8, sinAltarAntes: 0 };
   function valorRapidoBend(S, e) {
     if (!e) return 0.01;
     const eq = S.eq, n = Math.max(1, eq.length);
@@ -1280,8 +1339,12 @@
    * Lo que de verdad importa de un Pokémon a la larga: cómo le va al Nv.100 contra lo que sale en cada bioma en lo hondo
    * (piso 70, rivales ya hinchados), uno contra uno, con tus bendiciones. 0 = no hace nada · 1 = gana sin despeinarse. */
   const memoCal = new Map();
+  // (el nº de especies solo se cuenta cuando cambia la pantalla)
+  const claveEf = ef => ef ? JSON.stringify(ef.porTipo) + '|' + JSON.stringify(ef.stats) : '{}|{}';   // (ef cambia en el sitio: no se guarda por objeto)
+  let nEsp = { v: -1, n: 0 };
+  const nEspecies = () => { if (nEsp.v !== kb.vistas) nEsp = { v: kb.vistas, n: Object.keys(kb.especies).length }; return nEsp.n; };
   function calidad(e, ef) {
-    const clave = (e.num || e.nombre) + '|' + JSON.stringify(ef ? ef.porTipo : {}) + '|' + JSON.stringify(ef ? ef.stats : {}) + '|' + Object.keys(kb.especies).length;
+    const clave = (e.num || e.nombre) + '|' + claveEf(ef) + '|' + nEspecies();
     let c = memoCal.get(clave);
     if (c) return c;
     const P = 70, h = hinchaRival(P), porBioma = {};
@@ -1623,7 +1686,7 @@
     return [P.tipo, P.cab && P.cab.piso, o, P.titulo || '', P.cand ? P.cand.nombre + P.cand.L : ''].join('|');
   }
   function empiezaBajada(P) {
-    bajadaId = Date.now(); lsPut('axe-bajada', bajadaId); enBajada = true;
+    bajadaId = Date.now(); lsPut('axe-bajada', bajadaId); enBajada = true; arrastreFallos = 0;
     kb.bajadas.push({ t: bajadaId, piso: null, esq: null, prestado: null, bend: [], equipo: [] });
     log('⛰️ Empieza una bajada nueva.');
   }
@@ -1641,9 +1704,18 @@
       if (ssJ(SSF.una)) { ssW(SSF.fin, { t: Date.now(), motivo: 'una', bajadas: l }); ssW(SSF.on, null); piloto = false; try { sessionStorage.setItem(SS_AUTO, '0'); } catch { /* nada */ } }
     }
   }
+  let guardPend = null;
   function grabar(P) {
     if (!P) return;
     const cab = P.cab;
+    if (guardPend) {                       // el guardián que se acaba de pulsar: ¿ganado o perdido?
+      if (P.tipo === 'combate' || P.tipo === 'animacion') guardPend.visto = true;
+      let y = null;
+      if (P.tipo === 'aviso' && (P.clase === 'derrota' || P.clase === 'fin')) y = 0;
+      else if (cab && cab.piso > guardPend.piso) y = 1;
+      else if (P.tipo === 'puerta' && cab && cab.piso === guardPend.piso && guardPend.visto) y = 0;
+      if (y !== null) { const g = guardPend; guardPend = null; calAprende(g.p, y, g.piso); }
+    }
     if (cab) cerrarPuerta(cab, null);
     const b = bendicionesActivas(); if (b.length) ultimasBendiciones = b;
     const eqL = equipoLeido();
@@ -1740,7 +1812,11 @@
     const P = pantalla();
     if (!P) return;
     const t = texto(b).slice(0, 90);
-    if (P.tipo === 'puerta') { const o = P.opciones.find(x => x.b === b); if (o) aprenderPuerta(o.clase, o); }
+    if (P.tipo === 'puerta') {
+      const o = P.opciones.find(x => x.b === b);
+      if (o) aprenderPuerta(o.clase, o);
+      if (o && P.cab && P.cab.piso % 5 === 0) { try { const pg = pGuardian(P); guardPend = pg == null ? null : { piso: P.cab.piso, p: pg, visto: false }; } catch (e) { guardPend = null; console.warn('[axe] pGuardian', e); } }
+    }
     if (P.tipo === 'bendicion') { const o = P.opciones.find(x => x.b === b); if (o && kb.bendiciones[o.nombre]) kb.bendiciones[o.nombre].elegida++; }
     if (P.tipo === 'lobby' && b === P.boton && !enBajada) empiezaBajada(P);
     apunta({ tipo: 'pulsa', en: P.tipo, boton: t, piso: P.cab && P.cab.piso, auto: pilotoPulsa });
@@ -1748,7 +1824,7 @@
 
   /* ══════════ 8 · PILOTO ══════════ */
   let piloto = (() => { try { return sessionStorage.getItem(SS_AUTO) === '1'; } catch { return false; } })(), pilotoEnMarcha = false, msg = '', arrastreFallos = 0;
-  const VEL = { rapida: [250, 500], normal: [500, 900], tranquila: [1000, 1800] };
+  const VEL = { rapida: [70, 160], normal: [350, 650], tranquila: [1000, 1800] };
   const setPiloto = v => {
     if (v && !EN_FONDO_E && ssJ(SSF.on)) { alert('Las Entrañas se están jugando en segundo plano. Páralas en su tarjeta si quieres jugarlas tú.'); return; }
     piloto = v; try { sessionStorage.setItem(SS_AUTO, v ? '1' : '0'); } catch { /* nada */ } pintar(); if (v) bucle(); };
@@ -1764,7 +1840,7 @@
     msg = que; pintar();
     pilotoPulsa = true; try { b.click(); } finally { pilotoPulsa = false; }
     const antes = firmaAnt;
-    for (let i = 0; i < 40; i++) { await sleep(150); const P = pantalla(); grabar(P); if (firmaAnt !== antes || !b.isConnected) break; }
+    for (let i = 0; i < 120; i++) { await sleep(50); const P = pantalla(); grabar(P); if (firmaAnt !== antes || !b.isConnected) break; }
     return true;
   }
   // Mover a un Pokémon del equipo arrastrando desde su «⠿» (como con el dedo o el ratón). Se comprueba después.
@@ -1779,8 +1855,10 @@
     };
     ev('pointerdown', y0);
     for (let k = 1; k <= 10; k++) { await sleep(25); const y = y0 + (y1 - y0) * k / 10; ev('pointermove', y, document); ev('pointermove', y, asa); }
-    await sleep(40); ev('pointerup', y1, document); ev('pointerup', y1, asa);
-    await sleep(500);
+    await sleep(30); ev('pointerup', y1, document); ev('pointerup', y1, asa);
+    const ids0 = (equipoLeido() || { miembros: [] }).miembros.map(m => m.id).join();
+    for (let i = 0; i < 15; i++) { await sleep(40); const eq = equipoLeido(); if (!eq || eq.miembros.map(m => m.id).join() !== ids0) break; }   // (hasta que el juego recoloque la lista)
+    await sleep(60);
   }
   async function ponerOrden(orden) {
     for (let k = 0; k < orden.length; k++) {
@@ -1809,9 +1887,10 @@
   async function bucle() {
     if (pilotoEnMarcha) return;
     pilotoEnMarcha = true;
-    let quieto = Date.now();
+    let quieto = Date.now(), errores = 0;
     try {
       while (piloto && enEntranas()) {
+        try {
         const P = pantalla();
         grabar(P);
         let hecho = false;
@@ -1825,7 +1904,7 @@
           if (boca && !/background:\s*(rgb\(201|#C9D3E3)/i.test(boca.getAttribute('style') || '') && boca.style.background !== 'rgb(201, 211, 227)') {
             log('⛰️ Elijo empezar desde la boca (piso 1).');
             hecho = await pulsar(boca, 'Desde la boca');
-            await sleep(400);
+            await sleep(150);
             continue;
           }
           // nunca se paga con energía: solo la bajada gratis del día o un Pase del monte
@@ -1846,7 +1925,7 @@
               apunta({ tipo: 'orden', ok, pedido: o.orden.map(x => x.nombre), piso: P.cab && P.cab.piso });
               if (ok) log(`🔀 Orden: ${o.orden.map(x => x.nombre).join(' → ')} (${pct(o.actual)} → ${pct(o.v)} contra lo que viene).`);
               else { arrastreFallos++; log('⚠ No he podido mover al equipo arrastrando: ponlo tú (te lo marco).'); }
-              await sleep(300);
+              await sleep(100);
               continue;
             }
           }
@@ -1872,9 +1951,22 @@
             }
           }
         }
-        if (hecho) { quieto = Date.now(); continue; }
-        if (Date.now() - quieto > 10000) { guardaHtml('desconocida'); parar('⏸ Pantalla que no conozco: hazla tú. La he guardado para aprenderla (Datos → Exportar).'); break; }
-        await sleep(350);
+        if (hecho) { quieto = Date.now(); errores = 0; continue; }
+        if (Date.now() - quieto > 12000) {
+          guardaHtml('desconocida');
+          // antes de rendirse: recargar (el estado está en el servidor), como mucho 2 veces cada 10 minutos
+          const SSR = PRE_F + 'recargas', hist = (ssJ(SSR) || []).filter(t => Date.now() - t < 600000);
+          if (hist.length < 2 && enEntranas()) { hist.push(Date.now()); ssW(SSR, hist); log('🔄 Pantalla que no entiendo: recargo la página y sigo.'); apunta({ tipo: 'recarga', en: P.tipo }); setTimeout(() => location.reload(), 300); await sleep(5000); quieto = Date.now(); continue; }
+          parar('⏸ Pantalla que no conozco: hazla tú. La he guardado para aprenderla (Datos → Exportar).'); break;
+        }
+        await sleep(150);
+        } catch (e) {
+          // un fallo suelto (p. ej. la pantalla cambió justo mientras se leía) no tira la bajada: se reintenta; si se repite, se para
+          errores++; console.warn('[axe] piloto', e);
+          if (errores > 6) throw e;
+          log(`⚠ Fallo suelto (${(e && e.message) || e}); reintento.`);
+          await sleep(400 * errores);
+        }
       }
     } catch (e) { console.warn('[axe] piloto', e); parar('⚠ ' + (e && e.message)); }
     finally { pilotoEnMarcha = false; msg = ''; pintar(); }
@@ -1960,7 +2052,7 @@
         if (d.kb && d.esquema !== ESQUEMA) log(`⚠ Ese fichero es de otra versión de los datos (esquema ${d.esquema}; este script usa el ${ESQUEMA}): no lo mezclo.`);
         else if (d.kb) {
           if (!confirm(`¿Cambiar tu base por la del fichero? (${Object.keys(d.kb.especies).length} especies, ${d.kb.bajadas.length} bajadas)`)) return;
-          kb = d.kb; guardaKb(); (d.diario || []).forEach(x => DIARIO.poner(x)); log(`📥 Base importada (${(d.diario || []).length} pasos al diario).`);
+          kb = d.kb; kb.cal = kb.cal || { riv: 1.1, n: 0, s: 0, b: 0 }; CAL.riv = kb.cal.riv; guardaKb(); (d.diario || []).forEach(x => DIARIO.poner(x)); log(`📥 Base importada (${(d.diario || []).length} pasos al diario).`);
         } else if (d.registro) {
           const n = reaprender(d.registro); d.registro.forEach(x => DIARIO.poner({ ...x, importado: true }));
           log(`📥 Registro de la versión ${d.version || '0.1'} importado: ${n} combates aprendidos.`);
@@ -2119,11 +2211,13 @@
       <div class="fila" style="margin-top:6px"><button type="button" class="exp" style="flex:1">📤 Exportar</button><button type="button" class="imp" style="flex:1">📥 Importar</button><button type="button" class="cop" style="flex:1">📋 HTML</button></div>
       <div class="fila" style="margin-top:6px"><button type="button" class="reset" style="flex:1">🗑️ Borrar lo aprendido</button></div>
       <input type="file" class="archivo" accept=".json,application/json" hidden></div>
+      <div class="caja"><p><b>🎯 Calibración</b></p><p class="s">${kb.cal && kb.cal.n ? `Con ${kb.cal.n} guardianes jugados de verdad, los rivales hondos pesan <b>×${kb.cal.riv.toFixed(2)}</b> en el simulador y acierta el <b>${(100 * (1 - kb.cal.b / kb.cal.n)).toFixed(0)}%</b> (50% = a ciegas). Se reajusta solo con cada guardián.` : 'Aún sin guardianes jugados: empieza en ×1,10 y se ajusta solo con cada guardián.'} El juego corta cada combate a los ${TOPE_GOLPES} golpes: el simulador también.</p></div>
       <p class="s" style="margin-top:6px">Versión ${VERSION} · base v${ESQUEMA}</p>`;
   }
   const RENDER = { ahora: htmlAhora, saber: htmlSaber, mejoras: htmlMejoras, historial: htmlHistorial, datos: htmlDatos };
   function pintar(P = ultimoP) {
     ultimoP = P;
+    if (EN_FONDO_E) return;                // (la ventana oculta no se ve: no se gasta tiempo en dibujar el panel)
     const p = document.getElementById(PANEL_ID);
     if (!p) return;
     for (const b of $$('.tabs button', p)) b.setAttribute('aria-pressed', b.dataset.t === pestana ? 'true' : 'false');
@@ -2158,7 +2252,7 @@
         if (b.classList.contains('exp')) exportar();
         if (b.classList.contains('imp')) p.querySelector('.archivo').click();
         if (b.classList.contains('cop')) { const c = raiz().cloneNode(true); const yo = c.querySelector('#' + PANEL_ID); if (yo) yo.remove(); navigator.clipboard.writeText(c.outerHTML + $$('div.fixed.inset-0').filter(d => !ajeno(d)).map(d => d.outerHTML).join('\n')).then(() => log('📋 HTML copiado.'), () => log('No pude copiar.')); }
-        if (b.classList.contains('reset') && confirm('¿Borrar todo lo aprendido y el diario? (vuelve a lo que sabía al instalarlo)')) { kb = kbNueva(); guardaKb(); DIARIO.borrar(); informeMejoras = null; log('🗑️ Base reiniciada.'); pintar(); }
+        if (b.classList.contains('reset') && confirm('¿Borrar todo lo aprendido y el diario? (vuelve a lo que sabía al instalarlo)')) { kb = kbNueva(); kb.cal = kb.cal || { riv: 1.1, n: 0, s: 0, b: 0 }; CAL.riv = kb.cal.riv; guardaKb(); DIARIO.borrar(); informeMejoras = null; log('🗑️ Base reiniciada.'); pintar(); }
       });
       p.addEventListener('change', e => {
         const el = e.target;
@@ -2176,11 +2270,11 @@
     grabar(P);
     pintar(P);
     if (P && ['prestado', 'bendicion', 'puerta', 'reclutar', 'sustituir'].includes(P.tipo) && !piloto) decisionPara(P).then(() => pintar());
-    if (P && P.tipo === 'puerta') {
+    if (P && P.tipo === 'puerta' && !EN_FONDO_E) {
       const clave = P.cab.piso + '|' + equipoLeido().miembros.map(m => m.nombre + m.L).join(',') + '|' + bendicionesActivas().map(b => b.nombre + (b.veces || 1)).join(',');
       if (pred.clave !== clave && !pred.calc) { pred.clave = clave; pred.calc = true; prediccion(P).then(r => { pred.r = r; pred.calc = false; pintar(); }); }
     }
-    if (P && P.tipo === 'lobby' && P.mejoras && (!informeMejoras || Date.now() - informeMejoras.t > 6 * 3600e3)) calcularMejoras();
+    if (P && P.tipo === 'lobby' && P.mejoras && !EN_FONDO_E && !piloto && (!informeMejoras || Date.now() - informeMejoras.t > 6 * 3600e3)) calcularMejoras();   // (solo para el panel: ni en segundo plano ni con el piloto en marcha)
     if (piloto) bucle();
   }
   let tMontar = null;
@@ -2331,5 +2425,5 @@
     if (document.body) vig(); else addEventListener('DOMContentLoaded', vig);
   }
 
-  window.__axEntranas = { ponerOrden, equipoLeido, combate, luchadorDe, especie, hinchar, hinchaRival, efectosActivos, rivalesDe, nivelRival, kLado, multMio, pantalla, decidir, estadoActual, valorar, kb: () => kb, calcularMejoras, prediccion, ordenRecomendado, exportar, reaprender, efectoDe, reglasBioma, bajadaEntera, rodar, clonar, rngDe, techo, modeloMio, pendMio, puntuar, calidad, politica, recorrer, estadoEquipo, valorRapidoBend, aplicarBendicion, mejAhora, jugarPuerta, puertasDe, politicaRapida, darBendicion, conf, AJ, danoBase, luchadorDeNombre, tramoK };
+  window.__axEntranas = { CAL, ponerOrden, equipoLeido, combate, luchadorDe, especie, hinchar, hinchaRival, efectosActivos, rivalesDe, nivelRival, kLado, multMio, pantalla, decidir, estadoActual, valorar, kb: () => kb, calcularMejoras, prediccion, ordenRecomendado, exportar, reaprender, efectoDe, reglasBioma, bajadaEntera, rodar, clonar, rngDe, techo, modeloMio, pendMio, puntuar, calidad, politica, recorrer, estadoEquipo, valorRapidoBend, aplicarBendicion, mejAhora, jugarPuerta, puertasDe, politicaRapida, darBendicion, conf, AJ, danoBase, luchadorDeNombre, tramoK };
 })();
