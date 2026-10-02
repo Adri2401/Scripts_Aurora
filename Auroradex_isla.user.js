@@ -915,15 +915,6 @@
     const x = botonesZona(est).find(o => o.b === b);
     if (x) { ssPut(SS_ZONA, x.z.id); tomarFoto(est, x.z.id); }
   }, true);
-  // al seguir tras un combate (tú o el modo automático) se apunta cómo salió y cuánta experiencia dio
-  document.addEventListener('click', e => {
-    const b = e.target.closest && e.target.closest('button');
-    if (!b || !enIsla() || !/^\s*Seguir\s*$/.test(b.textContent || '')) return;
-    const txt = (document.querySelector('main') || {}).innerText || '';
-    const res = /Te han ganado/.test(txt) ? 'p' : /Empate/.test(txt) ? 'e' : /Ganaste/.test(txt) ? 'g' : null;
-    const m = txt.match(/\+\s*([\d.,]+)\s*de experiencia/i);
-    if (res) cerrarFoto(res, m ? parseInt(m[1].replace(/[.,]/g, ''), 10) : null);
-  }, true);
   // la zona de donde viene: la última que se exploró en esta pestaña; si no se sabe y solo hay una abierta, esa
   function zonaDelEncuentro(est) {
     const z = ssGet(SS_ZONA);
@@ -969,7 +960,7 @@
    *  contra el jefe cuando el equipo llega y para cuando se acaba la marea.
    * ------------------------------------------------------------------ */
   const autoOn = () => ssGet(SS_AUTO) === '1';
-  let autoPaso = false, autoMsg = '', ultimoOrden = 0, reordenar = true, esperaJefe = 0, fallosOrden = 0, trioAnterior = { k: '', t: 0 }, intentosCaptura = { firma: '', n: 0 };
+  let autoPaso = false, autoMsg = '', ultimoOrden = 0, reordenar = true, esperaJefe = 0, fallosOrden = 0, explFondo = -99, trioAnterior = { k: '', t: 0 }, intentosCaptura = { firma: '', n: 0 };
   // el registro sobrevive a las recargas de la pestaña
   const autoLog = (() => { try { return JSON.parse(sessionStorage.getItem((EN_FONDO_AX ? 'axi-auto-log-fondo' : 'axi-auto-log')) || '[]'); } catch { return []; } })();
   const alog = t => { autoLog.push(t); if (autoLog.length > 30) autoLog.shift(); ssPut((EN_FONDO_AX ? 'axi-auto-log-fondo' : 'axi-auto-log'), JSON.stringify(autoLog)); console.log('[axi] ' + t); pintarAuto(); };
@@ -1103,6 +1094,16 @@
   let foto = null;
   const nivelesDe = est => { const o = {}; for (const p of est.equipo) o[p.id] = { v: p.nivel + (p.progreso || 0) / 100, t: !!p.topado }; return o; };
   function tomarFoto(est, zona) { foto = { zona, dia: est.dia, niv: nivelesDe(est), t: Date.now() }; }
+  // En cuanto sale el resultado del combate (sea el modo automático o tú) se apunta cómo salió y cuánta experiencia dio (en las
+  // victorias no hay botón «Seguir»: sale el encuentro debajo del resultado, así que se mira el texto)
+  function vigilarResultado() {
+    if (!foto) return;
+    const txt = (document.querySelector('main') || {}).innerText || '';
+    const res = /Te han ganado/.test(txt) ? 'p' : /Empate: nadie cae/.test(txt) ? 'e' : /¡Ganaste!/.test(txt) ? 'g' : null;
+    if (!res) return;
+    const m = txt.match(/\+\s*([\d.,]+)\s*de experiencia/i);
+    cerrarFoto(res, m ? parseInt(m[1].replace(/[.,]/g, ''), 10) : null);
+  }
   function cerrarFoto(res, exp) {
     const f = foto;
     foto = null;
@@ -1135,11 +1136,11 @@
       if (sensMemo.k !== k) {
         const rivs = riv.map(r => luchador(baseEsp[r.n], r.nivel, r.tipos));
         const arriba = sim.trio.map(p => luchador(baseEsp[p.speciesId], Math.max(p.nivel, topeMax), tiposDe(p)));
-        const media = sim.trio.reduce((a, p) => a + p.nivel, 0) / 3;
+        const media = sim.trio.reduce((a, p) => a + p.nivel, 0) / sim.trio.length;
         const pFin = simulaTrio(arriba, rivs, 300).p;
         sensMemo = { k, v: Math.max(0, pFin - sim.p) / Math.max(2, topeMax - media) };
       }
-      const sube = sim.trio.filter(p => est.equipo.some(q => q.id === p.id) && !p.topado).length / 3;     // los de la caja y los topados no ganan nivel hoy
+      const sube = sim.trio.filter(p => est.equipo.some(q => q.id === p.id) && !p.topado).length / sim.trio.length;     // los de la caja y los topados no ganan nivel hoy
       return VALOR_JEFE * sensMemo.v * sube * Math.min(1, (est.dia - 2) / 4);
     } catch { return 0; }
   }
@@ -1226,7 +1227,8 @@
       const lr = (niv[0] + niv[niv.length - 1]) / 2;
       const dl = dlMedio(est, z.id) ?? (Math.min(0.5, 3 * lr / (lm * lm)) * (arde ? 1.5 : 1));     // niveles que sube el equipo con cada victoria aquí
       const jefe = VALOR_JEFE * subeJefePorExploracion(est, z, zt, niv, ef, pGana, capt);          // (si ya no quedan opciones de vencerlo, 0)
-      const evBase = pGana * (1 + captura + dl * nivelValor) + jefe;
+      let evBase = pGana * (1 + captura + dl * nivelValor) + jefe;
+      if (!Number.isFinite(evBase)) evBase = 0;                                          // (por si algún dato viniera mal: esa zona no gana)
       out.push({ id: z.id, nombre: z.nombre, icono: z.icono, niv, pGana, pNueva, captura, dl, xp: dl * nivelValor, jefe, nuevas, evBase, ev: evBase + (z.id === dificil ? 80 : 0), arde, prior, premio: z.id === dificil, trio: tz && (puedeOrdenar && tz.p >= tz.pActual + 0.05 ? tz.trio : est.equipo.slice(0, 3)).map(p => `${p.nombre} Nv.${p.nivel}`) });
     }
     if (memoZonas.size > 24) memoZonas.clear();
@@ -1430,11 +1432,18 @@
     if (!sinMemoria && jefeMemo.k === k) return jefeMemo.r;
     const lu = new Map(listos.map(p => [p.id, luchador(baseEsp[p.speciesId], p.nivel, tiposDe(p))]));
     let mejores = [];
-    for (const a of listos) for (const b of listos) for (const c of listos) {
-      if (a === b || a === c || b === c) continue;
-      const r = simulaTrio([lu.get(a.id), lu.get(b.id), lu.get(c.id)], rivs, 40);
-      mejores.push({ trio: [a, b, c], ...r });
+    // todos los órdenes posibles de 3 (o de los que haya, si tienes menos de 3)
+    const m = Math.min(3, listos.length), selecciones = [];
+    for (const a of listos) {
+      if (m === 1) { selecciones.push([a]); continue; }
+      for (const b of listos) {
+        if (a === b) continue;
+        if (m === 2) { selecciones.push([a, b]); continue; }
+        for (const c of listos) if (a !== c && b !== c) selecciones.push([a, b, c]);
+      }
     }
+    for (const sel of selecciones) mejores.push({ trio: sel, ...simulaTrio(sel.map(x => lu.get(x.id)), rivs, 40) });
+    if (!mejores.length) return null;
     mejores.sort((x, y) => y.p - x.p || y.margen - x.margen);
     mejores = mejores.slice(0, 4).map(m => ({ ...m, ...simulaTrio(m.trio.map(p => lu.get(p.id)), rivs, 300) })).sort((x, y) => y.p - x.p || y.margen - x.margen);
     const r = { trio: mejores[0].trio, p: mejores[0].p, margen: mejores[0].margen };
@@ -1607,12 +1616,16 @@
       if (est.equipo.length && Date.now() - ultimoOrden > 12000 && fallosOrden < 3) {
         let prop = null;
         try { prop = equipoParaZona(est, z.z.id); } catch (e) { console.warn('[axi] equipo para la zona', e); }       // (si falla, se explora con el equipo que hay)
-        const ahora = est.equipo.map(p => p.id), pelean = ids => ids.slice(0, 3).sort().join();
-        // (si sale el mismo trío del que se acaba de cambiar, es ruido de la simulación: no se vuelve a cambiar)
-        const vuelta = prop && pelean(prop.map(p => p.id)) === trioAnterior.k && Date.now() - trioAnterior.t < 600000;
-        if (prop && !vuelta && prop.map(p => p.id).join() !== ahora.join() && (reordenar || pelean(prop.map(p => p.id)) !== pelean(ahora))) {
-          if (pelean(prop.map(p => p.id)) !== pelean(ahora)) trioAnterior = { k: pelean(ahora), t: Date.now() };
-          ultimoOrden = Date.now(); reordenar = false;
+        const ahora = est.equipo.map(p => p.id), conjunto = ids => [...ids].sort().join(), pelean = ids => conjunto(ids.slice(0, 3));
+        // solo se cambia si cambia QUIÉN pelea o QUIÉN está en el equipo (el orden entre los de atrás o entre los que pelean da igual);
+        // y si sale el mismo trío del que se acaba de cambiar, es ruido de la simulación: no se vuelve a cambiar
+        const ids = prop ? prop.map(p => p.id) : [];
+        const vuelta = prop && pelean(ids) === trioAnterior.k && Date.now() - trioAnterior.t < 600000;
+        // los cambios solo de los de atrás (otro candidato a evolucionar) no merecen un cambio de equipo cada captura: como mucho uno cada 6 exploraciones
+        const soloFondo = prop && pelean(ids) === pelean(ahora) && conjunto(ids) !== conjunto(ahora);
+        if (prop && !vuelta && (pelean(ids) !== pelean(ahora) || (soloFondo && est.exploraciones - explFondo >= 6))) {
+          if (pelean(ids) !== pelean(ahora)) trioAnterior = { k: pelean(ahora), t: Date.now() };
+          ultimoOrden = Date.now(); reordenar = false; explFondo = est.exploraciones;
           await ordenarEquipo(prop, 'Equipo listo para explorar.');
           alog(`🔀 Equipo para ${z.z.nombre}: pelean ${prop.slice(0, 3).map(p => `${p.nombre} Nv.${p.nivel}`).join(', ')}; detrás ${prop.slice(3).map(p => p.nombre).join(', ') || '—'}.`);
           await espera(2500);
@@ -1664,7 +1677,7 @@
       try {
         if (est.jefe && !est.jefe.vencido) {
           const riv = rivalesJefe(est.jefe), sim = riv && mejorTrio(est, riv);
-          t = sim ? `👑 ${est.jefe.nombre.split(',')[0]}: ahora lo vences ≈ ${Math.round(sim.p * 100)} % (mejor trío: ${sim.trio.map(p => `${p.nombre} Nv.${p.nivel}`).join(', ')}). Vencerlo da 200 puntos.` : riv ? '👑 Calculando el combate contra el jefe…' : '';
+          t = sim ? `👑 ${est.jefe.nombre.split(',')[0]}: ahora lo vences ≈ ${Math.round(sim.p * 100)} % (mejor trío: ${sim.trio.map(p => `${p.nombre} Nv.${p.nivel}`).join(', ')}). Vencerlo da 200 puntos y premios.${est.jefe.abierto ? ` Lo intentará cuando pase del ${Math.round(umbralJefe(est) * 100)} %.` : ` Se abre el día ${est.jefe.desdeDia}.`}` : riv ? '👑 Calculando el combate contra el jefe…' : '';
         }
       } catch (e) { console.warn('[axi] jefe', e); }
       kSet(pj, t); pj.hidden = !t;
@@ -1709,9 +1722,9 @@
     history.replaceState(history.state, '', location.pathname);
     ssPut(SS_AUTO, '1'); reordenar = true;
   }
-  setInterval(() => { if (!enIsla()) return; const est = estadoIsla(); if (est && est.encuentro) apuntarEncuentro(est); pintarAuto(); pasoAuto(); }, 1500);
+  setInterval(() => { if (!enIsla()) return; const est = estadoIsla(); if (est && est.encuentro) apuntarEncuentro(est); vigilarResultado(); pintarAuto(); pasoAuto(); }, 1500);
   setTimeout(autoDesdeEnlace, 1000);
-  window.__axIsla = { estadoIsla, fauna, zonaElegida, analizar, puntuarZonas, efectoDeHoy, tablaIsla, leerTablasWeb, elegirCompanero, valorCompanero, umbralJefe, esperarMareaBaja, trioDeZona, equipoParaZona, nivelesZona, textoEfecto, histGet, dlMedio, rivalesJefe, mejorTrio, valorNivel, valorJefePorNivel, equipoPropuesto, ISLAS_RESPALDO, ESP, EVO_RESPALDO, tablasWeb: () => tablasWeb };
+  window.__axIsla = { estadoIsla, fauna, zonaElegida, analizar, puntuarZonas, efectoDeHoy, tablaIsla, leerTablasWeb, elegirCompanero, valorCompanero, umbralJefe, esperarMareaBaja, trioDeZona, equipoParaZona, nivelesZona, luchador, simulaTrio, baseEsp, tiposEsp, tiposDe, textoEfecto, histGet, dlMedio, rivalesJefe, mejorTrio, valorNivel, valorJefePorNivel, equipoPropuesto, ISLAS_RESPALDO, ESP, EVO_RESPALDO, tablasWeb: () => tablasWeb };
 
   let prog = null;
   function programar() {
