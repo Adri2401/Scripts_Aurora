@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.24.1
+// @version      1.25.0
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas, el Valle (recoge con el almacén lleno para la hora punta ×2, gasta el Brillo y los puntos de investigación) y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1368,7 +1368,59 @@
     return { listo: false, prox: Date.now() + 2 * 3600000, info };
   }
 
-  const DIARIAS = [QUIEN, POKEATHLON, MUELLE, CARRERAS, BUCEO, TREN, SAFARI, VIAJE, CANTERA, ALBUM, TRETA, HUERTO, VALLE, SALON, JESSIE, MISIONES, ISLA, SOLAR, TRONOS, TORRE, ENTRANAS, SUBSUELO, MANADAS, MISSINGNO];
+  /* ══════════ Tienda de Cartas (/cartas) ══════════
+   * Cada ficha (la gratis del día, la del Valle cada 12 h…) es un sobre: se abren todos los que haya. Nunca se compran
+   * fichas ni se gasta dinero. Se abre en la serie a la que le queda menos para su siguiente premio del álbum (25
+   * distintas, la mitad, completa); las series completas se saltan. También los sobres sellados de la mochila, si hay. */
+  const LS_CARTAS = 'axd-cartas-listo';
+  const cartasP = () => !(+lsGet(LS_CARTAS, 0) > Date.now());
+  const CARTAS = {
+    id: 'cartas', nombre: '🃏 Sobres de Cartas', soloRuta: true, sinPanel: true, maxMs: 6 * 60000,
+    detecta: () => ruta() === '/cartas' && document.querySelector('main'),
+    abiertos: 0, nuevas: 0, dicho: false,
+    fichas() { const m = textoMain().match(/★\s*(\d+)\s*fichas?/i); return m ? +m[1] : null; },
+    // las series con lo que llevas: [{ nombre, tengo, total, boton }]
+    series() {
+      return $$('main button').filter(b => !ajeno(b)).map(b => { const m = texto(b).match(/^([^\d\s]+)\s*(\d+)\s*\/\s*(\d+)$/); return m && { nombre: m[1], tengo: +m[2], total: +m[3], boton: b }; }).filter(Boolean);
+    },
+    // a cuántas le queda para el siguiente premio (25, la mitad, completa)
+    faltan(x) { const hitos = [25, Math.ceil(x.total / 2), x.total].filter(h => h > x.tengo); return hitos.length ? Math.min(...hitos) - x.tengo : Infinity; },
+    elegida() { const m = textoMain().match(/Sobre de (\S+) ·/); return m ? m[1] : ''; },
+    mejor() { const l = this.series().filter(x => x.tengo < x.total).sort((a, b) => this.faltan(a) - this.faltan(b)); return l[0] || null; },
+    overlaySeguir() { return $$('button').find(b => !ajeno(b) && !b.disabled && visible(b) && /^seguir$/i.test(texto(b)) && b.closest('div.fixed')); },
+    sellado() { return $$('main button').find(b => !ajeno(b) && !b.disabled && visible(b) && /^abrir\b(?!\s*ahora)/i.test(texto(b)) && /sellad/i.test(texto(b))); },
+    listo() {
+      if (this.overlaySeguir()) return false;
+      const f = this.fichas();
+      if (f == null || !this.series().length) return false;
+      const sinSerie = !this.mejor();
+      if ((f > 0 && !sinSerie) || this.sellado()) return false;
+      lsPut(LS_CARTAS, Date.now() + (sinSerie ? 12 : 4) * 3600000);
+      if (!this.dicho) { this.dicho = true; log(this.abiertos ? `🃏 Cartas: ${this.abiertos} sobre${this.abiertos > 1 ? 's' : ''} abierto${this.abiertos > 1 ? 's' : ''}${this.nuevas ? `, ${this.nuevas} carta${this.nuevas > 1 ? 's' : ''} nueva${this.nuevas > 1 ? 's' : ''}` : ''}.` : sinSerie ? '🃏 Cartas: todas las series completas.' : '🃏 Cartas: no hay fichas ni sobres por abrir.'); }
+      return true;
+    },
+    async paso() {
+      const seg = this.overlaySeguir();
+      if (seg) {
+        const ov = seg.closest('div.fixed'), n = (texto(ov).match(/¡Nueva!/g) || []).length;
+        this.nuevas += n;
+        return pulsar(seg, `🃏 Sobre de ${((ov.innerText || '').match(/Sobre de ([^\s✕]+)/) || [])[1] || 'cartas'}: ${n ? n + ' carta' + (n > 1 ? 's' : '') + ' nueva' + (n > 1 ? 's' : '') : 'sin cartas nuevas'}.`, [800, 1300]);
+      }
+      const sel = this.sellado();
+      if (sel) { this.abiertos++; return pulsar(sel, '🃏 Abro un sobre sellado de la mochila.', [1200, 1800]); }
+      const f = this.fichas();
+      if (!f) return false;
+      const m = this.mejor();
+      if (!m) return false;
+      if (this.elegida() !== m.nombre) return pulsar(m.boton, `🃏 Serie ${m.nombre} (${m.tengo}/${m.total}): la que más cerca tiene su premio.`, [700, 1200]);
+      const ab = botonMain(/^abrir ahora$/i);
+      if (!ab) return true;                                               // (abriéndose: la página lo bloquea un momento)
+      this.abiertos++;
+      return pulsar(ab, '', [1000, 1600]);
+    },
+  };
+
+  const DIARIAS = [QUIEN, POKEATHLON, MUELLE, CARRERAS, BUCEO, TREN, SAFARI, VIAJE, CANTERA, ALBUM, TRETA, HUERTO, VALLE, SALON, JESSIE, MISIONES, ISLA, SOLAR, TRONOS, TORRE, ENTRANAS, SUBSUELO, MANADAS, MISSINGNO, CARTAS];
 
   /* ══════════ Ruta: jugar todas las diarias seguidas ══════════
    * Desde el menú se apuntan las diarias de «Para hoy» que aún no están hechas y que el script sabe jugar; se va a
@@ -1385,13 +1437,13 @@
   // dirección → diaria que la juega
   const RUTAS = { '/jessie-y-james': JESSIE, '/siluetas': QUIEN, '/pokeathlon': POKEATHLON, '/pesca': MUELLE, '/carreras': CARRERAS, '/buceo': BUCEO, '/safari': SAFARI, '/cantera': CANTERA, '/album': ALBUM };
   // las que no salen en el menú (o no con su estado): Tren (Teselia) y Casa Treta (Hoenn)
-  const EXTRA = { '/tren': TREN, '/casa': TRETA, '/huerto': HUERTO, '/valle': VALLE, '/salon': SALON, '/misiones': MISIONES, '/isla': ISLA, '/solar': SOLAR, '/tronos': TRONOS, '/torre': TORRE, '/entranas': ENTRANAS, '/subsuelo': SUBSUELO, '/manadas': MANADAS, '/jefe': MISSINGNO };
+  const EXTRA = { '/tren': TREN, '/casa': TRETA, '/huerto': HUERTO, '/valle': VALLE, '/salon': SALON, '/misiones': MISIONES, '/isla': ISLA, '/solar': SOLAR, '/tronos': TRONOS, '/torre': TORRE, '/entranas': ENTRANAS, '/subsuelo': SUBSUELO, '/manadas': MANADAS, '/jefe': MISSINGNO, '/cartas': CARTAS };
   // las que se hacen en casa en cada ruta (las juegan sus scripts): Huerto (Meloc/Latano), Valle («Hacerlo todo») y los
   // respiros del Salón (una vez al día; si el cupo ya está, su script para solo)
   // lo que ya se ha hecho hoy (cada diaria en su región): la ruta lo salta sin ir a mirarlo. Lo que va por tiempos
   // (Huerto, Isla, Torre, Tronos, Misiones, Entrañas, Subsuelo, MissingNo, Manadas) se sigue mirando cada vez
   const LS_HECHAS = 'axd-hechas-hoy';
-  const REPITEN = ['/huerto', '/isla', '/misiones', '/torre', '/tronos', '/entranas', '/subsuelo', '/valle', '/jefe', '/manadas'];
+  const REPITEN = ['/huerto', '/isla', '/misiones', '/torre', '/tronos', '/entranas', '/subsuelo', '/valle', '/jefe', '/manadas', '/cartas'];
   const claveHecha = (x, casa) => x.href + '@' + (x.region || (x.href === '/safari' || x.href === '/casa' ? casa || '' : ''));
   const hechasHoy = () => { const h = lsGet(LS_HECHAS, null); return h && h.dia === hoy() && Array.isArray(h.k) ? h.k : []; };
   const yaHoy = (x, casa) => !!x && !x.viaje && !REPITEN.includes(x.href) && hechasHoy().includes(claveHecha(x, casa));
@@ -1400,7 +1452,7 @@
     const k = hechasHoy(), c = claveHecha(x, casa);
     if (!k.includes(c)) { k.push(c); lsPut(LS_HECHAS, { dia: hoy(), k }); }
   }
-  const DE_CASA = () => [{ href: '/huerto' }, { href: '/valle' }, ...(lsGet('axd-salon-hecho', '') === hoy() ? [] : [{ href: '/salon' }])];
+  const DE_CASA = () => [{ href: '/huerto' }, { href: '/valle' }, ...(lsGet('axd-salon-hecho', '') === hoy() ? [] : [{ href: '/salon' }]), ...(cartasP() ? [{ href: '/cartas' }] : [])];
   // las que no sé jugar (se dicen y se saltan); Jessie y James, Solar y MissingNo no hacen falta
   const NO_SE = {};
   const ruta = () => location.pathname.replace(/\/+$/, '') || '/';
