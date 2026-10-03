@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.8.0
+// @version      2.8.1
 // @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero y, con las tablas exactas de la isla de la semana (qué sale en cada zona y con qué probabilidad) y lo que cambia cada día (marea, enjambre, sequía), gasta la marea en la zona que más puntos promete (especie nueva × captura × victoria + experiencia), pone delante a los 3 mejores contra esa zona (también de la caja) y detrás a los que van a evolucionar, captura a todos (también los repetidos) y lucha contra el jefe cuando compensa (simula el combate). /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: lo que ha salido y lo que aún te falta, con su probabilidad. También dice a quién meter en el equipo para evolucionar a una especie que aún no tienes (a qué nivel y qué día lo permite el tope). Los datos de las islas y las evoluciones ya vienen en el script (y se leen de la web si cambian); solo se consulta PokéAPI si sale una especie que no conoce.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1432,33 +1432,70 @@
   // (un 20 % de desviación) según el movimiento que toque. Eso hace los combates menos seguros de lo que decía el modelo viejo.
   const ESC_GOLPE = { mio: 0.85, suyo: 1.15 };
   function simulaTrio(mios, rivs, n = 60) {
+    // (el daño de cada pareja se calcula una vez y los combates van sobre arrays: se llama decenas de miles de veces)
+    const nA = mios.length, nB = rivs.length;
+    const dA = new Float64Array(nA * nB), dB = new Float64Array(nB * nA);
+    for (let i = 0; i < nA; i++) for (let j = 0; j < nB; j++) { dA[i * nB + j] = golpeMemo(mios[i], rivs[j]) * ESC_GOLPE.mio; dB[j * nA + i] = golpeMemo(rivs[j], mios[i]) * ESC_GOLPE.suyo; }
+    const hpA = Float64Array.from(mios, x => x.hp), hpB = Float64Array.from(rivs, x => x.hp);
+    const speA = Float64Array.from(mios, x => x.spe), speB = Float64Array.from(rivs, x => x.spe);
+    const vA = new Float64Array(nA), vB = new Float64Array(nB);
+    const tira = () => (0.65 + Math.random() * 0.7) * (Math.random() < 0.09 ? 1.64 : 1);
     let gana = 0, margen = 0;
     for (let k = 0; k < n; k++) {
-      const A = mios.map(x => ({ x, v: x.hp })), B = rivs.map(x => ({ x, v: x.hp }));
+      vA.set(hpA); vB.set(hpB);
       let i = 0, j = 0;
-      for (let t = 0; t < 500 && i < A.length && j < B.length; t++) {
-        const a = A[i], b = B[j];
-        const aPrimero = a.x.spe > b.x.spe || (a.x.spe === b.x.spe && Math.random() < 0.5);
-        for (const [at, df] of aPrimero ? [[a, b], [b, a]] : [[b, a], [a, b]]) {
-          if (at.v <= 0 || df.v <= 0) continue;
-          df.v -= golpeMemo(at.x, df.x) * (at === a ? ESC_GOLPE.mio : ESC_GOLPE.suyo) * (0.65 + Math.random() * 0.7) * (Math.random() < 0.09 ? 1.64 : 1);
+      for (let t = 0; t < 500 && i < nA && j < nB; t++) {
+        const aPrimero = speA[i] > speB[j] || (speA[i] === speB[j] && Math.random() < 0.5);
+        if (aPrimero) {
+          if (vA[i] > 0 && vB[j] > 0) vB[j] -= dA[i * nB + j] * tira();
+          if (vA[i] > 0 && vB[j] > 0) vA[i] -= dB[j * nA + i] * tira();
+        } else {
+          if (vA[i] > 0 && vB[j] > 0) vA[i] -= dB[j * nA + i] * tira();
+          if (vA[i] > 0 && vB[j] > 0) vB[j] -= dA[i * nB + j] * tira();
         }
-        if (a.v <= 0) i++;
-        if (b.v <= 0) j++;
+        if (vA[i] <= 0) i++;
+        if (vB[j] <= 0) j++;
       }
-      if (j >= B.length) gana++;
-      margen += A.reduce((s2, q) => s2 + Math.max(0, q.v) / q.x.hp, 0) / A.length - B.reduce((s2, q) => s2 + Math.max(0, q.v) / q.x.hp, 0) / B.length;
+      if (j >= nB) gana++;
+      let sa = 0, sb = 0;
+      for (let q = 0; q < nA; q++) sa += Math.max(0, vA[q]) / hpA[q];
+      for (let q = 0; q < nB; q++) sb += Math.max(0, vB[q]) / hpB[q];
+      margen += sa / nA - sb / nB;
     }
     return { p: gana / n, margen: margen / n };
   }
   // El mejor trío (y su orden) de todo lo que tienes. null si aún faltan datos de PokéAPI de alguno (se piden)
   let jefeMemo = { k: '', r: null };
+  // (versión que cede el hilo cada ~8 ms para que la página no se congele: la usa el panel; el robot y el resto la piden entera)
   function mejorTrio(est, riv, sinMemoria) {
+    const g = mejorTrioG(est, riv, sinMemoria, false);
+    let x;
+    do { x = g.next(); } while (!x.done);
+    return x.value;
+  }
+  let jefeCalc = false;
+  function jefeAsync(est, riv) {
+    const g = mejorTrioG(est, riv, false, true);
+    const x = g.next();                                  // lo barato (y la memoria) se hace ya
+    if (x.done) return x.value;
+    if (jefeCalc) return undefined;
+    jefeCalc = true;
+    (async () => {
+      try { let y; do { await new Promise(r => setTimeout(r, 0)); y = g.next(); } while (!y.done); }
+      catch (e) { console.warn('[axi] jefe', e); }
+      finally { jefeCalc = false; }
+      try { pintarAuto(); } catch { /* nada */ }
+    })();
+    return undefined;
+  }
+  function* mejorTrioG(est, riv, sinMemoria, ceder) {
+    let t0 = performance.now();
+    const cede = () => ceder && performance.now() - t0 > 8;
     const todos = [...est.equipo, ...est.caja];
     const rivs = riv.filter(r => r.n && baseEsp[r.n] && r.tipos).map(r => luchador(baseEsp[r.n], r.nivel, r.tipos));
     if (!rivs.length || rivs.length < riv.length) return null;
     // los candidatos con más posibilidades (por la nota rápida), con sus datos pedidos
-    const cand = todos.map(p => ({ p, v: notaContraJefe(p, riv) })).sort((a, b) => b.v - a.v).slice(0, 9).map(x => x.p);
+    const cand = todos.map(p => ({ p, v: notaContraJefe(p, riv) })).sort((a, b) => b.v - a.v).slice(0, 8).map(x => x.p);
     for (const p of cand) if (!baseEsp[p.speciesId]) pedirTipos(p.speciesId);
     const listos = cand.filter(p => baseEsp[p.speciesId]);
     if (listos.length < Math.min(3, cand.length)) return null;
@@ -1476,10 +1513,14 @@
         for (const c of listos) if (a !== c && b !== c) selecciones.push([a, b, c]);
       }
     }
-    for (const sel of selecciones) mejores.push({ trio: sel, ...simulaTrio(sel.map(x => lu.get(x.id)), rivs, 40) });
+    // en tres rondas: todos los órdenes con pocos combates, los 16 mejores con más, y los 4 mejores con muchos (antes 40 por orden: ~20.000 combates)
+    const sim = (m, n) => ({ ...m, ...simulaTrio(m.trio.map(p => lu.get(p.id)), rivs, n) });
+    const orden = (x, y) => y.p - x.p || y.margen - x.margen;
+    for (const sel of selecciones) { mejores.push(sim({ trio: sel }, selecciones.length > 120 ? 8 : 24)); if (cede()) { yield; t0 = performance.now(); } }
     if (!mejores.length) return null;
-    mejores.sort((x, y) => y.p - x.p || y.margen - x.margen);
-    mejores = mejores.slice(0, 4).map(m => ({ ...m, ...simulaTrio(m.trio.map(p => lu.get(p.id)), rivs, 300) })).sort((x, y) => y.p - x.p || y.margen - x.margen);
+    mejores.sort(orden);
+    if (selecciones.length > 120) { const top = [], pre = mejores.slice(0, 16); for (const m of pre) { top.push(sim(m, 50)); if (cede()) { yield; t0 = performance.now(); } } mejores = top.sort(orden); }
+    { const fin = [], pre = mejores.slice(0, 4); for (const m of pre) { fin.push(sim(m, 300)); if (cede()) { yield; t0 = performance.now(); } } mejores = fin.sort(orden); }
     const r = { trio: mejores[0].trio, p: mejores[0].p, margen: mejores[0].margen };
     if (!sinMemoria) jefeMemo = { k, r };
     return r;
@@ -1713,8 +1754,8 @@
       let t = '';
       try {
         if (est.jefe && !est.jefe.vencido) {
-          const riv = rivalesJefe(est.jefe), sim = riv && mejorTrio(est, riv);
-          t = sim ? `👑 ${est.jefe.nombre.split(',')[0]}: ahora lo vences ≈ ${Math.round(sim.p * 100)} % (mejor trío: ${sim.trio.map(p => `${p.nombre} Nv.${p.nivel}`).join(', ')}). Vencerlo da 200 puntos y premios.${est.jefe.abierto ? ` Lo intentará cuando pase del ${Math.round(umbralJefe(est) * 100)} %.` : ` Se abre el día ${est.jefe.desdeDia}.`}` : riv ? '👑 Calculando el combate contra el jefe…' : '';
+          const riv = rivalesJefe(est.jefe), sim = riv && jefeAsync(est, riv);
+          t = sim === undefined ? '👑 Calculando el mejor trío contra el jefe…' : sim ? `👑 ${est.jefe.nombre.split(',')[0]}: ahora lo vences ≈ ${Math.round(sim.p * 100)} % (mejor trío: ${sim.trio.map(p => `${p.nombre} Nv.${p.nivel}`).join(', ')}). Vencerlo da 200 puntos y premios.${est.jefe.abierto ? ` Lo intentará cuando pase del ${Math.round(umbralJefe(est) * 100)} %.` : ` Se abre el día ${est.jefe.desdeDia}.`}` : riv ? '👑 Calculando el combate contra el jefe…' : '';
         }
       } catch (e) { console.warn('[axi] jefe', e); }
       kSet(pj, t); pj.hidden = !t;
