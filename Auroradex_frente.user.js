@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Frente Batalla (automático)
 // @namespace    auroradex-frente
-// @version      0.8.0
+// @version      0.9.0
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @description  Los siete edificios del Frente Batalla (/frontera/…) solos: marca a los mejores para la regla de cada edificio (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Siguiente combate», «Saltar al resultado» y «Seguir» hasta el final. En la Cúpula ordena a los tuyos contra los que te esperan; en la Senda elige puerta (y apunta qué sale detrás de cada una). Modos: 1 tanda, hasta el Oro o sin parar (con «si pierdo, sigo» y un tope de tandas; se para sin ⚡). Si no estás en la isla, te lleva (con Accesos Directos) y vuelve. En la plaza (/frontera): los siete de un vistazo (Plata, Oro, racha) y «A por los que faltan», que recorre solo cada edificio. Si tu equipo no vale (legendarios), te dice qué cambiar. Recomienda lo mejor de la Pokédex (1ª a 5ª gen., sin legendarios) para cada edificio.
@@ -436,10 +436,10 @@
     }
     if (validos.length < E.necesarios) return { E, eq: null, validos };
     // Arena (uno solo por tanda): si has elegido tú cuál, ese en cada tanda
-    const fijo = E.necesarios === 1 ? opc().fijo : '';
+    const tanda = E.necesarios === 1 ? tandaActual() : null, fijo = tanda != null ? fijosDe(opc())[tanda] : '';
     if (fijo) {
       const v = validos.find(x => x.p.nombre === fijo);
-      if (v) return { E, eq: [{ ...v, n1: nota1(v.l) }], nota: nota1(v.l), validos, fijo };
+      if (v) return { E, eq: [{ ...v, n1: nota1(v.l) }], nota: nota1(v.l), validos, fijo, tanda: tanda + 1 };
     }
     let mejor = null;
     for (const c of combinaciones(validos, E.necesarios)) {
@@ -447,7 +447,7 @@
       if (!mejor || n > mejor.n) mejor = { c, n };
     }
     const eq = mejor.c.map(x => ({ ...x, n1: nota1(x.l) })).sort((a, b) => b.n1 - a.n1);
-    return { E, eq, nota: mejor.n, validos, fijoNoHay: fijo || '' };
+    return { E, eq, nota: mejor.n, validos, fijoNoHay: fijo || '', tanda: tanda != null ? tanda + 1 : null };
   }
 
   /* ------------------------------------------------------------------ *
@@ -878,7 +878,11 @@
   //   «1 tanda» · «hasta el Oro» (para al conseguirlo) · «sin parar» (hasta quedarse sin ⚡ o pulsar Parar)
   // Si pierdes, para (o sigue, si lo marcas, con un tope de tandas para no gastar sin fin)
   const LS_OPC = 'axf-opciones';
-  const opc = () => Object.assign({ modo: 'oro', seguirSiPierde: false, maxTandas: 10, fijo: '' }, lsGet(LS_OPC, {}));   // fijo: en el Frente de uno solo (la Arena), el Pokémon que elijas (el mismo en cada tanda)
+  const opc = () => Object.assign({ modo: 'oro', seguirSiPierde: false, maxTandas: 10, fijos: ['', '', ''] }, lsGet(LS_OPC, {}));
+  // Arena (uno solo por tanda): el Oro llega al ganar TRES tandas seguidas, y se puede elegir un Pokémon distinto para cada una
+  // (fijos[0] la 1.ª, fijos[1] la 2.ª, fijos[2] la 3.ª; vacío = el mejor). Perder una tanda vuelve a la 1.ª.
+  const fijosDe = O => { const f = Array.isArray(O.fijos) ? O.fijos.slice(0, 3) : []; while (f.length < 3) f.push(O.fijo || ''); return f; };   // (O.fijo: lo guardado con la versión anterior)
+  const tandaActual = () => { const r = rachaAhora(); return (((r != null ? r : ganadas) % 3) + 3) % 3; }
   const COSTE = 3;
   let ganadas = 0, hechas = 0;
   async function hacerTanda() {
@@ -1077,7 +1081,7 @@
   let reco = null, recoFirma = '';
   async function actualizarReco() {
     const E = eleccion();
-    const firma = E ? E.pokes.map(p => p.nombre + (p.vale ? '1' : '0')).join(',') + '|' + E.necesarios + '|' + edificio() + '|' + (opc().fijo || '') : '';
+    const firma = E ? E.pokes.map(p => p.nombre + (p.vale ? '1' : '0')).join(',') + '|' + E.necesarios + '|' + edificio() + (E.necesarios === 1 ? '|' + fijosDe(opc()).join('/') + '|' + tandaActual() : '') : '';
     if (!E || firma === recoFirma) return;
     recoFirma = firma;
     const r = await recomendacion();
@@ -1087,15 +1091,21 @@
     marcarSolo();
   }
   const pct = x => Math.round(x * 100) + '%';
-  // Arena: elegir qué Pokémon de tu equipo se pone en cada tanda (o dejar que el script elija el mejor)
+  // Arena: elegir qué Pokémon de tu equipo se pone en cada una de las tres tandas del Oro (o dejar que el script elija el mejor)
   function htmlFijo() {
     if (!reco || !reco.E || reco.E.necesarios !== 1 || !reco.validos || !reco.validos.length) return '';
-    const O = opc(), quien = reco.fijo || '';
-    const lista = reco.validos.map(x => ({ x, n: nota1(x.l) })).sort((a, b) => b.n - a.n);
-    const chip = (nombre, num, txt, activo) => `<button type="button" data-fijo="${kEsc(nombre)}" class="axf-poke${activo ? ' axf-tengo' : ''}" style="${activo ? 'background:rgb(var(--hoja-50,235 247 238));border-color:rgb(var(--hoja-400,95 190 120))' : ''}">${num ? `<img src="/sprites/${num}.png" alt="">` : '<span style="font-size:26px;line-height:44px">🤖</span>'}<b>${kEsc(txt)}</b>${num ? `<small>${pct(lista.find(y => y.x.p.nombre === nombre).n)}</small>` : '<small>automático</small>'}</button>`;
-    return `<p class="mt-1 text-center text-[10px] font-extrabold text-tinta-500">¿Cuál va en cada tanda? Toca uno: se pone ese siempre y repite hasta el Oro.</p>
-      <div class="flex flex-wrap justify-center gap-1.5">${chip('', null, 'El mejor', !quien)}${lista.map(({ x }) => chip(x.p.nombre, x.p.num, x.p.nombre, quien === x.p.nombre)).join('')}</div>
-      ${O.fijo && !quien ? `<p class="text-center text-[10px] font-semibold text-rojo-600">«${kEsc(O.fijo)}» no está disponible ahora: uso el mejor.</p>` : ''}`;
+    const F = fijosDe(opc()), ahora = reco.tanda ? reco.tanda - 1 : -1;
+    const lista = reco.validos.map(x => ({ n: x.p.nombre, v: nota1(x.l) })).sort((a, b) => b.v - a.v);
+    const fila = i => {
+      const hay = !F[i] || lista.some(x => x.n === F[i]);
+      return `<label class="flex items-center gap-2 rounded-card border-2 ${ahora === i ? 'border-hoja-400 bg-hoja-50' : 'border-crema-200 bg-crema-50'} px-2 py-1.5">
+        <span class="text-[11px] font-extrabold text-tinta-600" style="min-width:64px">${ahora === i ? '▶ ' : ''}Tanda ${i + 1}</span>
+        <select data-tanda="${i}" class="axf-fijo flex-1 rounded-card border-2 border-crema-200 bg-lienzo px-1 py-1.5 text-[12px] font-bold text-tinta-700" style="min-height:40px;min-width:0">
+          <option value="">🤖 El mejor</option>${lista.map(x => `<option value="${kEsc(x.n)}"${F[i] === x.n ? ' selected' : ''}>${kEsc(x.n)} · ${pct(x.v)}</option>`).join('')}${hay ? '' : `<option value="${kEsc(F[i])}" selected>${kEsc(F[i])} (no disponible)</option>`}
+        </select></label>`;
+    };
+    return `<p class="mt-1 text-center text-[10px] font-extrabold text-tinta-500">El Oro son 3 tandas seguidas: elige quién va en cada una. Si pierdes, vuelve a la 1.ª, y se repite hasta el Oro.</p>
+      <div class="space-y-1">${[0, 1, 2].map(fila).join('')}</div>`;
   }
   function pintar() {
     const p = document.getElementById('axf-panel');
@@ -1107,7 +1117,7 @@
     const html = !reco ? '<p class="text-[11px] font-semibold text-tinta-400">Calculando los mejores…</p>'
       : !reco.eq ? `<p class="text-[11px] font-semibold text-rojo-600">${kEsc(motivoSinEquipo(reco))}</p>`
       : `<div class="flex flex-wrap justify-center gap-2">${reco.eq.map((x, i) => `<span class="axf-poke"><img src="/sprites/${x.p.num}.png" alt=""><b>${i + 1}. ${kEsc(x.p.nombre)}</b><small>${pct(x.n1)}</small></span>`).join('')}</div>
-         <p class="text-center text-[10px] font-semibold text-tinta-400">${reco.fijo ? `Elegido por ti: <b>${kEsc(reco.fijo)}</b> en cada tanda` : `Gana a ≈ ${pct(reco.nota)} de los rivales de referencia (todos los tipos, a Nv.50, sin objetos)`}.</p>${htmlFijo()}`;
+         <p class="text-center text-[10px] font-semibold text-tinta-400">${reco.fijo ? `Elegido por ti para la tanda ${reco.tanda}: <b>${kEsc(reco.fijo)}</b>` : `Gana a ≈ ${pct(reco.nota)} de los rivales de referencia (todos los tipos, a Nv.50, sin objetos)`}.</p>${htmlFijo()}`;
     if (r.dataset.h !== html) { r.innerHTML = html; r.dataset.h = html; }
     const dl = p.querySelector('.axf-dex-lista'), hd = htmlDex();
     if (dl.dataset.h !== hd) { dl.innerHTML = hd; dl.dataset.h = hd; }
@@ -1179,13 +1189,13 @@
         <div class="axf-log ${K_LOG}"></div>`;
       for (const [ts, t] of registro) { const d = new Date(ts), q = document.createElement('p'); q.textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}  ${t}`; p.querySelector('.axf-log').appendChild(q); }
       p.querySelector('.axf-tanda').addEventListener('click', e => { e.preventDefault(); hacerTanda(); });
-      p.querySelector('.axf-reco').addEventListener('click', async e => {
-        const bt = e.target.closest('[data-fijo]');
-        if (!bt) return;
-        e.preventDefault();
-        const nombre = bt.dataset.fijo, O = opc();
-        // al elegir uno concreto, el bucle sigue aunque pierda alguna tanda (si no, pararía a la primera y no repetiría): se ve y se quita abajo
-        lsPut(LS_OPC, { ...O, fijo: nombre, ...(nombre && O.modo === '1' ? { modo: 'oro' } : {}), ...(nombre && !O.fijo ? { seguirSiPierde: true } : {}) });
+      p.querySelector('.axf-reco').addEventListener('change', async e => {
+        const sel = e.target.closest && e.target.closest('select[data-tanda]');
+        if (!sel) return;
+        const O = opc(), F = fijosDe(O);
+        F[+sel.dataset.tanda] = sel.value;
+        // al elegir uno, el bucle sigue aunque pierda una tanda (si no, pararía a la primera y no repetiría): se ve y se quita abajo
+        lsPut(LS_OPC, { ...O, fijos: F, fijo: '', ...(F.some(Boolean) && O.modo === '1' ? { modo: 'oro' } : {}), ...(F.some(Boolean) && !fijosDe(O).some(Boolean) ? { seguirSiPierde: true } : {}) });
         recoFirma = ''; autoFirma = '';
         await actualizarReco();
         if (!corriendo && !marcando && reco && reco.eq && eleccion()) { marcando = true; try { await marcar(reco); } catch (err) { console.warn('[axf] marcar', err); } finally { marcando = false; } }
