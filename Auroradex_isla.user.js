@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.8.1
+// @version      2.9.0
 // @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero y, con las tablas exactas de la isla de la semana (qué sale en cada zona y con qué probabilidad) y lo que cambia cada día (marea, enjambre, sequía), gasta la marea en la zona que más puntos promete (especie nueva × captura × victoria + experiencia), pone delante a los 3 mejores contra esa zona (también de la caja) y detrás a los que van a evolucionar, captura a todos (también los repetidos) y lucha contra el jefe cuando compensa (simula el combate). /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: lo que ha salido y lo que aún te falta, con su probabilidad. También dice a quién meter en el equipo para evolucionar a una especie que aún no tienes (a qué nivel y qué día lo permite el tope). Los datos de las islas y las evoluciones ya vienen en el script (y se leen de la web si cambian); solo se consulta PokéAPI si sale una especie que no conoce.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -811,12 +811,18 @@
   /* ------------------------------------------------------------------ *
    *  PANEL (antes de «Tu equipo de la isla») y marcas en el equipo
    * ------------------------------------------------------------------ */
+  // ¿se ha pedido el análisis en esta visita? (no se recuerda: al entrar de nuevo hay que volver a pedirlo)
+  let analisisPedido = false;
+  const analisisOn = () => analisisPedido || autoOn();
+  function pedirAnalisis() {
+    analisisPedido = true;
+    const caja = document.getElementById('axi-panel'); if (caja) { caja.dataset.html = ''; kSet(caja.querySelector('.axi-analizar'), '⏳ Calculando…'); }
+    setTimeout(() => { try { pintar(); pintarAuto(); } catch (e) { console.warn('[axi]', e); } }, 30);
+  }
   function pintar() {
     if (!enIsla()) { const p = document.getElementById('axi-panel'); if (p) p.remove(); return; }
     const est = estadoIsla();
     if (!est) return;
-    const todos = [...est.equipo, ...est.caja];
-    for (const id of new Set(todos.map(p => p.speciesId))) if (!evos[id]) pedirEvos(id);
     const cab = $$('main p.titulo-seccion').find(p => /tu equipo de la isla/i.test(p.textContent || ''));
     const zona = cab && cab.closest('section');
     if (!zona) return;
@@ -825,6 +831,19 @@
     if (!document.getElementById('axi-css')) { const st = document.createElement('style'); st.id = 'axi-css'; st.textContent = ISLA_CSS; document.head.appendChild(st); }
     if (!caja) { caja = document.createElement('section'); caja.id = 'axi-panel'; caja.className = 'tarjeta space-y-3 p-3'; caja.setAttribute('data-ax-ignore', '1'); }
     if (caja.nextElementSibling !== zona) zona.insertAdjacentElement('beforebegin', caja);
+    // El análisis (especies, jefe, mejor zona…) son muchas simulaciones: solo se hace cuando lo pides con el botón (o si la isla va sola)
+    if (!analisisOn()) {
+      if (caja.dataset.html !== 'ligero') {
+        caja.innerHTML = `${kHead('🧬', 'Isla Espejismo · Análisis', 'Especies nuevas, jefe y mejor zona')}
+          <p class="text-[11px] font-semibold text-tinta-500">Se calcula solo cuando lo pides, para que la isla cargue al momento.</p>
+          <button type="button" class="axi-analizar boton-principal w-full !py-2.5 text-sm">🧮 Analizar mi isla</button>`;
+        caja.dataset.html = 'ligero';
+        caja.querySelector('.axi-analizar').addEventListener('click', e => { e.preventDefault(); pedirAnalisis(); });
+      }
+      return;
+    }
+    const todos = [...est.equipo, ...est.caja];
+    for (const id of new Set(todos.map(p => p.speciesId))) if (!evos[id]) pedirEvos(id);
     const A = analizar(est);
     const enEquipo = new Set(est.equipo.map(p => p.id));
     const fila = c => {
@@ -1735,6 +1754,7 @@
       c.innerHTML = `${kHead('🏝️', 'Isla sola', '')}
         <button type="button" class="axi-go boton-principal w-full !py-2.5 text-sm"></button>
         <div class="axi-log ${K_LOG}"></div>
+        <button type="button" class="axi-analizar2 w-full rounded-card border-2 border-crema-200 bg-crema-50 px-3 py-2 text-[12px] font-extrabold text-tinta-600">🧮 Analizar (jefe, mejor zona y qué sale en cada una)</button>
         <p class="axi-jefe text-[11px] font-bold leading-snug text-tinta-600" hidden></p>
         <p class="axi-plan text-[11px] font-bold leading-snug text-tinta-600" hidden></p>
         <details class="rounded-card border-2 border-crema-200 bg-crema-50 p-2"><summary class="cursor-pointer text-[11px] font-extrabold text-tinta-600">🗺️ Qué sale en cada zona</summary><div class="axi-fauna space-y-2 pt-2"></div></details>`;
@@ -1749,6 +1769,15 @@
     const firmaLog = lineas.join('\n');
     if (lg.dataset.f !== firmaLog) { lg.dataset.f = firmaLog; lg.innerHTML = lineas.map(l => `<p>${esc(l)}</p>`).join(''); lg.scrollTop = lg.scrollHeight; }
     // el jefe: qué probabilidad hay de vencerlo con tu mejor trío ahora (se simula el combate)
+    const bA = c.querySelector('.axi-analizar2');
+    if (bA && !bA.dataset.on) { bA.dataset.on = '1'; bA.addEventListener('click', e => { e.preventDefault(); pedirAnalisis(); }); }
+    if (bA) bA.hidden = analisisOn();
+    if (!analisisOn()) {                      // sin análisis pedido: nada de simulaciones (ni jefe, ni plan, ni zonas)
+      for (const sel of ['.axi-jefe', '.axi-plan']) { const x = c.querySelector(sel); if (x) { kSet(x, ''); x.hidden = true; } }
+      const det = c.querySelector('details'); if (det) det.hidden = true;
+      return;
+    }
+    { const det = c.querySelector('details'); if (det) det.hidden = false; }
     const pj = c.querySelector('.axi-jefe');
     if (pj) {
       let t = '';
