@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.23.1
+// @version      1.24.0
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas, el Valle (recoge con el almacén lleno para la hora punta ×2, gasta el Brillo y los puntos de investigación) y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -950,22 +950,40 @@
     desde: 0, arrancado: 0, dicho: false,
     enMarcha: () => { try { return sessionStorage.getItem(SS_ISLA) === '1'; } catch { return false; } },
     listo() { return (!!this.arrancado && Date.now() - this.arrancado > 4000 && !this.enMarcha()) || /no hay ninguna isla/i.test(textoMain()); },
+    reintentos: 0,
+    // arranca la Isla en esta ventana (el script de la Isla juega cuando ve las banderas; no necesita su tarjeta)
+    arrancar() {
+      try { sessionStorage.setItem(SS_ISLA, '1'); sessionStorage.setItem(SS_ISLA + '-robot', '1'); } catch { /* nada */ }     // («-robot»: el script de la Isla espera a la marea baja)
+      this.arrancado = Date.now();
+    },
     async paso() {
       if (/no hay ninguna isla/i.test(textoMain())) return false;
       if (!this.arrancado) {
+        // (se espera un momento a que el script de la Isla monte su tarjeta; si no sale, se arranca igual: antes se quedaba esperando 25 min)
         if (!document.getElementById('axi-auto')) {
           if (!this.desde) this.desde = Date.now();
-          else if (Date.now() - this.desde > 15000) { this.desde = Date.now() + 1e12; log('⚠ 🏝️ No veo el script de la Isla Espejismo: instálalo para que gaste la marea.'); }
+          else if (Date.now() - this.desde > 15000) { log('⚠ 🏝️ No veo la tarjeta de la Isla Espejismo (¿está instalado el script?): lo intento igualmente.'); this.arrancar(); this.desde = 0; return true; }
           return false;
         }
-        try { sessionStorage.setItem(SS_ISLA, '1'); sessionStorage.setItem(SS_ISLA + '-robot', '1'); } catch { /* nada */ }     // («-robot»: el script de la Isla espera a la marea baja)
-        this.arrancado = Date.now(); log('🏝️ Isla: a gastar la marea (captura a todos).');
+        this.arrancar(); log('🏝️ Isla: a gastar la marea (captura a todos).');
         return true;
       }
       if (this.enMarcha()) return true;
+      // ¿terminó de verdad? El script de la Isla apunta cómo acabó (marea gastada, o esperando la marea baja). Si la bandera
+      // se apagó sin eso y aún queda marea, se paró a medias (recarga, ventana reiniciada…): se retoma, hasta 3 veces
+      const u = lsGet('axi-auto-ultimo', null), terminó = !!(u && u.t >= this.arrancado);
+      if (!terminó && this.reintentos < 3) {
+        let est = null; try { est = window.__axIsla && window.__axIsla.estadoIsla(); } catch { /* nada */ }
+        if (!est || est.marea >= (est.costeExplorar || 1)) {
+          this.reintentos++;
+          log(`🏝️ Isla: se paró a medias${est ? ` (quedaba marea: ${est.marea})` : ''}: la retomo (${this.reintentos}/3).`);
+          this.arrancar();
+          return true;
+        }
+      }
       if (!this.dicho) {
         this.dicho = true;
-        const u = lsGet('axi-auto-ultimo', null), l = u && u.t >= this.arrancado && (u.log || []).slice(-1)[0];
+        const l = terminó && (u.log || []).slice(-1)[0];
         if (l) log('🏝️ ' + l.replace(/\s*Sube \+.*$/, ''));
       }
       return false;
@@ -1183,6 +1201,8 @@
       if (/no hay ninguna isla/i.test(textoMain())) return { prox: manana(), info: 'sin isla' };
       if (p && p.sinMas && p.hecho > ahora - 10 * 60000) return { prox: manana(), info: p.info || '' };
       if (p && p.t > ahora - 60000 && p.hecho > ahora - 10 * 60000) return { prox: Math.max(p.t, ahora + 2 * 60000), info: p.info || '' };
+      // sin apunte de la Isla: si aún queda marea (se paró a medias), se vuelve enseguida; si no, a ratos
+      try { const est = window.__axIsla && window.__axIsla.estadoIsla(); if (est && est.abierta && est.marea >= (est.costeExplorar || 1)) return { prox: ahora + 5 * 60000, info: `quedan ${est.marea} de marea: lo reintento` }; } catch { /* nada */ }
       return { prox: ahora + 3 * 3600000, info: 'a ratos' };
     },
     valle() {
