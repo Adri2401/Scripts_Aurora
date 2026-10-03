@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.19.2
+// @version      2.20.0
 // @description  Auto-explora y captura; ante shiny/legendario lo captura solo con la bola que elijas (Master o Ultra) sin parar la macro y avisa, o para y te avisa. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -57,7 +57,7 @@
     X2_KEY: 'adx_macro_egg_x2',
     RAROS_KEY: 'adx_macro_raros',          // legendarios y variocolor: 'master' | 'ultra' (sin parar la macro) | 'parar' (que lo captures tú)
     FAST_KEY: 'adx_macro_rapido',          // '1': modo rápido (esperas mínimas entre acciones)            // '1': alguien del equipo lleva la Piedra Cálida (los huevos progresan el doble)
-    ENERGY_KEY: 'adx_macro_energy_limit',  // '0' = solo lo gratis de la manada · '7' = 7 · 'verde' = solo la 🌿 · '' = toda (🌿 y ⚡)
+    ENERGY_KEY: 'adx_macro_energy_limit',  // '0' = solo lo gratis de la manada · '7' = 7 · 'verde' = solo la 🌿 · 'manada' = toda la manada (hasta que se acabe su cupo) · '' = toda (🌿 y ⚡)
     DEFAULT_PARENT1: 'Ditto',
 
     // Retardos "humanos" (ms) → [mínimo, máximo]
@@ -199,9 +199,11 @@
   // null = sin límite; 0 = no gastar energía (solo las exploraciones gratis de ¡MANADA!); n = tope de energía
   // «verde»: sin tope, pero solo se explora donde cuesta 🌿 (la energía verde) y se para al acabarse
   const soloVerde = () => String(lsGet(CONFIG.ENERGY_KEY) ?? '').trim() === 'verde';
+  // «manada»: se explora solo mientras el botón sea ¡MANADA! (aunque cueste 🌿) y se para en cuanto se acaba su cupo («0 quedan») o la energía
+  const soloManada = () => String(lsGet(CONFIG.ENERGY_KEY) ?? '').trim() === 'manada';
   const getEnergyLimit = () => {
     const raw = String(lsGet(CONFIG.ENERGY_KEY) ?? '').trim();
-    if (raw === '' || raw === 'verde') return null;
+    if (raw === '' || raw === 'verde' || raw === 'manada') return null;
     const n = parseInt(raw, 10);
     return Number.isFinite(n) && n >= 0 ? n : null;
   };
@@ -1205,7 +1207,7 @@
     const nurseryTxt = mode === 'mystery' ? 'Guardería: Huevo Misterioso'
       : mode === 'pair' ? `Guardería: ${getParent1()} + ${getPartner()}`
       : 'sin Guardería';
-    setMsg(`Macro en marcha · ${lim === null ? 'sin límite de energía' : lim === 0 ? 'sin gastar energía (solo exploraciones gratis)' : 'hasta ' + lim + ' de energía'} · ${nurseryTxt}.`);
+    setMsg(`Macro en marcha · ${soloManada() ? 'gastando toda la manada' : lim === null ? 'sin límite de energía' : lim === 0 ? 'sin gastar energía (solo exploraciones gratis)' : 'hasta ' + lim + ' de energía'} · ${nurseryTxt}.`);
     log('Iniciada.');
     loop(run);
   }
@@ -1464,6 +1466,10 @@
 
     // 6) Explorar
     if (!ex) return stuckCheck();
+    if (soloManada()) {
+      const t = ex.textContent || '';
+      if (!/manada/i.test(t) || /(^|\D)0\s*quedan/i.test(t)) { stop(`Hecho: manada gastada (${S.explores} exploraciones).`, { alert: true }); return true; }
+    }
 
     if (isDisabled(ex)) return exploreBlocked(ex);
     S.disabledSince = 0;
@@ -1493,6 +1499,7 @@
     if (n > 0) {
       const es = energyState(ex2);
       if (es.have !== null && es.have < n) {
+        if (soloManada()) { stop(`Hecho: sin energía para seguir con la manada (${S.explores} exploraciones).`, { alert: true }); return true; }
         if (soloVerde()) { stop(`Hecho: energía verde gastada (${S.spent} 🌿 en ${S.explores} exploraciones).`, { alert: true }); return true; }
         throw new Fail(noEnergyMsg(es));
       }

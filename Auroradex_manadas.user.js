@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aurora Dex · Cazador de Manadas
 // @namespace    aurora-dex-manadas
-// @version      1.5.0
-// @description  Lee las pistas del Canal Manadas, cambia de región solo, recorre el mapa buscando el tramo que cuadra y para en cuanto encuentra la manada. «🐾 Manadas gratis»: en cada región busca la manada y hace sus 3 encuentros gratis con la macro de Capturar y Guardería (a ⚡ 0), y sigue con la siguiente; /manadas?gratis=1 lo empieza solo.
+// @version      1.6.0
+// @description  Lee las pistas del Canal Manadas, cambia de región solo, recorre el mapa buscando el tramo que cuadra y para en cuanto encuentra la manada. «🐾 Manadas gratis»: en cada región busca la manada y gasta toda su manada (los 10 encuentros, con 🌿) con la macro de Capturar y Guardería, y sigue con la siguiente; /manadas?gratis=1 lo empieza solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_manadas.user.js
@@ -911,11 +911,11 @@
       finally { setE({ running: false }); borrarE(); }
     }
     try { if (g.limAntes == null) localStorage.removeItem(LIM_KEY); else localStorage.setItem(LIM_KEY, g.limAntes); } catch { /* nada */ }
-    gratisLog('🏁 Manadas gratis hechas.');
+    gratisLog('🏁 Manadas hechas.');
     const lineas = G().log || [];
     setG(null);
     try { localStorage.setItem('mh-gratis-ultimo', JSON.stringify({ dia: hoyMh(), t: Date.now(), log: lineas })); } catch { /* nada */ }
-    kAviso({ tipo: 'fin', app: 'Cazador de Manadas', icono: '🐾', titulo: 'Manadas gratis hechas', lineas: lineas.slice(-8) });
+    kAviso({ tipo: 'fin', app: 'Cazador de Manadas', icono: '🐾', titulo: 'Manadas hechas', lineas: lineas.slice(-8) });
   }
   let gratisOcupado = false;
   async function gratisTick() {
@@ -946,10 +946,10 @@
         if (!b) { if (Date.now() - g.t > 60000) { gratisLog(`⚠ ${g.actual}: no veo la macro de Capturar y Guardería (instálala).`); g.fase = 'canal'; g.hechas = [...(g.hechas || []), g.actual]; setG(g); } return; }
         if (!g.macro) {
           if (b.dataset.s === 'stop') return;                   // ya iba (no se toca)
-          try { localStorage.setItem(LIM_KEY, '0'); } catch { /* nada */ }
+          try { localStorage.setItem(LIM_KEY, 'manada'); } catch { /* nada */ }      // («manada»: gasta toda la manada, hasta que se acabe su cupo; antes «0» = solo lo gratis, que con ¡MANADA! a 🌿 −1 no hacía ni una)
           await SLEEP(1500);
           const b2 = btnMacro();
-          if (b2 && b2.dataset.s === 'start') { b2.click(); g.macro = Date.now(); setG(g); gratisLog(`⚔️ ${g.actual}: encuentros gratis…`); }
+          if (b2 && b2.dataset.s === 'start') { b2.click(); g.macro = Date.now(); setG(g); gratisLog(`⚔️ ${g.actual}: gastando toda la manada…`); }
           return;
         }
         if (b.dataset.s === 'stop' && Date.now() - g.macro < 12 * 60000) return;   // en marcha
@@ -974,7 +974,7 @@
     d.id = 'mh-gratis'; d.className = 'pt-1'; d.setAttribute('data-ax-ignore', '1');
     const hechas = hechasHoy();
     d.innerHTML = '<button type="button" class="boton-principal w-full flex-col !gap-0 py-2.5"><span class="text-base">🐾 MANADAS GRATIS</span>' +
-      `<span class="text-[11px] font-bold normal-case opacity-90">Busca la de cada región y hace sus 3 encuentros gratis${hechas.length ? ' · hoy ya: ' + esc(hechas.join(', ')) : ''}</span></button>`;
+      `<span class="text-[11px] font-bold normal-case opacity-90">Busca la de cada región y gasta toda su manada (los 10 encuentros)${hechas.length ? ' · hoy ya: ' + esc(hechas.join(', ')) : ''}</span></button>`;
     d.querySelector('button').addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); if (G()) { setG(null); setE({ running: false }); kAviso({ tipo: 'info', app: 'Cazador de Manadas', titulo: 'Manadas gratis paradas' }); } else arrancarGratis(); });
     cab.insertAdjacentElement('afterend', d);
   }
