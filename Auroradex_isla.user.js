@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Isla Espejismo (qué evolucionar)
 // @namespace    auroradex-isla
-// @version      2.9.0
+// @version      2.9.1
 // @description  Solo en /isla. «▶ Jugar la isla sola»: elige compañero y, con las tablas exactas de la isla de la semana (qué sale en cada zona y con qué probabilidad) y lo que cambia cada día (marea, enjambre, sequía), gasta la marea en la zona que más puntos promete (especie nueva × captura × victoria + experiencia), pone delante a los 3 mejores contra esa zona (también de la caja) y detrás a los que van a evolucionar, captura a todos (también los repetidos) y lucha contra el jefe cuando compensa (simula el combate). /isla?auto=1 empieza solo. «🗺️ Qué sale en cada zona»: lo que ha salido y lo que aún te falta, con su probabilidad. También dice a quién meter en el equipo para evolucionar a una especie que aún no tienes (a qué nivel y qué día lo permite el tope). Los datos de las islas y las evoluciones ya vienen en el script (y se leen de la web si cambian); solo se consulta PokéAPI si sale una especie que no conoce.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1138,9 +1138,11 @@
   let foto = null;
   const nivelesDe = est => { const o = {}; for (const p of est.equipo) o[p.id] = { v: p.nivel + (p.progreso || 0) / 100, t: !!p.topado }; return o; };
   function tomarFoto(est, zona) {
-    let pr = null;
-    try { const x = (puntuarZonas(est) || []).find(q => q.id === zona); pr = x && x.prior != null ? +x.prior.toFixed(3) : null; } catch { /* nada */ }
-    foto = { zona, dia: est.dia, niv: nivelesDe(est), t: Date.now(), pr };
+    // Se corre en el clic de «Explorar»: lo caro (la predicción de esa zona, un cuarto de segundo o más en un móvil) se hace después,
+    // cuando el navegador está libre, para que el botón responda al momento. Se calcula con lo que había antes del clic (`est`).
+    const f = foto = { zona, dia: est.dia, niv: nivelesDe(est), t: Date.now(), pr: null };
+    const calcula = () => { try { const x = (puntuarZonas(est) || []).find(q => q.id === zona); f.pr = x && x.prior != null ? +x.prior.toFixed(3) : null; } catch { /* nada */ } };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(calcula, { timeout: 1500 }); else setTimeout(calcula, 300);
   }
   // En cuanto sale el resultado del combate (sea el modo automático o tú) se apunta cómo salió y cuánta experiencia dio (en las
   // victorias no hay botón «Seguir»: sale el encuentro debajo del resultado, así que se mira el texto)
