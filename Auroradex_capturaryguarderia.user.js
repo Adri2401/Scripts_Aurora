@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.20.0
+// @version      2.20.1
 // @description  Auto-explora y captura; ante shiny/legendario lo captura solo con la bola que elijas (Master o Ultra) sin parar la macro y avisa, o para y te avisa. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1848,7 +1848,16 @@
     btn.click();
     log('Guardería: pulso «Dejarlos juntos».');
 
-    if (!(await waitFor(run, hasEgg, 6000))) {
+    // el servidor puede tardar (con mala cobertura pasa de 6 s): se espera más y, si sigue sin verse, se recarga la
+    // Guardería una vez antes de darlo por fallido (el huevo suele haberse creado y la pantalla no se actualizó)
+    let ok = await waitFor(run, hasEgg, 15000);
+    if (!ok) {
+      log('Guardería: el huevo no aparece tras 15 s; recargo la página para comprobarlo.');
+      await navigate(run, '/mapa').catch(() => {});
+      await navigate(run, '/guarderia');
+      ok = await waitFor(run, hasEgg, 10000);
+    }
+    if (!ok) {
       throw new Fail(
         'Pulsé «Dejarlos juntos» pero el contador de huevos no cambió. Detalles en la consola.',
         `botones visibles: ${visibleLabels()}`
