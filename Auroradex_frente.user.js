@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Frente Batalla (automático)
 // @namespace    auroradex-frente
-// @version      0.9.0
+// @version      0.9.1
 // @updateURL    https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @downloadURL  https://raw.githubusercontent.com/Adri2401/Scripts_Aurora/main/Auroradex_frente.user.js
 // @description  Los siete edificios del Frente Batalla (/frontera/…) solos: marca a los mejores para la regla de cada edificio (todo a Nv.50, contra rivales de todos los tipos), empieza la tanda y va pulsando «Siguiente combate», «Saltar al resultado» y «Seguir» hasta el final. En la Cúpula ordena a los tuyos contra los que te esperan; en la Senda elige puerta (y apunta qué sale detrás de cada una). Modos: 1 tanda, hasta el Oro o sin parar (con «si pierdo, sigo» y un tope de tandas; se para sin ⚡). Si no estás en la isla, te lleva (con Accesos Directos) y vuelve. En la plaza (/frontera): los siete de un vistazo (Plata, Oro, racha) y «A por los que faltan», que recorre solo cada edificio. Si tu equipo no vale (legendarios), te dice qué cambiar. Recomienda lo mejor de la Pokédex (1ª a 5ª gen., sin legendarios) para cada edificio.
@@ -436,7 +436,7 @@
     }
     if (validos.length < E.necesarios) return { E, eq: null, validos };
     // Arena (uno solo por tanda): si has elegido tú cuál, ese en cada tanda
-    const tanda = E.necesarios === 1 ? tandaActual() : null, fijo = tanda != null ? fijosDe(opc())[tanda] : '';
+    const tanda = enArena() && E.necesarios === 1 ? tandaActual() : null, fijo = tanda != null ? fijosDe(opc())[tanda] : '';
     if (fijo) {
       const v = validos.find(x => x.p.nombre === fijo);
       if (v) return { E, eq: [{ ...v, n1: nota1(v.l) }], nota: nota1(v.l), validos, fijo, tanda: tanda + 1 };
@@ -882,6 +882,7 @@
   // Arena (uno solo por tanda): el Oro llega al ganar TRES tandas seguidas, y se puede elegir un Pokémon distinto para cada una
   // (fijos[0] la 1.ª, fijos[1] la 2.ª, fijos[2] la 3.ª; vacío = el mejor). Perder una tanda vuelve a la 1.ª.
   const fijosDe = O => { const f = Array.isArray(O.fijos) ? O.fijos.slice(0, 3) : []; while (f.length < 3) f.push(O.fijo || ''); return f; };   // (O.fijo: lo guardado con la versión anterior)
+  const enArena = () => edificio() === 'arena';          // (la elección por tanda solo existe en la Arena Batalla)
   const tandaActual = () => { const r = rachaAhora(); return (((r != null ? r : ganadas) % 3) + 3) % 3; }
   const COSTE = 3;
   let ganadas = 0, hechas = 0;
@@ -1081,7 +1082,7 @@
   let reco = null, recoFirma = '';
   async function actualizarReco() {
     const E = eleccion();
-    const firma = E ? E.pokes.map(p => p.nombre + (p.vale ? '1' : '0')).join(',') + '|' + E.necesarios + '|' + edificio() + (E.necesarios === 1 ? '|' + fijosDe(opc()).join('/') + '|' + tandaActual() : '') : '';
+    const firma = E ? E.pokes.map(p => p.nombre + (p.vale ? '1' : '0')).join(',') + '|' + E.necesarios + '|' + edificio() + (enArena() && E.necesarios === 1 ? '|' + fijosDe(opc()).join('/') + '|' + tandaActual() : '') : '';
     if (!E || firma === recoFirma) return;
     recoFirma = firma;
     const r = await recomendacion();
@@ -1093,7 +1094,7 @@
   const pct = x => Math.round(x * 100) + '%';
   // Arena: elegir qué Pokémon de tu equipo se pone en cada una de las tres tandas del Oro (o dejar que el script elija el mejor)
   function htmlFijo() {
-    if (!reco || !reco.E || reco.E.necesarios !== 1 || !reco.validos || !reco.validos.length) return '';
+    if (!enArena() || !reco || !reco.E || reco.E.necesarios !== 1 || !reco.validos || !reco.validos.length) return '';
     const F = fijosDe(opc()), ahora = reco.tanda ? reco.tanda - 1 : -1;
     const lista = reco.validos.map(x => ({ n: x.p.nombre, v: nota1(x.l) })).sort((a, b) => b.v - a.v);
     const fila = i => {
@@ -1191,7 +1192,7 @@
       p.querySelector('.axf-tanda').addEventListener('click', e => { e.preventDefault(); hacerTanda(); });
       p.querySelector('.axf-reco').addEventListener('change', async e => {
         const sel = e.target.closest && e.target.closest('select[data-tanda]');
-        if (!sel) return;
+        if (!sel || !enArena()) return;
         const O = opc(), F = fijosDe(O);
         F[+sel.dataset.tanda] = sel.value;
         // al elegir uno, el bucle sigue aunque pierda una tanda (si no, pararía a la primera y no repetiría): se ve y se quita abajo
