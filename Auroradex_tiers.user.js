@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.35.0
+// @version      1.36.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier o por estadística (botón «📊 Stat»: cada toque pasa a PS, Ataque, Defensa, Especial, Velocidad y Total; pone el valor en cada uno, corona al mejor 👑 y dice quién la tiene más alta en el equipo y en la Caja), tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1482,11 +1482,11 @@
   // `n`: cuántos salen de cada lado; `tam`: cuántos lleva el equipo. Va por pasos (generador) para poder repartir el
   // cálculo en trocitos y no congelar la página (ver `correrPasos`); `mejorEquipo` lo hace de una vez.
   // `sinObj`: sin objetos (los Tronos no los usan)
-  function* mejorEquipoPasos(unicos, sims, pool, previo, n = 6, tam = 6, sinObj = false) {
+  function* mejorEquipoPasos(unicos, sims, pool, previo, n = 6, tam = 6, sinObj = false, margen = MARGEN_REC) {
     const LT = c => luchadorT(c, sinObj ? null : undefined);
     const sueltos = sueltosTorre(unicos, pool, sinObj);
     const pre = sueltos.slice(0, 28).map(x => x.c);
-    const amenazas = pool.filter(p => p.k[0] === 'V').sort((a, b) => b.w - a.w || (a.k < b.k ? -1 : 1)).slice(0, 12);
+    const amenazas = pool.filter(p => p.k[0] === 'V' || p.k[0] === 'T').sort((a, b) => b.w - a.w || (a.k < b.k ? -1 : 1)).slice(0, 12);
     for (const am of amenazas) {
       const frenan = unicos.map(c => ({ c, v: ventaja(LT(c), am.l) })).sort((a, b) => b.v - a.v || b.c.stats.total - a.c.stats.total);
       for (const f of frenan.slice(0, 2)) if (!pre.includes(f.c)) pre.push(f.c);
@@ -1527,7 +1527,7 @@
       const r2 = yield* mejorar(prev);
       if (r2.v > r.v) r = r2;
       const vp = notaCon(prev, sims), vr = notaCon(r.eq, sims);
-      if (vr < vp + MARGEN_REC) { r = { eq: prev }; seMantiene = true; }
+      if (vr < vp + margen) { r = { eq: prev }; seMantiene = true; }
     }
     return { eq: r.eq, sueltos, seMantiene };
   }
@@ -2316,8 +2316,9 @@
       }
       return Object.values(out);
     };
-    const defensores = deTr('reto', e => (titular && e.rival === titular ? 4 : 1));
-    const retadores = deTr('defensa', e => (e.gane === false ? 3 : 2));
+    // lo que más enseña es quien te ganó: pesa mucho más que el resto (si te ganó en un reto, ese defensor; si te quitó el trono, ese retador)
+    const defensores = deTr('reto', e => (e.gane === false ? 6 : titular && e.rival === titular ? 4 : 1));
+    const retadores = deTr('defensa', e => (e.gane === false ? 8 : 2));
     const vistosP = vt.lista.filter(x => tiposDeC(x.p).includes(t) && !esLegendario(x.p));
     const vistos = vistosP.map(x => ({ k: 'V|' + x.k, l: luchadorT(x.p, null), w: x.w }));
     const bm = Math.round(baseMediaDe([...mios, ...vistosP.map(x => x.p)]) / 5) * 5;
@@ -2358,29 +2359,24 @@
     const B = yield* bancosTronoPasos(t, lista, vt);
     const { mios } = B;
     if (!mios.length) return { t, n: 0, B };
-    const datosT = hash32(JSON.stringify([mios.map(c => c.id + '|' + c.stats.total + '|' + c.itemId), B.poolA.map(p => p.k + ':' + p.w.toFixed(3)), firmaCal()]));
+    const datosT = hash32(JSON.stringify([mios.map(c => c.id + '|' + c.stats.total + '|' + c.itemId), B.poolA.map(p => p.k + ':' + p.w.toFixed(3)), B.poolD.map(p => p.k + ':' + p.w.toFixed(3)), firmaCal()]));
     // Como salen 3 al azar, cada uno pelea 3 de cada N veces sin mirar contra quién: meter uno flojo baja la media.
-    // Se busca el mejor equipo de 3, de 4, de 5 y de 6 y se queda el que más gana (media de quitarlo y defenderlo).
     const media = eq => { const q = notasTrono(eq.map(c => luchadorT(c, null)), B); return (q.gA + q.gD) / 2; };
     let eq, porTam;
-    if (prev && prev.datos === datosT && prev.eq && prev.porTam && prev.eq.every(id => mios.some(c => String(c.id) === id))) {
+    if (prev && prev.datos === datosT && prev.eq && prev.eq.length <= 3 && prev.porTam && prev.eq.every(id => mios.some(c => String(c.id) === id))) {
       eq = prev.eq.map(id => mios.find(c => String(c.id) === id));
       porTam = prev.porTam;
     } else if (mios.length <= 3) {
       eq = mios; porTam = { [mios.length]: media(mios) };
     } else {
-      porTam = {};
-      let mejor = null;
-      for (let k = 3; k <= Math.min(6, mios.length); k++) {
-        const ant = prev && prev.eq && prev.eq.length === k ? prev.eq : null;
-        const e = (yield* mejorEquipoPasos(mios, B.sims, B.poolA, ant, 3, k, true)).eq;
-        const v = media(e);
-        yield;
-        porTam[k] = v;
-        // a igualdad (medio punto), mejor con más: depende menos de que toque justo la peor combinación
-        if (!mejor || v > mejor.v + 0.005 || (v > mejor.v - 0.005 && k > mejor.e.length)) mejor = { e, v };
-      }
-      eq = mejor.e;
+      // Máximo 3 por equipo: así los tres que pelean son siempre los mejores (con más, salen tres al azar y uno flojo baja la media).
+      // Si ya pasó una derrota en este trono (te quitaron el trono o perdiste un reto), se cambia de equipo con menos de margen:
+      // lo aprendido de quien te ganó pesa en los combates de prueba y, si el equipo nuevo es mejor, se pone.
+      const hayDerrota = B.vistosTr.some(x => x.gane === false);
+      const ant = prev && prev.eq && prev.eq.length === 3 ? prev.eq : null;
+      eq = (yield* mejorEquipoPasos(mios, B.sims, [...B.poolA, ...B.poolD.filter(p => p.k[0] === 'T')], ant, 3, 3, true, hayDerrota ? 0.003 : undefined)).eq;
+      yield;
+      porTam = { 3: media(eq) };
     }
     const eqL = eq.map(c => luchadorT(c, null));
     const normal = eqL.map(l => usoNormal(l, [...B.poolA, ...B.poolD]));
@@ -2768,7 +2764,7 @@
       if (plan.retado) {
         const c = cards.find(x => x.t === plan.retado);
         const res = plan.resultado && plan.resultado.t === plan.retado ? plan.resultado.gane : null;
-        if (res === false) { plan.perdidos.push(plan.retado); tronoMsg = `❌ He perdido contra el de ${bonito(plan.retado)}.`; plan.retado = plan.resultado = null; guardarPlanT(plan); return; }
+        if (res === false) { histLeido = false; plan.perdidos.push(plan.retado); tronoMsg = `❌ He perdido contra el de ${bonito(plan.retado)}.`; plan.retado = plan.resultado = null; guardarPlanT(plan); return; }
         if (res === true) {
           // ganado: el trono tiene que salir como TUYO (se vuelve a cargar la página si tarda)
           tronoMsg = `🏆 Ganado el de ${bonito(plan.retado)}: espero a que salga como tuyo…`;
@@ -2950,8 +2946,7 @@
       const perdidas = vistosTr.filter(e => e.gane === false).slice(0, 3);
       lineas.push(`<p class="text-[10px] font-semibold text-tinta-500">🎞️ Aprendido de ${vistosTr.length} combate${vistosTr.length === 1 ? '' : 's'} de este trono${deTit ? ` · el titular (${tit}) lleva <b>${deTit.nombres.join(', ')}</b>` : ''}${perdidas.length ? ` · te ganaron: ${perdidas.map(e => `${e.rival} (${e.nombres.join(', ')})`).join('; ')}` : ''}. Se tienen en cuenta en el cálculo.</p>`);
     } else lineas.push('<p class="text-[10px] font-semibold text-tinta-400">🎞️ Abre tus combates de este trono («Combates» › «▶ Ver») y aprenderá qué equipos lleva la gente de verdad.</p>');
-    const tams = Object.entries(r.porTam || {}).map(([k, v]) => `${k}: ${pctT(v)}`).join(' · ');
-    if (tams) lineas.push(`<p class="text-[10px] font-semibold text-tinta-400">Según cuántos lleves: ${tams}. Como salen 3 al azar, uno flojo sale igual de a menudo que los buenos: a veces rinde más llevar menos.</p>`);
+    lineas.push('<p class="text-[10px] font-semibold text-tinta-400">Equipos de 3 como máximo: así pelean siempre los tres mejores (con más, salen tres al azar y uno flojo baja la media). Cada derrota (tuya o de quien te retó) cambia los combates de prueba y, si hay un equipo mejor, lo cambia.</p>');
     lineas.push(`<button type="button" class="axt-auto boton-principal w-full !py-2 text-xs">${yaEs ? '🤖 Revisar movimientos y guardar' : '🤖 Poner el mejor equipo y guardar'}</button><p class="axt-auto-msg text-center text-[10px] font-semibold text-tinta-500"></p>`);
     pinta(`<p class="text-[11px] font-extrabold">👑 Trono de ${bonito(t)}</p>${lineas.join('')}`);
   }
