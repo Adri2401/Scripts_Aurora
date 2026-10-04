@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.20.1
-// @description  Auto-explora y captura; ante shiny/legendario lo captura solo con la bola que elijas (Master o Ultra) sin parar la macro y avisa, o para y te avisa. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
+// @version      2.21.0
+// @description  Auto-explora y captura; ante shiny/legendario lo captura siempre solo y sin parar la macro (modo Auto: Ultra Ball si la probabilidad es ≥70 %, Master Ball si es menor; o fija Master/Ultra) y avisa. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -55,7 +55,7 @@
     PARENT1_KEY: 'adx_macro_parent1',      // Pokémon 1 de la crianza (por defecto Ditto)
     MODE_KEY: 'adx_macro_nursery_mode',    // off | pair | mystery
     X2_KEY: 'adx_macro_egg_x2',
-    RAROS_KEY: 'adx_macro_raros',          // legendarios y variocolor: 'master' | 'ultra' (sin parar la macro) | 'parar' (que lo captures tú)
+    RAROS_KEY: 'adx_macro_raros',          // legendarios y variocolor, siempre solos (la macro no se para): 'auto' (Ultra si la probabilidad es ≥70 %, si no Master) | 'master' | 'ultra'
     FAST_KEY: 'adx_macro_rapido',          // '1': modo rápido (esperas mínimas entre acciones)            // '1': alguien del equipo lleva la Piedra Cálida (los huevos progresan el doble)
     ENERGY_KEY: 'adx_macro_energy_limit',  // '0' = solo lo gratis de la manada · '7' = 7 · 'verde' = solo la 🌿 · 'manada' = toda la manada (hasta que se acabe su cupo) · '' = toda (🌿 y ⚡)
     DEFAULT_PARENT1: 'Ditto',
@@ -85,7 +85,7 @@
 
     // Capturas
     USE_MASTER_BALL: true,
-    AUTO_MASTER: true,               // shiny/legendario: lanza la Master Ball solo (false = parar y que lo captures tú)
+    RAROS_ULTRA_PCT: 70,             // modo auto: con esta probabilidad o más basta la Ultra Ball (se ahorra la Master)
     UNREGISTERED_RE: /sin registrar/,   // pastilla «⭐ Sin registrar» (Pokémon que aún no está en tu Pokédex)
     SUPER_MIN_PCT: 70,                  // sin registrar: probabilidad >= 70% => Super Ball; < 70% => Ultra Ball
     MIN_RETHROW_MS: 600,                // separación mínima entre dos lanzamientos seguidos
@@ -572,8 +572,8 @@
   const LENTO = { EXPLORE_DELAY: CONFIG.EXPLORE_DELAY, ACTION_DELAY: CONFIG.ACTION_DELAY, POLL: CONFIG.POLL, LONG_PAUSE_CHANCE: CONFIG.LONG_PAUSE_CHANCE, ANIM_MAX_MS: CONFIG.ANIM_MAX_MS, NURSERY_GRACE_MS: CONFIG.NURSERY_GRACE_MS, MIN_RETHROW_MS: CONFIG.MIN_RETHROW_MS, THROW_CHECK_MS: CONFIG.THROW_CHECK_MS };
   const RAPIDO = { EXPLORE_DELAY: [30, 90], ACTION_DELAY: [20, 70], POLL: [60, 130], LONG_PAUSE_CHANCE: 0, ANIM_MAX_MS: 1500, NURSERY_GRACE_MS: 1200, MIN_RETHROW_MS: 350, THROW_CHECK_MS: 1200 };
   const rapido = () => lsGet(CONFIG.FAST_KEY, '0') === '1';
-  // Legendarios y variocolor: con qué bola se capturan solos (la macro nunca se para), o parar y avisar
-  const modoRaros = () => { const v = lsGet(CONFIG.RAROS_KEY, CONFIG.AUTO_MASTER ? 'master' : 'parar'); return ['master', 'ultra', 'parar'].includes(v) ? v : 'master'; };
+  // Legendarios y variocolor: con qué bola se capturan solos (la macro nunca se para). 'parar', de versiones antiguas, pasa a 'auto'
+  const modoRaros = () => { const v = lsGet(CONFIG.RAROS_KEY, 'auto'); return ['auto', 'master', 'ultra'].includes(v) ? v : 'auto'; };
   const aplicarVelocidad = () => Object.assign(CONFIG, rapido() ? RAPIDO : LENTO);
   aplicarVelocidad();
   // En modo rápido, la animación de la Ball (vuela 0,45 s, tres sacudidas de 0,62 s y 0,9 s de final) va 6 veces más
@@ -631,9 +631,9 @@
         <div>
           <div class="adx-lbl"><span class="titulo-seccion">✨👑 Legendarios y variocolor</span></div>
           <div class="adx-seg" role="radiogroup" aria-label="Legendarios y variocolor">
+            <button type="button" data-raro="auto" role="radio" title="Ultra Ball si la probabilidad de captura es del 70 % o más; si es menor, Master Ball"><span>🤖</span><span>Auto</span></button>
             <button type="button" data-raro="master" role="radio"><span class="adx-bola"><img src="/items/master-ball.png?v=5" alt="" width="30" height="30"></span><span>Master Ball</span></button>
             <button type="button" data-raro="ultra" role="radio"><span class="adx-bola"><img src="/items/ultra-ball.png?v=5" alt="" width="30" height="30"></span><span>Ultra Ball</span></button>
-            <button type="button" data-raro="parar" role="radio"><span>✋</span><span>Parar y avisar</span></button>
           </div>
         </div>
 
@@ -1622,7 +1622,11 @@
   function ballPlan(info) {
     const master = CONFIG.USE_MASTER_BALL ? ['master'] : [];
     // con Ultra elegida: Ultra y, si no quedan, Master (para no perderlo); con Master: Master y, si no quedan, Ultra
-    if (info.masterReason) return { prefs: modoRaros() === 'ultra' ? ['ultra', ...master, 'super', 'poke'] : [...master, 'ultra', 'super', 'poke'], why: info.masterReason };
+    if (info.masterReason) {
+      // auto: Ultra si la probabilidad ya es alta (se ahorra la Master); con menos (o sin leerla), Master
+      const modo = modoRaros(), ultra = modo === 'ultra' || (modo === 'auto' && info.pct !== null && info.pct >= CONFIG.RAROS_ULTRA_PCT);
+      return { prefs: ultra ? ['ultra', ...master, 'super', 'poke'] : [...master, 'ultra', 'super', 'poke'], why: `${info.masterReason}${info.pct !== null ? ` (${info.pct}%)` : ''}` };
+    }
     if (info.unregistered) {
       const sup = info.pct !== null && info.pct >= CONFIG.SUPER_MIN_PCT;
       return { prefs: [sup ? 'super' : 'ultra', 'poke'], why: `sin registrar (${info.pct !== null ? info.pct + '%' : 'prob. desconocida'})` };
@@ -1661,25 +1665,6 @@
     }
   }
 
-  // Shiny o legendario: NO se lanza ninguna bola. Se avisa (vibración, mensaje breve y notificación)
-  // y se detiene la macro por completo para que captures a mano.
-  function handleRareEncounter(info) {
-    if (info.shiny) S.shiny++;
-    if (info.legendary) S.legendary++;
-    const who = `${info.name || 'Pokémon'}${info.level ? ' Nv.' + info.level : ''}`;
-    const tag = `${info.shiny ? '¡SHINY! ' : ''}${info.legendary ? '¡LEGENDARIO! ' : ''}`;
-    const txt = `${tag}${who} — ¡captúralo tú! Macro detenida.`;
-    log('★', txt);
-    stop(txt, { alert: true, sinAviso: true });
-    avisar({
-      tipo: info.shiny ? 'shiny' : 'legendario',
-      titulo: `${info.shiny ? '¡Shiny' : '¡Legendario'}: ${info.name || 'Pokémon'}!`,
-      sprite: info.sprite,
-      lineas: [`${who}${info.rarity ? ' · ' + info.rarity : ''}${info.unregistered ? ' · ⭐ sin registrar' : ''}${info.pct !== null ? ' · ' + info.pct + '% de captura' : ''}`, 'Macro parada: captúralo tú.', ...lineasResumen()],
-    });
-    return true;
-  }
-
   async function handleEncounter(run, balls) {
     const scope = encounterScope(balls[0].el);
     if (!scope) {
@@ -1711,8 +1696,7 @@
         log('Aviso de shiny/legendario descartado (no se confirmó en la segunda lectura):', info.name, info.masterReason, info.pills);
         return true;
       }
-      // confirmado: con la Master Ball (y aviso); solo se para si se ha pedido captura a mano
-      if (modoRaros() === 'parar') return handleRareEncounter(again);
+      // confirmado: se captura solo (Ultra o Master según la probabilidad) y se avisa
       info2 = again;
     }
     info = info2;
