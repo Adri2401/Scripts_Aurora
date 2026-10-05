@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Cazador de Manadas
 // @namespace    aurora-dex-manadas
-// @version      1.6.0
+// @version      1.7.0
 // @description  Lee las pistas del Canal Manadas, cambia de región solo, recorre el mapa buscando el tramo que cuadra y para en cuanto encuentra la manada. «🐾 Manadas gratis»: en cada región busca la manada y gasta toda su manada (los 10 encuentros, con 🌿) con la macro de Capturar y Guardería, y sigue con la siguiente; /manadas?gratis=1 lo empieza solo.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -911,11 +911,12 @@
       finally { setE({ running: false }); borrarE(); }
     }
     try { if (g.limAntes == null) localStorage.removeItem(LIM_KEY); else localStorage.setItem(LIM_KEY, g.limAntes); } catch { /* nada */ }
-    gratisLog('🏁 Manadas hechas.');
+    const parciales = g.parciales || [];
+    gratisLog(parciales.length ? `🏁 Manadas hechas, salvo ${parciales.join(', ')} (sin 🌿): se retoma luego.` : '🏁 Manadas hechas.');
     const lineas = G().log || [];
     setG(null);
-    try { localStorage.setItem('mh-gratis-ultimo', JSON.stringify({ dia: hoyMh(), t: Date.now(), log: lineas })); } catch { /* nada */ }
-    kAviso({ tipo: 'fin', app: 'Cazador de Manadas', icono: '🐾', titulo: 'Manadas hechas', lineas: lineas.slice(-8) });
+    try { localStorage.setItem('mh-gratis-ultimo', JSON.stringify({ dia: hoyMh(), t: Date.now(), log: lineas, parcial: parciales, reintento: Date.now() + 40 * 60000 })); } catch { /* nada */ }
+    kAviso({ tipo: parciales.length ? 'aviso' : 'fin', app: 'Cazador de Manadas', icono: '🐾', titulo: parciales.length ? 'Manadas a medias (sin 🌿)' : 'Manadas hechas', lineas: lineas.slice(-8) });
   }
   let gratisOcupado = false;
   async function gratisTick() {
@@ -955,8 +956,10 @@
         if (b.dataset.s === 'stop' && Date.now() - g.macro < 12 * 60000) return;   // en marcha
         if (b.dataset.s === 'stop') b.click();                                    // se ha pasado de tiempo
         const msg = txt(document.querySelector('#adx-macro-ui .adx-msg')) || '';
-        gratisLog(`✅ ${g.actual}: ${msg.replace(/\s*—.*$/, '').replace(/\.+$/, '') || 'hecha'}.`);
-        apuntarHecha(g.actual);
+        // sin 🌿 para acabar su cupo: no cuenta como hecha, se vuelve cuando haya energía (el robot de Diarias lo reintenta)
+        const incompleta = /sin energ/i.test(msg);
+        gratisLog(`${incompleta ? '⏳' : '✅'} ${g.actual}: ${msg.replace(/\s*—.*$/, '').replace(/\.+$/, '') || 'hecha'}${incompleta ? ' (queda manada por gastar: vuelvo cuando haya 🌿)' : ''}.`);
+        if (incompleta) g.parciales = [...(g.parciales || []), g.actual]; else apuntarHecha(g.actual);
         g.fase = 'canal'; g.hechas = [...(g.hechas || []), g.actual]; setG(g);
         await SLEEP(2000);
         location.assign('/manadas');

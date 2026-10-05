@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Auroradex · Macro de exploración, captura y guardería
 // @namespace    https://auroradex.es/
-// @version      2.21.0
-// @description  Auto-explora y captura; ante shiny/legendario lo captura siempre solo y sin parar la macro (modo Auto: Ultra Ball si la probabilidad es ≥70 %, Master Ball si es menor; o fija Master/Ultra) y avisa. Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
+// @version      2.21.1
+// @description  Auto-explora y captura; ante shiny/legendario lo captura solo sin parar la macro (modo Auto: Ultra Ball si la probabilidad es ≥70 %, Master Ball si es menor; o fija Master/Ultra) y avisa, o para y te avisa si eliges «Parar y avisar». Límite de energía opcional. Guardería por crianza (Ditto u otro + pareja) o con Huevo Misterioso.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
 // @run-at       document-idle
@@ -55,7 +55,7 @@
     PARENT1_KEY: 'adx_macro_parent1',      // Pokémon 1 de la crianza (por defecto Ditto)
     MODE_KEY: 'adx_macro_nursery_mode',    // off | pair | mystery
     X2_KEY: 'adx_macro_egg_x2',
-    RAROS_KEY: 'adx_macro_raros',          // legendarios y variocolor, siempre solos (la macro no se para): 'auto' (Ultra si la probabilidad es ≥70 %, si no Master) | 'master' | 'ultra'
+    RAROS_KEY: 'adx_macro_raros',          // legendarios y variocolor, siempre solos (la macro no se para): 'auto' (Ultra si la probabilidad es ≥70 %, si no Master) | 'master' | 'ultra' | 'parar' (parar y que lo captures tú)
     FAST_KEY: 'adx_macro_rapido',          // '1': modo rápido (esperas mínimas entre acciones)            // '1': alguien del equipo lleva la Piedra Cálida (los huevos progresan el doble)
     ENERGY_KEY: 'adx_macro_energy_limit',  // '0' = solo lo gratis de la manada · '7' = 7 · 'verde' = solo la 🌿 · 'manada' = toda la manada (hasta que se acabe su cupo) · '' = toda (🌿 y ⚡)
     DEFAULT_PARENT1: 'Ditto',
@@ -506,6 +506,7 @@
       ${U} .adx-en-i{font-size:22px!important;line-height:1;font-family:'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif}
       ${U} .adx-chips button{flex:1;padding:4px 0;font-size:11px;font-weight:800}
       ${U} .adx-seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+      ${U} .adx-seg[aria-label="Legendarios y variocolor"]{grid-template-columns:repeat(4,1fr);gap:4px}
       ${U} .adx-seg button,${U} .adx-seg div.adx-en{padding:8px 4px;font-size:11px;font-weight:800;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.15}
       ${U} .adx-seg button span:first-child{font-size:18px}
       ${U} .adx-seg .adx-bola{height:30px;display:grid;place-items:center}
@@ -572,8 +573,8 @@
   const LENTO = { EXPLORE_DELAY: CONFIG.EXPLORE_DELAY, ACTION_DELAY: CONFIG.ACTION_DELAY, POLL: CONFIG.POLL, LONG_PAUSE_CHANCE: CONFIG.LONG_PAUSE_CHANCE, ANIM_MAX_MS: CONFIG.ANIM_MAX_MS, NURSERY_GRACE_MS: CONFIG.NURSERY_GRACE_MS, MIN_RETHROW_MS: CONFIG.MIN_RETHROW_MS, THROW_CHECK_MS: CONFIG.THROW_CHECK_MS };
   const RAPIDO = { EXPLORE_DELAY: [30, 90], ACTION_DELAY: [20, 70], POLL: [60, 130], LONG_PAUSE_CHANCE: 0, ANIM_MAX_MS: 1500, NURSERY_GRACE_MS: 1200, MIN_RETHROW_MS: 350, THROW_CHECK_MS: 1200 };
   const rapido = () => lsGet(CONFIG.FAST_KEY, '0') === '1';
-  // Legendarios y variocolor: con qué bola se capturan solos (la macro nunca se para). 'parar', de versiones antiguas, pasa a 'auto'
-  const modoRaros = () => { const v = lsGet(CONFIG.RAROS_KEY, 'auto'); return ['auto', 'master', 'ultra'].includes(v) ? v : 'auto'; };
+  // Legendarios y variocolor: con qué bola se capturan solos (Auto por defecto), o parar y avisar para capturarlos a mano
+  const modoRaros = () => { const v = lsGet(CONFIG.RAROS_KEY, 'auto'); return ['auto', 'master', 'ultra', 'parar'].includes(v) ? v : 'auto'; };
   const aplicarVelocidad = () => Object.assign(CONFIG, rapido() ? RAPIDO : LENTO);
   aplicarVelocidad();
   // En modo rápido, la animación de la Ball (vuela 0,45 s, tres sacudidas de 0,62 s y 0,9 s de final) va 6 veces más
@@ -634,6 +635,7 @@
             <button type="button" data-raro="auto" role="radio" title="Ultra Ball si la probabilidad de captura es del 70 % o más; si es menor, Master Ball"><span>🤖</span><span>Auto</span></button>
             <button type="button" data-raro="master" role="radio"><span class="adx-bola"><img src="/items/master-ball.png?v=5" alt="" width="30" height="30"></span><span>Master Ball</span></button>
             <button type="button" data-raro="ultra" role="radio"><span class="adx-bola"><img src="/items/ultra-ball.png?v=5" alt="" width="30" height="30"></span><span>Ultra Ball</span></button>
+            <button type="button" data-raro="parar" role="radio" title="No lanza ninguna bola: para la macro y te avisa para que lo captures tú"><span>✋</span><span>Parar y avisar</span></button>
           </div>
         </div>
 
@@ -1665,6 +1667,25 @@
     }
   }
 
+  // Shiny o legendario: NO se lanza ninguna bola. Se avisa (vibración, mensaje breve y notificación)
+  // y se detiene la macro por completo para que captures a mano.
+  function handleRareEncounter(info) {
+    if (info.shiny) S.shiny++;
+    if (info.legendary) S.legendary++;
+    const who = `${info.name || 'Pokémon'}${info.level ? ' Nv.' + info.level : ''}`;
+    const tag = `${info.shiny ? '¡SHINY! ' : ''}${info.legendary ? '¡LEGENDARIO! ' : ''}`;
+    const txt = `${tag}${who} — ¡captúralo tú! Macro detenida.`;
+    log('★', txt);
+    stop(txt, { alert: true, sinAviso: true });
+    avisar({
+      tipo: info.shiny ? 'shiny' : 'legendario',
+      titulo: `${info.shiny ? '¡Shiny' : '¡Legendario'}: ${info.name || 'Pokémon'}!`,
+      sprite: info.sprite,
+      lineas: [`${who}${info.rarity ? ' · ' + info.rarity : ''}${info.unregistered ? ' · ⭐ sin registrar' : ''}${info.pct !== null ? ' · ' + info.pct + '% de captura' : ''}`, 'Macro parada: captúralo tú.', ...lineasResumen()],
+    });
+    return true;
+  }
+
   async function handleEncounter(run, balls) {
     const scope = encounterScope(balls[0].el);
     if (!scope) {
@@ -1696,7 +1717,8 @@
         log('Aviso de shiny/legendario descartado (no se confirmó en la segunda lectura):', info.name, info.masterReason, info.pills);
         return true;
       }
-      // confirmado: se captura solo (Ultra o Master según la probabilidad) y se avisa
+      // confirmado: se captura solo (Ultra o Master según la probabilidad) y se avisa; solo se para si se ha pedido captura a mano
+      if (modoRaros() === 'parar') return handleRareEncounter(again);
       info2 = again;
     }
     info = info2;

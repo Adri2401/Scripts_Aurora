@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.25.1
+// @version      1.26.0
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas, el Valle (recoge con el almacén lleno para la hora punta ×2, gasta el Brillo y los puntos de investigación) y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1157,8 +1157,9 @@
     valle: { nombre: '🌄 Valle', href: '/valle' },
     isla: { nombre: '🏝️ Isla', href: '/isla' },
     missingno: { nombre: '👾 MissingNo.', href: '/jefe', chequeo: () => missingnoPendiente() },
+    manadas: { nombre: '📺 Manadas', href: '/manadas', otras: '*', chequeo: () => manadasChequeo() },
   };
-  const ROBOT_DE = { '/huerto': 'huerto', '/torre': 'torre', '/tronos': 'tronos', '/entranas': 'entranas', '/subsuelo': 'subsuelo', '/valle': 'valle', '/isla': 'isla', '/jefe': 'missingno' };
+  const ROBOT_DE = { '/huerto': 'huerto', '/torre': 'torre', '/tronos': 'tronos', '/entranas': 'entranas', '/subsuelo': 'subsuelo', '/valle': 'valle', '/isla': 'isla', '/jefe': 'missingno', '/manadas': 'manadas' };
   const SS_EF = { on: 'axe-dfondo-on', fin: 'axe-dfondo-fin', una: 'axe-dfondo-una', estado: 'axe-dfondo-estado', bajadas: 'axe-dfondo-bajadas' };
   // al acabar una parada: cuándo toca la siguiente vez y cómo ha ido (se mira aquí, aún en su página)
   const ROBOT_FIN = {
@@ -1188,6 +1189,10 @@
       if (f && f.motivo === 'una') return { prox: Date.now(), dia: hoyK, bajadas, info: res || 'bajando' };
       if (f && /energ|pases|gratis/i.test(f.motivo || '')) return { prox: manana(), dia: hoyK, bajadas, info: `${res ? res + ' · ' : ''}sin pases hasta mañana` };
       return { prox: Date.now() + 30 * 60000, dia: hoyK, bajadas, info: `${res ? res + ' · ' : ''}${corto((f && f.motivo) || 'se ha parado')}`.slice(0, 90) };
+    },
+    manadas() {
+      const u = lsGet('mh-gratis-ultimo', null);
+      return u && u.dia === hoy() && u.parcial && u.parcial.length ? { prox: Date.now() + 30 * 60000, listo: false, info: `queda manada en ${u.parcial.join(', ')} (sin 🌿)` } : { prox: manana(), listo: false, info: 'hechas' };
     },
     missingno() {
       const t = textoMain(), mejor = (t.match(/([\d.]+)\s*tu mejor/i) || [])[1];
@@ -1335,6 +1340,17 @@
       return pulsar(b, '📺 Manadas: toda la manada (los 10 encuentros) de cada región (te muevo por el mapa y vuelvo a tu región).', [2000, 3000]);
     },
   };
+  // las manadas que quedaron a medias por falta de 🌿: se retoman con energía verde (≥ 5) pasado el tiempo de espera
+  const verdeAhora = () => { const h = document.querySelector('header'), m = h && /🌿\uFE0F?\s*(\d+)\s*\/\s*\d+/.exec((h.textContent || '').replace(/\s+/g, ' ')); return m ? +m[1] : null; };
+  async function manadasChequeo() {
+    const u = lsGet('mh-gratis-ultimo', null);
+    if (!u || u.dia !== hoy()) return { listo: false, prox: Date.now() + 30 * 60000, info: 'las hace la ruta de diarias' };
+    if (!(u.parcial && u.parcial.length)) return { listo: false, prox: manana(), info: 'hechas' };
+    if (Date.now() < (u.reintento || 0)) return { listo: false, prox: u.reintento, info: `queda manada en ${u.parcial.join(', ')}` };
+    const v = verdeAhora();
+    if (v != null && v < 5) return { listo: false, prox: Date.now() + 20 * 60000, info: `sin 🌿 (${v}): espero` };
+    return { listo: true, info: `quedaba manada en ${u.parcial.join(', ')}` };
+  }
   const manadasPendientes = () => { const u = lsGet('mh-gratis-ultimo', null); return !(u && u.dia === hoy()); };
 
   // MissingNo. (/jefe, un día de cada tres): se le pega gratis (no gasta energía ni daña al equipo; solo cuenta tu mejor
@@ -2307,7 +2323,7 @@
       caja.querySelector('.axdf-a3 .q').className = 'q ' + A.qCls;
       caja.querySelector('.axdf-a3').style.display = A.t || A.q || A.lu ? '' : 'none';
       // lo que va por horas, en casillas: cada cosa con su cuenta atrás (o ✅ si ya está hasta mañana)
-      const CORTO = { huerto: 'Huerto', torre: 'Torre', tronos: 'Tronos', entranas: 'Entrañas', subsuelo: 'Subsuelo', valle: 'Valle', isla: 'Isla', missingno: 'MissingNo' };
+      const CORTO = { huerto: 'Huerto', torre: 'Torre', tronos: 'Tronos', entranas: 'Entrañas', subsuelo: 'Subsuelo', valle: 'Valle', isla: 'Isla', missingno: 'MissingNo', manadas: 'Manadas' };
       const manana0 = (() => { const d = new Date(); d.setHours(24, 0, 0, 0); return d.getTime(); })();
       const tiles = Object.keys(ROBOT).filter(id => id !== 'diarias').map(id => {
         const t = rtGet(id), ya = on && r && !enDiarias && idAhora === id;
