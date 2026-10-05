@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Diarias (solas)
 // @namespace    auroradex-diarias
-// @version      1.26.0
+// @version      1.27.2
 // @description  Juega solo las diarias. «🤖 Robot de diarias» (icono de Accesos directos o botón del Menú): se queda encendido en segundo plano; cada día empieza de cero con las diarias y además hace el Huerto al acabar su cosecha, la Torre al acabar cada espera, los Tronos cuando te quedas sin ninguno, las Entrañas (una bajada tras otra hasta gastar los pases) el Subsuelo cuando vuelven a llenarse las vetas, el Valle (recoge con el almacén lleno para la hora punta ×2, gasta el Brillo y los puntos de investigación) y MissingNo. cuando está (y su ruleta cuando cae). Las diarias incluyen el Canal Manadas (encuentros gratis). Las diarias las juega todas (también Isla, Misiones, Solar, los Tronos si no tienes ninguno y las dos ligas de la Torre, esperando sus 15 min entre retos), en una ventana oculta de la misma pestaña, mientras tú sigues jugando; una tarjeta abajo dice por dónde va con el paso entre paréntesis (3/14), lo que ya estaba hecho, lo hecho y lo que queda (se puede minimizar o parar, y si recargas sigue). «¿Quién es ese Pokémon?»: lee el número de la Pokédex de la silueta, pulsa el nombre correcto y tira la ruleta con cada acierto. Cúpula Pokéathlon: reparte tus Pokémon entre las tres pruebas probando los 120 repartos y quedándose con el que más energía da de media (con el ±20% de suerte), y compite. El Muelle: echa el flotador y tira justo cuando pasa por el centro de la zona. Carreras de Rattata: elige rata según la pista (y aprende de tus carreras). Rutas submarinas: bombona y 12 bajadas a la zona que elijas. Tren de Biscuit: rebusca en la chatarra. La Cantera: martillo para buscar y pico para sacar las piezas enteras que salen más baratas. Álbum de Braulio: elige la base más currada, cinco veces. Casa Treta (Hoenn): la sube con su script. Botón «Jugar todas las diarias» en el menú: juega todas las pendientes una tras otra y luego viaja a cada región para hacer su Safari (con Safari Auto), la Casa Treta en Hoenn y el Tren en Teselia, y vuelve a la tuya. En casa además pasa por el Huerto (solo Meloc y Latano), el Valle («Hacerlo todo») y el Salón (los respiros del día) con sus scripts. Abriendo https://auroradex.es/menu?diarias=todas (p. ej. desde un atajo del móvil a una hora) la ruta arranca sola. Panel con lo que va haciendo y botón para parar.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -129,8 +129,12 @@
       const sec = img.closest('section') || document;
       return $$('button', sec).filter(b => !ajeno(b) && !b.disabled && visible(b) && texto(b).length > 0 && texto(b).length < 30);
     },
+    // el botón «¡TIRAR!» aunque esté apagado un momento (gira la ruleta): mientras haya, la diaria no está acabada
+    hayTirar: () => $$('main button.boton-principal').find(b => !ajeno(b) && /tirar/i.test(texto(b)) && !/sin tiradas/i.test(texto(b))),
     botonTirar: () => $$('main button.boton-principal').find(b => !ajeno(b) && !b.disabled && visible(b) && !/sin tiradas/i.test(texto(b))),
     hecho: new Set(),
+    // acabada: ni silueta que acertar ni tiradas que gastar (antes se daba por hecha al ver «Por hoy se acabó el programa» aunque quedaran cajas)
+    listo() { return !this.silueta() && !this.hayTirar() && /por hoy se acab[oó]|mañana hay cinco/i.test(textoMain()); },
     async paso() {
       const img = this.silueta();
       if (img) {
@@ -164,6 +168,7 @@
         await pausa(3500, 4500);                     // que termine de girar la ruleta
         return true;
       }
+      if (this.hayTirar()) { await pausa(900, 1400); return true; }     // la ruleta aún gira: se espera
       return pulsarSeguir();
     },
   };
@@ -302,10 +307,13 @@
   // final del verde. Devuelve 'centro', 'verde', 'fuera' o null (esperar). «Clavado» vale lo mismo en cualquier punto del
   // centro, así que se tira en el PRIMER fotograma que cae dentro: esperar a uno más cercano a la mitad no da nada y, si
   // el navegador se atasca justo después, se pierde el centro.
-  function decideTiro(x, c0, c1, v1) {
+  function decideTiro(x, c0, c1, v1, v0, paso) {
     const m = 0.05;                                            // (el servidor redondea a dos decimales)
     if (x >= c0 + m && x <= c1 - m) return 'centro';
     if (x > c1 - m) return x <= v1 ? 'verde' : 'fuera';        // ya se pasó del centro: lo que quede
+    // con pocos fotogramas por segundo el flotador da saltos: si ya está en el verde y el siguiente salto se lo salta entero
+    // (el centro no cabe en medio), se tira ahora antes que arriesgarse a pasarse del verde
+    if (paso > 0 && x >= v0 && x + paso > v1) return 'verde';
     return null;
   }
   const mediana = a => { const b = a.slice().sort((p, q) => p - q); return b[b.length >> 1]; };
@@ -316,6 +324,7 @@
     const v0 = pct(m.verde, 'left'), v1 = v0 + pct(m.verde, 'width');
     const c0 = pct(m.centro, 'left'), c1 = c0 + pct(m.centro, 'width');
     const T = [], X = [];
+    let avisoFps = false;
     const t0 = performance.now();
     while (performance.now() - t0 < 20000) {
       const t = await frame();
@@ -327,7 +336,8 @@
       T.push(t); X.push(x);
       if (T.length > 8) { T.shift(); X.shift(); }
       const dt = T.length > 1 ? mediana(T.slice(1).map((q, i) => q - T[i])) : 16.7;
-      const que = decideTiro(x, c0, c1, v1);
+      if (!avisoFps && T.length >= 6 && dt > 45) { avisoFps = true; log(`⚠ 🎣 La ventana va a ${Math.round(1000 / dt)} fotogramas/s: con tan pocos el centro es difícil. Deja la pestaña a la vista y la pantalla encendida.`); }
+      const que = decideTiro(x, c0, c1, v1, v0, X.length > 1 ? mediana(X.slice(1).map((q, i) => q - X[i])) : 0);
       if (que) {
         tira.click(); otraAccion();
         const fps = Math.round(1000 / dt);
@@ -886,17 +896,46 @@
   /* ══════════ Jessie y James (un plan por semana, 3 capítulos; sin gastar energía) ══════════
    * Solo cuando hay capítulo: va a la zona que dice la pista (viajar por el mapa es gratis) y les para los pies. Si
    * ese día no toca, o ya está el plan parado, no hace nada. */
+  // Tras cada combate (ganado o perdido) se va al mapa a curar el equipo y se vuelve: «Curar · ⚡ −1» (la energía sobra) o,
+  // si no, una Poción de Campo / Poción. Cada capítulo se juega con el equipo entero.
+  const LS_JESSIE_INT = 'axd-jessie-int';
+  const intentosJessie = () => { const g = lsGet(LS_JESSIE_INT, {}); return g.dia === hoy() ? g.n || 0 : 0; };
   const JESSIE = {
     id: 'jessie', nombre: '🎈 Jessie y James',
     detecta: () => ruta() === '/jessie-y-james' && document.querySelector('main'),
     boton() { return $$('main button, div.fixed button').find(b => !ajeno(b) && !b.disabled && visible(b) && /pararles los pies|^ir a |saltar al resultado|^seguir$/i.test(texto(b))); },
-    listo() { return !this.boton() && !/pararles los pies/i.test(textoMain()); },
+    listo() { return (ruta() !== '/jessie-y-james' ? !(ssGet() && ssGet().actual && ssGet().actual.curar) : !this.boton() && !/pararles los pies/i.test(textoMain())) || intentosJessie() > 8; },
     async paso() {
       const b = this.boton();
       if (!b) return false;
+      // el resultado de un combate: «Seguir» tras «¡Capítulo N parado!» o «Esta vez se salen con la suya»
+      if (/^seguir$/i.test(texto(b)) && /cap[ií]tulo \d+ parado|se salen con la suya/i.test(textoMain())) {
+        const r = ssGet();
+        lsPut(LS_JESSIE_INT, { dia: hoy(), n: intentosJessie() + 1 });
+        await pulsar(b, /parado/i.test(textoMain()) ? '🎈 Capítulo parado: a curar el equipo.' : '🎈 Se han salido con la suya: curo al equipo y repito.', [700, 1100]);
+        if (r && r.actual) { r.actual.curar = Date.now(); r.actual.otras = ['/mapa']; ssPut(r); location.assign('/mapa'); }
+        return true;
+      }
       return pulsar(b, /pararles/i.test(texto(b)) ? '🎈 ¡A pararles los pies!' : /^ir a /i.test(texto(b)) ? `🎈 ${texto(b)} (donde dice la pista)` : '', [2000, 3000]);
     },
   };
+  // en el mapa, con la orden de curar: se cura y se vuelve a donde se estaba
+  let curando = false;
+  async function curarEquipo(r) {
+    if (curando) return;
+    curando = true;
+    try {
+      const vuelta = () => { delete r.actual.curar; delete r.actual.otras; ssPut(r); location.assign(r.actual.href); };
+      if (Date.now() - r.actual.curar > 40000) { vuelta(); return; }
+      const bot = re => $$('main button').find(b => !ajeno(b) && !b.disabled && visible(b) && re.test(texto(b)));
+      let b = null;
+      for (let i = 0; i < 30 && !b; i++) { b = bot(/^curar\b/i) || bot(/^poci[oó]n de campo/i) || bot(/^poci[oó]n\s*\(\s*[1-9]/i); if (!b) await sleep(300); if (!jugando()) throw PARADO; }
+      if (b) { log(`🩹 ${texto(b).replace(/\s*·.*$/, '')}: equipo curado.`); b.click(); otraAccion(); await pausa(1200, 1800); }
+      else log('🩹 El equipo ya está entero (o no hay con qué curarlo): sigo.');
+      vuelta();
+    } catch (e) { if (e !== PARADO) console.warn('[diarias curar]', e); }
+    finally { curando = false; }
+  }
 
 
   /* ══════════ Paradas nuevas: Misiones, Isla, Solar, Tronos y Torre ══════════ */
@@ -1470,7 +1509,7 @@
   // lo que ya se ha hecho hoy (cada diaria en su región): la ruta lo salta sin ir a mirarlo. Lo que va por tiempos
   // (Huerto, Isla, Torre, Tronos, Misiones, Entrañas, Subsuelo, MissingNo, Manadas) se sigue mirando cada vez
   const LS_HECHAS = 'axd-hechas-hoy';
-  const REPITEN = ['/huerto', '/isla', '/misiones', '/torre', '/tronos', '/entranas', '/subsuelo', '/valle', '/jefe', '/manadas', '/cartas'];
+  const REPITEN = ['/huerto', '/isla', '/misiones', '/torre', '/tronos', '/entranas', '/subsuelo', '/valle', '/jefe', '/manadas', '/cartas', '/jessie-y-james'];
   const claveHecha = (x, casa) => x.href + '@' + (x.region || (x.href === '/safari' || x.href === '/casa' ? casa || '' : ''));
   const hechasHoy = () => { const h = lsGet(LS_HECHAS, null); return h && h.dia === hoy() && Array.isArray(h.k) ? h.k : []; };
   const yaHoy = (x, casa) => !!x && !x.viaje && !REPITEN.includes(x.href) && hechasHoy().includes(claveHecha(x, casa));
@@ -1831,8 +1870,9 @@
     const r = ssGet();
     if (perdida(r)) return;
     if (ruta() === '/menu') { tickMenu(); return; }
+    if (r && r.actual && r.actual.curar && ruta() === '/mapa') { curarEquipo(r); return; }
     const enRuta = !!(r && r.actual && r.actual.href === ruta());
-    if (r && r.actual && r.actual.otras && !enRuta && !r.actual.viaje) {
+    if (r && r.actual && r.actual.otras && !r.actual.curar && !enRuta && !r.actual.viaje) {
       const d0 = EXTRA[r.actual.href] || RUTAS[r.actual.href];
       if (d0 && ((d0.listo && d0.listo()) || Date.now() - r.actual.desde > (d0.maxMs || POR_DIARIA_MS)) && !r.actual.volviendo) { r.actual.volviendo = true; ssPut(r); location.assign(r.actual.href); return; }
     }
