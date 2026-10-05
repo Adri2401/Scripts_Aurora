@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Ciudad Negra (IA)
 // @namespace    auroradex-ciudadnegra
-// @version      1.0.0
+// @version      1.0.1
 // @description  Solo en /ciudad-negra. Elige el mejor cuarteto para la norma de la semana y baja solo: en cada puerta, tienda y bendición juega cada opción muchas veces por delante (Monte Carlo, con las fórmulas del juego) y escoge la que más cerca deja de ganar al siguiente guardián; ordena a tu equipo antes de cada combate, gasta el dinero en lo que más rinde y aprende de cada combate (nivel de los rivales por piso, cuánto pega cada lado, qué da cada puerta).
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -15,7 +15,7 @@
   'use strict';
   // Solo en la pestaña de la página (no en ventanas ocultas de otros scripts)
   try { if (window.top !== window) return; } catch { return; }
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   /* ── Kit Aurora 2 (mismo aspecto y mismos avisos en todos los scripts de Aurora Dex) ──────────────
    * Todo sale de los colores de la propia web (--lienzo, --tinta-*, --crema-*, --hoja-*…), así que cambia solo
    * entre modo claro y oscuro. Paneles: kHead/kBadge/K_TILE/K_BAR/K_LOG… · Avisos: kAviso({ tipo, titulo, … }). */
@@ -635,14 +635,15 @@
 
   // Compras de la tienda. opciones: [{id, nombre, texto, precio, noDisponible}]
   function mejorCompra(S, opciones, hipotetica) {
+    if (restanteTienda() <= 0) return null;       // sin tope de gasto no se compra nada
     const reserva = reservaDinero();
     const ops = hipotetica ? [{ id: 'hiperpocion', nombre: 'Hiperpoción', precio: 4000 }, { id: 'amuleto', nombre: 'Amuleto', precio: 9000 }, { id: 'cinta', nombre: 'Cinta de Campeón', precio: 18000 }] : opciones;
     let mejor = null;
     const base = valorEstado(S, 24);
     for (const o of ops) {
       if (o.noDisponible) continue;
-      if (!hipotetica && S.dinero - o.precio < reserva) continue;
-      if (hipotetica && S.dinero - o.precio < reserva) continue;
+      if (S.dinero - o.precio < reserva) continue;
+      if (o.precio > restanteTienda()) continue;   // tope de gasto en tiendas por bajada (0 por defecto: no se compra nada)
       const D = efectoCompra(S, o, hipotetica);
       if (!D) continue;
       const q = valorEstado(D, 24);
@@ -835,7 +836,9 @@
   }
 
   /* ══════════ 6 · ACCIONES (pulsar lo que pulsaría una persona) ══════════ */
-  const conf = { pago: false, reserva: 20000, velocidad: 'normal', todos: true, ...lsGet('acn-conf', {}) };
+  const conf = { pago: false, reserva: 20000, tope: 0, velocidad: 'normal', todos: true, ...lsGet('acn-conf', {}) };
+  let gastadoTienda = 0;                                  // lo gastado en tiendas en la bajada de ahora
+  const restanteTienda = () => Math.max(0, (+conf.tope || 0) - gastadoTienda);
   const guardaConf = () => lsPut('acn-conf', conf);
   const VEL = { rapida: [50, 120], normal: [350, 700], tranquila: [1000, 1800] };
   const SS_AUTO = 'acn-auto';
@@ -981,7 +984,9 @@
       if (c) {
         const b = bs.find(x => texto(x).includes(c.nombre));
         log(`🛒 Compro ${c.nombre} (${c.precio} $) → guardián ≈ ${pct(c.q)}`);
-        return pulsar(b, `Compro ${c.nombre}`);
+        const ok = await pulsar(b, `Compro ${c.nombre}`);
+        if (ok) gastadoTienda += c.precio;
+        return ok;
       }
       const salir = bs.find(x => /salir sin comprar/i.test(texto(x)));
       log('🛒 No compro nada.');
@@ -1041,7 +1046,7 @@
     const bj = botonBajar();
     if (!bj || bj.disabled) { parar('⚠ El botón de bajar no está disponible.', 'aviso'); return false; }
     kb.semana = E.semana; guardaKb();
-    intentosSesion++; enBajada = true; ultimaDec = null;
+    intentosSesion++; enBajada = true; ultimaDec = null; gastadoTienda = 0;
     log(`🌃 Bajada ${E.intentosUsados + 1} de ${E.intentosMax}.`);
     return pulsar(bj, 'Bajo');
   }
@@ -1109,6 +1114,7 @@
         </div>
         <label class="k-switch text-[11px] font-bold text-tinta-600"><input type="checkbox" class="acn-o-pago"> Usar también los intentos de pago (10.000 $ y 25.000 $)</label>
         <label class="k-switch text-[11px] font-bold text-tinta-600"><input type="checkbox" class="acn-o-todos"> Jugar todos los intentos que queden, uno tras otro</label>
+        <label class="flex items-center gap-2 text-[11px] font-bold text-tinta-600">Máximo a gastar en tiendas por bajada <input type="number" min="0" step="1000" class="acn-o-tope ${K_FIELD}" style="width:110px;padding:4px 8px"> $ (0 = no compra nada)</label>
         <label class="flex items-center gap-2 text-[11px] font-bold text-tinta-600">Dinero que no se gasta <input type="number" min="0" step="1000" class="acn-o-res ${K_FIELD}" style="width:110px;padding:4px 8px"> $</label>
       </div>
       <div class="acn-juego hidden space-y-2">
@@ -1133,13 +1139,14 @@
     $p('.acn-b-parar').addEventListener('click', () => parar('⏹ Parado.', 'info'));
     $p('.acn-o-pago').addEventListener('change', e => { conf.pago = e.target.checked; guardaConf(); });
     $p('.acn-o-todos').addEventListener('change', e => { conf.todos = e.target.checked; guardaConf(); });
+    $p('.acn-o-tope').addEventListener('change', e => { conf.tope = Math.max(0, +e.target.value || 0); guardaConf(); });
     $p('.acn-o-res').addEventListener('change', e => { conf.reserva = Math.max(0, +e.target.value || 0); guardaConf(); });
     $p('.acn-b-copiar').addEventListener('click', e => {
       const txt = JSON.stringify({ version: VERSION, kb, diario: lsGet(DIARIO_KEY, []) });
       const ok = () => { e.target.textContent = '✔ Copiado: pégamelo'; };
       try { navigator.clipboard.writeText(txt).then(ok, () => prompt('Copia esto:', txt)); } catch { prompt('Copia esto:', txt); }
     });
-    $p('.acn-o-pago').checked = !!conf.pago; $p('.acn-o-todos').checked = !!conf.todos; $p('.acn-o-res').value = conf.reserva;
+    $p('.acn-o-pago').checked = !!conf.pago; $p('.acn-o-todos').checked = !!conf.todos; $p('.acn-o-res').value = conf.reserva; $p('.acn-o-tope').value = conf.tope;
     for (const l of logs) kLog($p('.acn-log'), l);
   }
   function pintar() {
