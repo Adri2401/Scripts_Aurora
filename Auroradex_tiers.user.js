@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.36.0
+// @version      1.37.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier o por estadística (botón «📊 Stat»: cada toque pasa a PS, Ataque, Defensa, Especial, Velocidad y Total; pone el valor en cada uno, corona al mejor 👑 y dice quién la tiene más alta en el equipo y en la Caja), tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -1764,6 +1764,7 @@
     let est = estadoTorre();
     if (!est) return;
     calculandoTorre = true; progTorre = 'Preparando…';
+    aprenderObjetos(est);
     programar();
     try {
       await pausaT();
@@ -1923,6 +1924,8 @@
         <p class="text-[11px] font-semibold text-tinta-600">Gana ≈ <b>${pctT(M.nota.g)}</b> de los combates.</p>
         ${M.comp ? compHTML(M.comp) : ''}
         <button type="button" class="axt-poner boton-principal w-full !py-2 text-xs" ${guardadoEnOrden ? 'disabled' : ''}>${guardadoEnOrden ? '✔ Ya es tu equipo guardado, en este orden' : esGuardado ? '🤖 Ponerlo en este orden y guardarlo' : '🤖 Poner este equipo en este orden y guardarlo'}</button>
+        <label class="flex items-center gap-1.5 text-[11px] font-bold text-tinta-600"><input type="checkbox" class="axt-conobj" ${lsGet('axt-conobj', true) ? 'checked' : ''}> Con los mejores objetos (cada uno distinto)</label>
+        <button type="button" class="axt-objetos boton-suave w-full !py-1.5 text-xs">🎒 Solo los objetos óptimos de mis elegidos</button>
         <p class="axt-poner-msg text-center text-[10px] font-bold ${yaSel ? 'text-hoja-600' : 'text-tinta-400'}">${yaSel ? '✔ Son los que tienes elegidos.' : 'Llevan una ⭐ en la lista de abajo.'}</p>
       </div>
       <p class="text-[11px] font-semibold text-tinta-500">Los mejores sueltos para la Torre: ${M.sueltos.slice(0, 10).map((x, i) => `${i + 1}. ${chipT(x.c)}${x.c.nombre}`).join(' · ')}</p>
@@ -1934,6 +1937,10 @@
       if (b) b.addEventListener('click', e => { e.preventDefault(); copiarDatosTorre(est, b); });
       const bp = caja.querySelector('.axt-poner');
       if (bp) bp.addEventListener('click', e => { e.preventDefault(); ponerEquipoTorre(idsMejor); });
+      const co = caja.querySelector('.axt-conobj');
+      if (co) co.addEventListener('change', () => lsPut('axt-conobj', co.checked));
+      const bo = caja.querySelector('.axt-objetos');
+      if (bo) bo.addEventListener('click', e => { e.preventDefault(); soloObjetosTorre(idsMejor); });
       const ba = caja.querySelector('.axt-analizar');
       if (ba) ba.addEventListener('click', e => { e.preventDefault(); analizarSeleccion(); });
     });
@@ -1982,7 +1989,7 @@
     return r.value;
   }
   let poniendoTorre = false;
-  async function ponerEquipoTorre(ids) {
+  async function ponerEquipoTorre(ids, conObjetos = lsGet('axt-conobj', true)) {
     if (poniendoTorre) return;
     poniendoTorre = true;
     const espera = ms => new Promise(r => setTimeout(r, ms));
@@ -2000,13 +2007,177 @@
       }
       if (faltan.length) { msg('⚠️ Alguno no se ve en la lista (¿hay un filtro puesto?). No he guardado.'); return; }
       await espera(250);
-      const g = $$('main button').find(b => /^\s*(Cambiar el equipo|Dejar estos)/i.test(b.textContent || '') && !b.disabled);
-      if (!g) { msg('✔ Marcados. No encuentro el botón de guardar: dale tú a «Cambiar el equipo».'); return; }
+      let extra = '';
+      if (conObjetos) { poniendoTorre = false; extra = ' ' + await objetosOptimosTorre(ids, msg); poniendoTorre = true; await espera(500); }
+      const g = guardarTorreBoton();
+      if (!g) { msg('✔ Marcados.' + extra + ' No encuentro el botón de guardar (¿ya es el equipo guardado?): dale tú a «Cambiar el equipo» si hace falta.'); return; }
       g.click();
-      msg('✔ Equipo puesto y guardado.');
+      msg('✔ Equipo puesto y guardado.' + extra);
     } catch (e) { console.warn('[axt torre]', e); msg('⚠️ Error: ' + (e && e.message)); }
     finally { poniendoTorre = false; }
   }
+
+  /* ------------------------------------------------------------------ *
+   *  OBJETOS ÓPTIMOS PARA EL EQUIPO DE LA TORRE
+   *  Con los seis elegidos se prueba qué objeto lleva cada uno (de los de la mochila, sin repetir ninguno) y se queda el
+   *  reparto que más combates gana contra los mismos combates de prueba. Luego se ponen de verdad en «Objetos de los
+   *  elegidos» (quitando antes los que cambian de dueño) y, si toca, se guarda el equipo para que cuenten en la Torre.
+   * ------------------------------------------------------------------ */
+  // Los efectos reales salen de lo que dice cada objeto en la mochila («+20% de Ataque y +10% de Velocidad…»): así valen
+  // aunque el juego cambie las cifras o saque objetos nuevos. Solo cuentan los que mejoran las estadísticas del que los lleva.
+  const STAT_PAL = [['ps maximos', 'hp'], ['ps', 'hp'], ['ataque', 'atk'], ['defensa', 'def'], ['especial', 'esp'], ['velocidad', 'spe']];
+  function efectoDesc(d) {
+    const t = normT(d || '').replace(/\s+/g, ' ');
+    if (!/equipable/.test(t) || /basta con que (lo|la) lleve uno/.test(t)) return null;
+    const out = {}; let hay = false;
+    const marcas = [...t.matchAll(/([+-])\s*(\d+)\s*%/g)];
+    marcas.forEach((m, i) => {
+      const fin = i + 1 < marcas.length ? marcas[i + 1].index : t.length;
+      let seg = t.slice(m.index + m[0].length, fin).split(/[.;]| pero | para quien| sin quitar/)[0];
+      for (const [w, k] of STAT_PAL) if (new RegExp('\\b' + w + '\\b').test(seg)) { out[k] = (m[1] === '-' ? -1 : 1) * +m[2]; hay = true; seg = seg.replace(w, ' '); }
+    });
+    return hay ? out : null;
+  }
+  // (lo aprendido en otras visitas: así los objetos que ya lleva un Pokémon, y que ya no están en la mochila, también cuentan bien)
+  try { for (const [id, o] of Object.entries(lsGet('axt-objetos', {}))) if (o && typeof o === 'object') OBJETOS[id] = o; } catch { /* nada */ }
+  function aprenderObjetos(est) {
+    let cambio = false;
+    for (const e of (est && est.equipables) || []) {
+      const ef = efectoDesc(e.descripcion);
+      if (!ef) continue;
+      const o = OBJETOS[e.id];
+      if (!o || ['hp', 'atk', 'def', 'esp', 'spe'].some(k => (o[k] || 0) !== (ef[k] || 0))) { OBJETOS[e.id] = { n: e.nombre || (o && o.n) || e.id, ...(o && o.aguanta ? { aguanta: true } : {}), ...ef }; cambio = true; }
+    }
+    if (cambio) {
+      cacheLuch = new Map(); memoRival.clear();
+      const L = lsGet('axt-objetos', {});
+      for (const e of est.equipables || []) if (efectoDesc(e.descripcion) && OBJETOS[e.id]) L[e.id] = OBJETOS[e.id];
+      lsPut('axt-objetos', L);
+    }
+    return cambio;
+  }
+  function* mejorObjetosPasos(cs, est, sims) {
+    const stock = {};
+    for (const e of est.equipables || []) if (OBJETOS[e.id] && e.cantidad > 0) stock[e.id] = 1;        // uno de cada: sin repetir
+    for (const c of cs) { const id = idObjetoT(c.itemId, c.itemNombre); if (id) stock[id] = 1; }          // los que ya llevan vuelven a estar libres
+    const lista = Object.keys(stock);
+    const simsB = sims.length > 300 ? sims.slice(0, 300) : sims;
+    const ev = a => valorN(notaEquipo(cs.map((c, i) => luchadorT(c, a[i] || null)), simsB, cs.length < 6 ? cs.length : 6));
+    const actual = cs.map(c => idObjetoT(c.itemId, c.itemNombre) || null);
+    const v0 = ev(actual);
+    let a = cs.map(() => null), v = ev(a);
+    yield;
+    // voraz: el par (Pokémon, objeto) que más sube, uno tras otro
+    for (let paso = 0; paso < cs.length; paso++) {
+      let mejor = null;
+      for (let i = 0; i < cs.length; i++) {
+        if (a[i]) continue;
+        for (const it of lista) {
+          if (a.includes(it)) continue;
+          const b = a.slice(); b[i] = it;
+          const w = ev(b); yield;
+          if (!mejor || w > mejor.w) mejor = { i, it, w };
+        }
+      }
+      if (!mejor || mejor.w <= v + 1e-4) break;
+      a[mejor.i] = mejor.it; v = mejor.w;
+    }
+    // mejora: cambiar el de cada uno por otro (o quitarlo); si otro ya lo lleva, se intercambian
+    for (let vuelta = 0; vuelta < 3; vuelta++) {
+      let mejoro = false;
+      for (let i = 0; i < cs.length; i++) {
+        let mej = null;
+        for (const it of [null, ...lista]) {
+          if (it === a[i]) continue;
+          const b = a.slice();
+          if (it) { const j = b.indexOf(it); if (j >= 0) b[j] = a[i]; }
+          b[i] = it;
+          const w = ev(b); yield;
+          if (w > v + 1e-4 && (!mej || w > mej.w)) mej = { b, w };
+        }
+        if (mej) { a = mej.b; v = mej.w; mejoro = true; }
+      }
+      if (!mejoro) break;
+    }
+    // si no mejora de verdad lo que ya llevan, se dejan como están
+    if (v < v0 + 0.003) return { objetos: actual, v: v0, v0, igual: true, lista };
+    return { objetos: a, v, v0, igual: false, lista };
+  }
+  const esperarT = async (fn, ms = 8000, paso = 120) => { const t0 = Date.now(); for (;;) { const r = fn(); if (r) return r; if (Date.now() - t0 > ms) return null; await new Promise(x => setTimeout(x, paso)); } };
+  const filaElegido = id => { const h = $$('main h2').find(x => /objetos de los elegidos/i.test(x.textContent || '')); const ul = h && h.parentElement && $$('ul', h.parentElement)[0]; return ul && $$('li', ul).find(li => { const f = fibraDe(li); return f && String(f.key) === String(id); }); };
+  const hojaObjetos = () => $$('div.fixed').find(d => $$('button', d).some(b => /^(poner|quitarle el objeto)$/i.test((b.textContent || '').trim())) || /equipable en la mochila/i.test(d.textContent || ''));
+  // Abre la hoja de objetos de un elegido, pulsa lo que toca y espera a que se cierre (el juego la cierra al acabar bien)
+  async function accionObjeto(id, quiere, nombre) {
+    // (tras cada cambio el juego se refresca un momento y deja los botones apagados: se espera a que se enciendan)
+    const bt = await esperarT(() => { const f = filaElegido(id); return f && $$('button', f).find(b => /^(cambiar|poner)$/i.test((b.textContent || '').trim()) && !b.disabled); }, 10000);
+    if (!bt) return false;
+    bt.click();
+    const hoja = await esperarT(hojaObjetos, 4000);
+    if (!hoja) return false;
+    await new Promise(r => setTimeout(r, 250));
+    const boton = () => {
+      const h = hojaObjetos(); if (!h) return null;
+      if (quiere === null) return $$('button', h).find(x => /^quitarle el objeto$/i.test((x.textContent || '').trim()) && !x.disabled);
+      const nn = normT(nombre || '');
+      const li = $$('li', h).find(l => $$('img', l).some(i => idObjeto(i) === quiere)) || (nn && $$('li', h).find(l => normT(l.textContent).startsWith(nn)));
+      return li && $$('button', li).find(x => /^poner$/i.test((x.textContent || '').trim()) && !x.disabled);
+    };
+    const b = await esperarT(boton, 4000);
+    if (!b) { const x = $$('button', hoja).find(y => (y.getAttribute('aria-label') || '') === 'Cerrar'); if (x) x.click(); return false; }
+    b.click();
+    const cerrada = await esperarT(() => !hojaObjetos(), 8000);
+    if (!cerrada) { errObjeto = ($$('div.fixed p').map(q => (q.textContent || '').trim()).find(t => t && !/^equipable/i.test(t) && t.length < 200 && !/×\d/.test(t)) || ''); const x = $$('button', hojaObjetos() || document).find(y => (y.getAttribute('aria-label') || '') === 'Cerrar'); if (x) x.click(); }
+    await new Promise(r => setTimeout(r, 700));
+    return !!cerrada;
+  }
+  let objetosOcupado = false, errObjeto = '';
+  // `ids`: los elegidos (en el orden de la selección). Devuelve un texto con lo hecho.
+  async function objetosOptimosTorre(ids, avisar) {
+    if (objetosOcupado) return 'Ya estoy con los objetos.';
+    objetosOcupado = true;
+    try {
+      let est = estadoTorre();
+      if (!est) return 'No veo los datos de la Torre.';
+      aprenderObjetos(est);
+      const cs = ids.map(id => est.candidatos.find(c => String(c.id) === String(id))).filter(Boolean);
+      if (!cs.length) return 'No hay Pokémon elegidos.';
+      avisar('Probando objetos…');
+      let sims = memoTorre && memoTorre.sims;
+      if (!sims) { const { pool } = poolTorre(est, candidatosUnicos(est)); sims = await correrPasos(simulacionesPasos(pool, 600, 7)); }
+      const r = await correrPasos(mejorObjetosPasos(cs, est, sims));
+      if (r.igual) return `Los objetos que llevan ya son lo mejor que tienes (≈ ${pctT(r.v0)}).`;
+      const nombreObj = id => (OBJETOS[id] || {}).n || id;
+      const plan = cs.map((c, i) => ({ c, quiere: r.objetos[i], tiene: idObjetoT(c.itemId, c.itemNombre) || null, crudo: c.itemId || null }));
+      // quitar antes lo que cambia de dueño o sobra (solo los objetos de combate: un Repartir EXP u otro sin efecto en la Torre se deja)
+      for (const x of plan) {
+        if (x.crudo && x.crudo !== x.quiere && (x.quiere || x.tiene)) {
+          avisar(`Quito ${nombreObj(x.tiene || x.crudo)} a ${x.c.nombre}…`);
+          if (!(await accionObjeto(x.c.id, null))) return `⚠️ No he podido quitarle el objeto a ${x.c.nombre}${errObjeto ? ': ' + errObjeto : ''}.`;
+        }
+      }
+      for (const x of plan) {
+        if (!x.quiere || x.quiere === x.tiene && x.crudo === x.quiere) continue;
+        avisar(`Pongo ${nombreObj(x.quiere)} a ${x.c.nombre}…`);
+        if (!(await accionObjeto(x.c.id, x.quiere, ((est.equipables || []).find(e => e.id === x.quiere) || {}).nombre || nombreObj(x.quiere)))) return `⚠️ No he podido ponerle ${nombreObj(x.quiere)} a ${x.c.nombre}${errObjeto ? ': ' + errObjeto : ' (¿se acabó en la mochila?)'}.`;
+      }
+      est = estadoTorre() || est;
+      return `✔ Objetos puestos (sin repetir): ${plan.filter(x => x.quiere).map(x => `${x.c.nombre} → ${nombreObj(x.quiere)}`).join(' · ')}. Gana ≈ ${pctT(r.v)} (antes ≈ ${pctT(r.v0)}).`;
+    } catch (e) { console.warn('[axt objetos]', e); return '⚠️ Error con los objetos: ' + (e && e.message); }
+    finally { objetosOcupado = false; }
+  }
+  const guardarTorreBoton = () => $$('main button').find(b => /^\s*(Cambiar el equipo|Dejar estos)/i.test(b.textContent || '') && !b.disabled);
+  // «🎒 Objetos óptimos»: para los que tienes elegidos ahora (si no hay, para el mejor equipo) y, si son los del equipo guardado, se guarda
+  async function soloObjetosTorre(idsMejor) {
+    const msg = t => { const p = document.querySelector('#axt-torre .axt-poner-msg'); if (p) p.textContent = t; };
+    let ids = seleccionTorre();
+    if (!ids.length) { await ponerEquipoTorre(idsMejor, false); ids = seleccionTorre(); }
+    const res = await objetosOptimosTorre(ids, msg);
+    const est = estadoTorre(), g = guardarTorreBoton();
+    const guardados = (est && est.miEquipo || []).map(m => String(m.ownedId));
+    if (/^✔/.test(res) && g && ids.length === guardados.length && ids.every(id => guardados.includes(String(id)))) { g.click(); msg(res + ' Guardado.'); }
+    else msg(/^✔/.test(res) ? res + ' Dale a guardar para que cuenten.' : res);
+  }
+
   // Una ⭐ abajo a la derecha en los 6 recomendados (solo se señalan: elegirlos es cosa tuya)
   function estrellasTorre(ids) {
     for (const li of $$('main ul.grid > li')) {
