@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aurora Dex · Tiers (S a G) y debilidades
 // @namespace    auroradex-tiers
-// @version      1.37.0
+// @version      1.38.0
 // @description  En /equipo, la Torre (/torre) y los Tronos (/tronos). Pone un icono de tier (S, A, B… G) a cada Pokémon del equipo y la Caja PC (también los especiales), ordena la Caja por tier o por estadística (botón «📊 Stat»: cada toque pasa a PS, Ataque, Defensa, Especial, Velocidad y Total; pone el valor en cada uno, corona al mejor 👑 y dice quién la tiene más alta en el equipo y en la Caja), tiene una tarjeta «Equipo ideal» con tres botones que lo hacen todo solos (mejor equipo con todo lo que tienes, con o sin legendarios: saca a los que llevas y mete los mejores de la Caja PC, en su mejor orden y guardado; y ordenar los que llevas) y en su ficha añade debilidades, resistencias, a quién pega fuerte y contra qué sufre. El tier sale de simular duelos 1 contra 1 con las fórmulas del propio juego. En la Torre: tier de cada candidato, % de victorias de tu selección y de tu equipo guardado, el mejor equipo de 6 con todo lo que tienes (marcado con ⭐; lo eliges tú), su composición (debilidades repetidas, amenazas sin respuesta, papel de cada uno y qué estadística potenciar), y la probabilidad de ganar a cada rival. En los Tronos, dentro de cada trono («Mi ficha»): cómo va tu equipo, qué movimientos le faltan y el mejor equipo de ese tipo (sin legendarios) para quitarlo y defenderlo, con un botón que lo pone y lo guarda solo. El modelo de combate aprende de los logs de la Torre. En la Torre solo recomienda: el equipo lo eliges tú.
 // @match        https://auroradex.es/*
 // @match        https://www.auroradex.es/*
@@ -359,7 +359,7 @@
    * ------------------------------------------------------------------ */
   function stats(b, L) {
     const st = x => Math.floor(2 * x * L / 100) + 5;
-    return { hp: Math.floor(3 * b[0] * L / 100) + L + 14, atk: st(b[1]), def: st(b[2]), esp: st(Math.round((b[3] + b[4]) / 2)), spa: st(b[3]), spd: st(b[4]), spe: st(b[5]), fis: b[1] >= b[3] };
+    return { hp: Math.floor(3 * b[0] * L / 100) + L + 14, atk: st(b[1]), def: st(b[2]), esp: st(Math.round((b[3] + b[4]) / 2)), spa: st(b[3]), spd: st(b[4]), spe: st(b[5]), fis: b[1] >= b[3], pref: Math.log(Math.max(1, b[1]) / Math.max(1, b[3])) };
   }
   const MODELO = { potencia: 30.5, se: 1.65, nve: 0.6, critProb: 0.09, critX: 1.64 };
   let CAL = { k: 1, se: MODELO.se, nve: MODELO.nve, critP: MODELO.critProb, critX: MODELO.critX };
@@ -384,9 +384,35 @@
   function danoPS(a, b) {
     const at = tipoAtaque(a, b);
     if (at.e === 0) return 0;
-    const fis = !at.propio || esFisico(a), A = fis ? a.atk : a.esp, D = fis ? b.def : b.esp;
-    return ((2 * a.L / 5 + 2) * MODELO.potencia * A / D / 50 + 2) * (at.propio ? 1.5 : 1) * eficaciaJuego(at.t, b.tipos) * CAL.k;
+    const eft = (at.propio ? 1.5 : 1) * eficaciaJuego(at.t, b.tipos) * CAL.k, base = (A, D) => ((2 * a.L / 5 + 2) * MODELO.potencia * A / D / 50 + 2) * eft;
+    // Tronos: el golpe es físico o especial según el movimiento, no según el Pokémon (Omastar o Probopass pegan con
+    // Roca físico aunque su Especial sea mayor; Gallade pega con Psíquico especial aunque su Ataque sea mayor)
+    if (a.tr && at.propio) { const w = pFisico(a, at.t); return w * base(a.atk, b.def) + (1 - w) * base(a.esp, b.esp); }
+    const fis = !at.propio || esFisico(a);
+    return base(fis ? a.atk : a.esp, fis ? b.def : b.esp);
   }
+  // Probabilidad de que un golpe de ese tipo sea físico: lo normal de ese tipo (visto en los combates), inclinado por lo que
+  // prefiere el Pokémon (Ataque o Especial base), y lo que se haya visto de verdad con ese Pokémon y ese tipo
+  const PF_TIPO = { normal: 0.95, lucha: 0.97, roca: 0.93, tierra: 0.9, veneno: 0.6, bicho: 0.6, acero: 0.55, siniestro: 0.6, volador: 0.4, fantasma: 0.4, dragon: 0.4, planta: 0.35, hada: 0.35, fuego: 0.3, agua: 0.3, electrico: 0.3, hielo: 0.3, psiquico: 0.05 };
+  let catMemo = null, catVer = 0;
+  function catObs() {
+    if (catMemo) return catMemo;
+    catMemo = {};
+    try {
+      for (const x of Object.values(lsGet(LS_LOGT, {}))) for (const [k, v] of Object.entries(x.cat || {})) { const o = catMemo[k] || (catMemo[k] = [0, 0]); o[0] += v[0]; o[1] += v[1]; }
+    } catch { /* sin datos */ }
+    return catMemo;
+  }
+  function pFisico(a, t) {
+    const p = PF_TIPO[t] ?? 0.5;
+    let w = 1 / (1 + Math.exp(-(Math.log(p / (1 - p)) + 3 * (a.pref || 0))));
+    const o = a.num ? catObs()[a.num + '|' + t] : null;
+    if (o) w = (o[0] + w) / (o[0] + o[1] + 1);
+    return w;
+  }
+  const apuntaCat = (cat, A, e) => { if (A && A.num && e.tipo) { const o = cat[A.num + '|' + e.tipo] || (cat[A.num + '|' + e.tipo] = [0, 0]); o[e.fis ? 0 : 1]++; } };
+  const hayCat = cat => Object.keys(cat).length > 0;
+  const nuevaCat = () => { catMemo = null; catVer++; memoG = new WeakMap(); };
   let memoG = new WeakMap();
   // Parte de la vida del rival que quita cada golpe, de media (con los críticos)
   function golpe(a, b) {
@@ -1260,6 +1286,7 @@
     const esp = r(b.especial, o.esp);
     const l = { hp: r(b.ps, o.hp), atk: r(b.ataque, o.atk), def: r(b.defensa, o.def), esp, spa: esp, spd: esp, spe: r(b.velocidad, o.spe), L: 50,
       fis: base ? base.s[1] >= base.s[3] : b.ataque >= b.especial,
+      pref: base ? Math.log(Math.max(1, base.s[1]) / Math.max(1, base.s[3])) : Math.log(Math.max(1, b.ataque) / Math.max(1, b.especial)),
       tipos: [c.tipo1, c.tipo2].map(tipoDe).filter(Boolean), num, aguanta: !!o.aguanta, nombre: c.nombre, item: id,
       sprite: c.sprite || null, cid: c.id != null ? c.id : null };
     if (!l.tipos.length) l.tipos = ['normal'];
@@ -1470,10 +1497,10 @@
   // 500 combates; la comparación final, los 1000. Lo anterior se sigue recomendando salvo que lo nuevo gane claramente
   // más (así no cambia por diferencias que están dentro del margen de error).
   const MARGEN_REC = 0.015;
-  function sueltosTorre(unicos, pool, sinObj) {
+  function sueltosTorre(unicos, pool, sinObj, mk = luchadorT) {
     const pesoT = pool.reduce((x, p) => x + p.w, 0);
     return unicos.map(c => {
-      const l = luchadorT(c, sinObj ? null : undefined);
+      const l = mk(c, sinObj ? null : undefined);
       let v = 0;
       for (const p of pool) v += ventaja(l, p.l) * p.w;
       return { c, v: v / pesoT };
@@ -1482,9 +1509,9 @@
   // `n`: cuántos salen de cada lado; `tam`: cuántos lleva el equipo. Va por pasos (generador) para poder repartir el
   // cálculo en trocitos y no congelar la página (ver `correrPasos`); `mejorEquipo` lo hace de una vez.
   // `sinObj`: sin objetos (los Tronos no los usan)
-  function* mejorEquipoPasos(unicos, sims, pool, previo, n = 6, tam = 6, sinObj = false, margen = MARGEN_REC) {
-    const LT = c => luchadorT(c, sinObj ? null : undefined);
-    const sueltos = sueltosTorre(unicos, pool, sinObj);
+  function* mejorEquipoPasos(unicos, sims, pool, previo, n = 6, tam = 6, sinObj = false, margen = MARGEN_REC, mk = luchadorT) {
+    const LT = c => mk(c, sinObj ? null : undefined);
+    const sueltos = sueltosTorre(unicos, pool, sinObj, mk);
     const pre = sueltos.slice(0, 28).map(x => x.c);
     const amenazas = pool.filter(p => p.k[0] === 'V' || p.k[0] === 'T').sort((a, b) => b.w - a.w || (a.k < b.k ? -1 : 1)).slice(0, 12);
     for (const am of amenazas) {
@@ -1637,7 +1664,7 @@
       memoRival.clear();
     }
   }
-  const firmaCal = () => [CAL.k, CAL.se, CAL.nve, CAL.critP, CAL.critX].map(x => x.toFixed(3)).join(',');
+  const firmaCal = () => [CAL.k, CAL.se, CAL.nve, CAL.critP, CAL.critX].map(x => x.toFixed(3)).join(',') + '|' + catVer;
   function leerLogTorre() {
     const caja = $$('main div.overflow-y-auto').find(d => d.querySelector(':scope > .animate-slide-up') && /sale al paso de/.test(d.textContent || ''));
     if (!caja) return null;
@@ -1669,7 +1696,7 @@
     const ev = leerLogTorre();
     if (!ev || !ev.length) return;
     let mio = null, riv = null;
-    const g = [], c = [];
+    const g = [], c = [], cat = {};
     let n = 0, ok = 0, tot = 0;
     for (const e of ev) {
       if (e.msg) {
@@ -1684,6 +1711,7 @@
       if (e.forcejeo || !e.tipo) continue;
       const A = luchadorLog(est, e.at, e.mio), D = luchadorLog(est, e.mio ? riv : mio, !e.mio);
       if (!A || !D) continue;
+      apuntaCat(cat, A, e);
       // ¿acierta el modelo el tipo de ataque que usa?
       tot++;
       if (tipoAtaque(A, D).t === e.tipo) ok++;
@@ -1700,10 +1728,11 @@
     const id = hash32((ev.find(x => x.msg) || {}).msg + '|' + numeros);
     const todos = lsGet(LS_LOGT, {});
     const prev = todos[id];
-    if (prev && prev.n >= n) return;
-    todos[id] = { t: Date.now(), n, g, c, ok, tot };
+    if (prev && prev.n >= n && prev.cat) return;
+    todos[id] = { t: Date.now(), n, g, c, ok, tot, cat };
     for (const key of Object.keys(todos).sort((x, y) => todos[y].t - todos[x].t).slice(40)) delete todos[key];
     lsPut(LS_LOGT, todos);
+    if (hayCat(cat)) nuevaCat();
     calcularCal();
   }
 
@@ -2378,6 +2407,15 @@
    *  rival). Tus Pokémon salen de la Torre (modo clásico, a Nv.50 y con su objeto): hace falta haberla abierto una vez.
    * ------------------------------------------------------------------ */
   const LS_COLE = 'axt-coleccion', LS_TRONOS = 'axt-tronos-rec';
+  // Luchador de los Tronos: igual que el de la Torre pero con el tipo de golpe (físico o especial) según el movimiento
+  const cacheTr = new WeakMap();
+  function luchadorTr(c, item) {
+    const l = luchadorT(c, item);
+    if (l.tr) return l;
+    let t = cacheTr.get(l);
+    if (!t) cacheTr.set(l, (t = { ...l, tr: true }));
+    return t;
+  }
   const enTronos = () => /^\/tronos(\/|$)/.test(location.pathname);
   // Legendarios y singulares (nº de la Pokédex nacional): en los Tronos no se admiten
   const LEGENDARIOS = new Set([144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386,
@@ -2491,9 +2529,9 @@
     const defensores = deTr('reto', e => (e.gane === false ? 6 : titular && e.rival === titular ? 4 : 1));
     const retadores = deTr('defensa', e => (e.gane === false ? 8 : 2));
     const vistosP = vt.lista.filter(x => tiposDeC(x.p).includes(t) && !esLegendario(x.p));
-    const vistos = vistosP.map(x => ({ k: 'V|' + x.k, l: luchadorT(x.p, null), w: x.w }));
+    const vistos = vistosP.map(x => ({ k: 'V|' + x.k, l: luchadorTr(x.p, null), w: x.w }));
     const bm = Math.round(baseMediaDe([...mios, ...vistosP.map(x => x.p)]) / 5) * 5;
-    const sint = [t, ...TIPOS.filter(x => x !== t).map(x => t + '/' + x)].flatMap(ts => PERFILES.map((pf, i) => ({ k: 'S|' + ts + '|' + i, l: { ...stats(pf.map(v => Math.max(20, Math.round(v + bm - 80))), 50), L: 50, tipos: ts.split('/'), num: 0, nombre: bonito(t) }, w: 1 })));
+    const sint = [t, ...TIPOS.filter(x => x !== t).map(x => t + '/' + x)].flatMap(ts => PERFILES.map((pf, i) => ({ k: 'S|' + ts + '|' + i, l: { ...stats(pf.map(v => Math.max(20, Math.round(v + bm - 80))), 50), L: 50, tipos: ts.split('/'), num: 0, nombre: bonito(t), tr: true }, w: 1 })));
     const pesoVistos = vistos.reduce((x, v) => x + v.w, 0);
     const parte = Math.max(0.3, 1 / (1 + vistos.length / 6));
     if (pesoVistos) for (const x of sint) x.w = pesoVistos * parte / (1 - parte) / sint.length;
@@ -2505,7 +2543,7 @@
     const fuerza = l => poolA.reduce((x, p) => x + ventaja(l, p.l) * p.w, 0) / pesoA;
     yield;
     const conFuerza = [];
-    for (const p of [...mios.map(c => ({ k: 'M|' + c.id, l: luchadorT(c, null) })), ...vistos, ...retadores]) { conFuerza.push({ ...p, f: fuerza(p.l) }); yield; }
+    for (const p of [...mios.map(c => ({ k: 'M|' + c.id, l: luchadorTr(c, null) })), ...vistos, ...retadores]) { conFuerza.push({ ...p, f: fuerza(p.l) }); yield; }
     const porFuerza = arr => arr.sort((a, b) => b.f - a.f || (a.k < b.k ? -1 : 1));
     const reales = porFuerza(conFuerza).slice(0, 12);
     // los que ya vinieron a quitártelo, siempre dentro (y pesando más que los demás)
@@ -2532,7 +2570,7 @@
     if (!mios.length) return { t, n: 0, B };
     const datosT = hash32(JSON.stringify([mios.map(c => c.id + '|' + c.stats.total + '|' + c.itemId), B.poolA.map(p => p.k + ':' + p.w.toFixed(3)), B.poolD.map(p => p.k + ':' + p.w.toFixed(3)), firmaCal()]));
     // Como salen 3 al azar, cada uno pelea 3 de cada N veces sin mirar contra quién: meter uno flojo baja la media.
-    const media = eq => { const q = notasTrono(eq.map(c => luchadorT(c, null)), B); return (q.gA + q.gD) / 2; };
+    const media = eq => { const q = notasTrono(eq.map(c => luchadorTr(c, null)), B); return (q.gA + q.gD) / 2; };
     let eq, porTam;
     if (prev && prev.datos === datosT && prev.eq && prev.eq.length <= 3 && prev.porTam && prev.eq.every(id => mios.some(c => String(c.id) === id))) {
       eq = prev.eq.map(id => mios.find(c => String(c.id) === id));
@@ -2545,11 +2583,11 @@
       // lo aprendido de quien te ganó pesa en los combates de prueba y, si el equipo nuevo es mejor, se pone.
       const hayDerrota = B.vistosTr.some(x => x.gane === false);
       const ant = prev && prev.eq && prev.eq.length === 3 ? prev.eq : null;
-      eq = (yield* mejorEquipoPasos(mios, B.sims, [...B.poolA, ...B.poolD.filter(p => p.k[0] === 'T')], ant, 3, 3, true, hayDerrota ? 0.003 : undefined)).eq;
+      eq = (yield* mejorEquipoPasos(mios, B.sims, [...B.poolA, ...B.poolD.filter(p => p.k[0] === 'T')], ant, 3, 3, true, hayDerrota ? 0.003 : undefined, luchadorTr)).eq;
       yield;
       porTam = { 3: media(eq) };
     }
-    const eqL = eq.map(c => luchadorT(c, null));
+    const eqL = eq.map(c => luchadorTr(c, null));
     const normal = eqL.map(l => usoNormal(l, [...B.poolA, ...B.poolD]));
     return { t, n: mios.length, datos: datosT, eq, porTam, normal, ...notasTrono(eqL, B), B };
   }
@@ -2596,7 +2634,7 @@
     const d = datos[num];
     if (!d) { pedir(num); return null; }
     const k = nombre + '|' + num;
-    if (!cacheNombre.has(k)) cacheNombre.set(k, { ...stats(d.s, 50), L: 50, tipos: d.t, num, nombre });
+    if (!cacheNombre.has(k)) cacheNombre.set(k, { ...stats(d.s, 50), L: 50, tipos: d.t, num, nombre, tr: true });
     return cacheNombre.get(k);
   }
   const equiposTrono = t => Object.values((lsGet(LS_TR_VISTOS, {})[t]) || {}).sort((a, b) => b.t - a.t);
@@ -2646,7 +2684,7 @@
   function aprenderTronos(doc = document) {
     const C = leerCombateTrono(doc);
     if (!C || !C.ev.length) return;
-    const misN = [], susN = [], g = [], c = [];
+    const misN = [], susN = [], g = [], c = [], cat = {};
     let mio = null, riv = null, n = 0;
     const apunta = (arr, x) => { if (x && !arr.includes(x)) arr.push(x); };
     for (const e of C.ev) {
@@ -2663,6 +2701,7 @@
       if (e.forcejeo || !e.tipo) continue;
       const A = luchadorNombre(e.at), D = luchadorNombre(e.mio ? riv : mio);
       if (!A || !D) continue;
+      apuntaCat(cat, A, e);
       let sE = 0, rE = 0, cero = false;
       for (const x of D.tipos) { const v = (TABLA[e.tipo] || {})[x] ?? 1; if (v === 0) cero = true; else if (v > 1) sE++; else if (v < 1) rE++; }
       if (cero) continue;
@@ -2696,10 +2735,11 @@
     if (!n || (!g.length && !c.length)) return;
     const id = 'tr' + hash32(C.tipo + '|' + C.rol + '|' + C.rival + '|' + C.ev.filter(x => !x.msg).slice(0, 10).map(x => x.d).join(','));
     const logs = lsGet(LS_LOGT, {});
-    if (logs[id] && logs[id].n >= n) return;
-    logs[id] = { t: Date.now(), n, g, c, ok: 0, tot: 0 };
+    if (logs[id] && logs[id].n >= n && logs[id].cat) return;
+    logs[id] = { t: Date.now(), n, g, c, ok: 0, tot: 0, cat };
     for (const key of Object.keys(logs).sort((x, y) => logs[y].t - logs[x].t).slice(60)) delete logs[key];
     lsPut(LS_LOGT, logs);
+    if (hayCat(cat)) nuevaCat();
     calcularCal();
   }
   /* ---- El historial de combates, leído solo y sin que se vea ----
@@ -3092,14 +3132,14 @@
     const B = r.B;
     const validos = cs.filter(x => x.c);
     // cada uno pelea solo con los tipos de los movimientos que tiene marcados
-    const eqL = validos.map(x => ({ ...luchadorT(x.c, null), movs: Object.keys(x.m.movs).filter(k => x.m.movs[k] > 0) }));
+    const eqL = validos.map(x => ({ ...luchadorTr(x.c, null), movs: Object.keys(x.m.movs).filter(k => x.m.movs[k] > 0) }));
     const lineas = [];
     if (eqL.length) {
       const n = notasTrono(eqL, B);
       lineas.push(`<p class="text-[11px] font-extrabold text-ambar-700">Tu equipo ahora (${eqL.length}): ⚔️ quitarlo <span style="color:${colPct(n.gA)}">≈ ${pctT(n.gA)}</span> · 🛡️ defenderlo <span style="color:${colPct(n.gD)}">≈ ${pctT(n.gD)}</span></p>`);
       const mal = [];
       for (const x of validos) {
-        const l = luchadorT(x.c, null), falta = l.tipos.filter(tp => !(x.m.movs[tp] > 0)).map(bonito);
+        const l = luchadorTr(x.c, null), falta = l.tipos.filter(tp => !(x.m.movs[tp] > 0)).map(bonito);
         const uso = usoNormal(l, [...B.poolA, ...B.poolD]);
         if (uso >= 0.05 && !l.tipos.includes('normal') && !(x.m.movs.normal > 0)) falta.push('Normal');
         if (falta.length) mal.push(`${x.m.nombre} (le falta ${falta.join(' y ')})`);
@@ -3215,7 +3255,7 @@
       // 3) movimientos
       for (let i = 0; i < r.eq.length; i++) {
         msgAuto(`Movimientos de ${r.eq[i].nombre}…`);
-        if (!await ajustarMovs(r.eq[i].nombre, luchadorT(r.eq[i], null), r.normal[i] >= 0.05)) fallos.push(`movimientos de ${r.eq[i].nombre}`);
+        if (!await ajustarMovs(r.eq[i].nombre, luchadorTr(r.eq[i], null), r.normal[i] >= 0.05)) fallos.push(`movimientos de ${r.eq[i].nombre}`);
       }
       // 4) guardar (solo si todo ha salido bien)
       if (!fallos.length) {
